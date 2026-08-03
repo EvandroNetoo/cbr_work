@@ -61,11 +61,9 @@ Para iniciar Gazebo, MoveIt e RViz juntos:
 ros2 launch so_arm_101_moveit_config demo.launch.py
 ```
 
-Nesse launch, MoveIt e RViz só iniciam depois que o Gazebo publicar todas as
-juntas do braço em `/joint_states` e a action
-`/arm_controller/follow_joint_trajectory` estiver disponível. Assim, a pose
-inicial do RViz vem do Gazebo e o botão **Execute** não disputa a inicialização
-dos controladores.
+O `move_group` monitora `/joint_states` continuamente e conecta ao
+`arm_controller` quando sua action fica disponível. Antes de executar a
+primeira trajetória, aguarde o `arm_controller` aparecer como `active`.
 
 Para conferir a comunicação durante um diagnóstico:
 
@@ -75,9 +73,9 @@ ros2 action info /arm_controller/follow_joint_trajectory
 ros2 control list_controllers
 ```
 
-O grupo `arm` é executável pelo `arm_controller`. O grupo `gripper` está
-descrito para planejamento, mas o controlador atual da garra recebe
-`Float64MultiArray`, não a ação `FollowJointTrajectory` exigida pelo MoveIt.
+Os grupos `arm` e `gripper` são executáveis pelos respectivos
+`JointTrajectoryController`. A garra comanda apenas `right_clamp`;
+`left_clamp` acompanha o movimento pela relação `mimic` do URDF.
 
 ## Ver os pacotes do módulo
 

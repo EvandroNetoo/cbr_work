@@ -25,4 +25,5 @@ setup(
             'keyboard_teleop = so_arm_101_teleop.keyboard_teleop:main',
         ],
     },
+    tests_require=['pytest'],
 )

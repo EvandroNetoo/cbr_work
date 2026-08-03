@@ -94,8 +94,9 @@ Esse launch não inicia Gazebo nem hardware. Ele inicia somente o teclado.
 `right_clamp` usa metros: `0.0` fechada e `0.037` aberta.
 
 ```bash
-ros2 topic pub --once /gripper_controller/commands \
-  std_msgs/msg/Float64MultiArray "{data: [0.0185]}"
+ros2 topic pub --once /gripper_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  "{joint_names: [right_clamp], points: [{positions: [0.0185], time_from_start: {sec: 1}}]}"
 ```
 
 ## Comandar o braço manualmente
@@ -135,11 +136,11 @@ python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_bringup/test -v
 python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_teleop/test -v
 ```
 
-O teste dos meshes requer o pacote Python `trimesh`.
-
 ## Gerar meshes de colisão
 
 ```bash
 cd /home/evandro/ros2_ws/src/cbr_work/so_arm_101/so_arm_101_description
 python3 scripts/generate_collision_meshes.py
 ```
+
+A geração dos meshes requer o pacote Python `trimesh`.

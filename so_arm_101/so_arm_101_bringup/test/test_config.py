@@ -45,17 +45,17 @@ def test_gripper_controller_joints_exist_in_urdf(controllers, urdf_joints):
 
 def test_controller_types_valid(controllers):
     cm = controllers['controller_manager']['ros__parameters']
-    valid_types = {
-        'joint_state_broadcaster/JointStateBroadcaster',
-        'joint_trajectory_controller/JointTrajectoryController',
-        'position_controllers/JointGroupPositionController',
-        'forward_command_controller/ForwardCommandController',
-        'velocity_controllers/JointGroupVelocityController',
-        'effort_controllers/JointGroupEffortController',
+    assert {
+        name: params['type'] for name, params in cm.items()
+        if isinstance(params, dict) and 'type' in params
+    } == {
+        'joint_state_broadcaster': (
+            'joint_state_broadcaster/JointStateBroadcaster'),
+        'arm_controller': (
+            'joint_trajectory_controller/JointTrajectoryController'),
+        'gripper_controller': (
+            'joint_trajectory_controller/JointTrajectoryController'),
     }
-    for ctrl_name in ['joint_state_broadcaster', 'arm_controller', 'gripper_controller']:
-        ctrl_type = cm[ctrl_name]['type']
-        assert ctrl_type in valid_types, f"Unknown controller type: {ctrl_type}"
 
 
 def test_arm_controller_has_5_joints(controllers):
@@ -64,6 +64,9 @@ def test_arm_controller_has_5_joints(controllers):
 
 
 def test_gripper_controller_commands_only_the_physical_actuator(controllers):
+    controller_manager = controllers['controller_manager']['ros__parameters']
+    assert controller_manager['gripper_controller']['type'] == (
+        'joint_trajectory_controller/JointTrajectoryController')
     joints = controllers['gripper_controller']['ros__parameters']['joints']
     assert joints == ['right_clamp']
 
@@ -79,6 +82,18 @@ def test_passive_mimic_is_not_exported_by_ros2_control(ros2_control_joints):
             'command_interface')
     }
     assert right_interfaces == {'position'}
+
+
+def test_gripper_starts_at_physical_lower_bound(ros2_control_joints):
+    position_state = next(
+        interface
+        for interface in ros2_control_joints['right_clamp'].findall(
+            'state_interface')
+        if interface.attrib['name'] == 'position'
+    )
+    initial_position = float(
+        position_state.find("param[@name='initial_value']").text)
+    assert initial_position == 0.0
 
 
 def test_gazebo_position_gain_is_fast_and_stable(controllers):

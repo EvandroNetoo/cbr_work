@@ -1,20 +1,18 @@
 <?xml version="1.0"?>
 <robot name="so_101">
-  <!-- The fixed URDF world joint is represented explicitly in MoveIt. -->
-  <virtual_joint name="world_joint" type="fixed"
-                 parent_frame="world" child_link="base_link"/>
-
   <!-- Five revolute joints from the base to the wrist. -->
   <group name="arm">
     <chain base_link="base_link" tip_link="link5_1"/>
   </group>
 
-  <!-- Only right_clamp is actuated; left_clamp follows it through URDF mimic. -->
+  <!-- Both fingers belong to the gripper; left_clamp mimics right_clamp. -->
   <group name="gripper">
     <joint name="right_clamp"/>
+    <joint name="left_clamp"/>
   </group>
 
-  <end_effector name="gripper" parent_link="link5_1" group="gripper"/>
+  <end_effector name="gripper" parent_link="link5_1" group="gripper"
+                parent_group="arm"/>
 
   <group_state name="home" group="arm">
     <joint name="base_link_to_link1" value="0.0"/>

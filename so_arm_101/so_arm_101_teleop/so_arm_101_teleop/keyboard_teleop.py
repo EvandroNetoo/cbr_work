@@ -11,7 +11,7 @@ from rclpy.node import Node
 
 from sensor_msgs.msg import JointState
 
-from std_msgs.msg import Float64MultiArray, String
+from std_msgs.msg import String
 
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
@@ -78,7 +78,7 @@ class KeyboardTeleop(Node):
         self.arm_publisher = self.create_publisher(
             JointTrajectory, '/arm_controller/joint_trajectory', 10)
         self.gripper_publisher = self.create_publisher(
-            Float64MultiArray, '/gripper_controller/commands', 10)
+            JointTrajectory, '/gripper_controller/joint_trajectory', 10)
         self.create_subscription(
             JointState, '/joint_states', self._joint_state_cb, 10)
         self.create_subscription(
@@ -178,8 +178,15 @@ class KeyboardTeleop(Node):
             # the measured joint state is still catching up.
             self.targets[joint] = gripper_target(
                 self.targets[joint], direction, self.gripper_step)
-            message = Float64MultiArray()
-            message.data = [self.targets[joint]]
+            message = JointTrajectory()
+            message.joint_names = [GRIPPER_JOINT]
+            point = JointTrajectoryPoint()
+            point.positions = [self.targets[joint]]
+            duration_ns = int(
+                self.trajectory_duration * 1_000_000_000)
+            point.time_from_start.sec = duration_ns // 1_000_000_000
+            point.time_from_start.nanosec = duration_ns % 1_000_000_000
+            message.points = [point]
             self.gripper_publisher.publish(message)
         else:
             self.targets[joint] = clamp(

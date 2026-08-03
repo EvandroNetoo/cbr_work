@@ -5,7 +5,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.actions import RegisterEventHandler, SetEnvironmentVariable
-from launch.event_handlers import OnProcessStart
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
 from launch.substitutions import PathJoinSubstitution, PythonExpression
@@ -48,23 +48,14 @@ def generate_launch_description() -> LaunchDescription:
             'use_sim_time': True,
         }])
 
-    spawn_args = [
-        '--controller-manager', '/controller_manager',
-        '--controller-manager-timeout', '180',
-    ]
     spawners = [
         Node(package='controller_manager', executable='spawner',
-             arguments=['joint_state_broadcaster'] + spawn_args),
+             arguments=['joint_state_broadcaster']),
         Node(package='controller_manager', executable='spawner',
-             arguments=['arm_controller'] + spawn_args),
+             arguments=['arm_controller']),
         Node(package='controller_manager', executable='spawner',
-             arguments=['gripper_controller'] + spawn_args),
+             arguments=['gripper_controller']),
     ]
-    spawn_controllers = RegisterEventHandler(
-        event_handler=OnProcessStart(
-            target_action=robot_state_publisher,
-            on_start=spawners,
-        ))
 
     world = PathJoinSubstitution([bringup_share, 'worlds', 'empty.sdf'])
     gz_flags = PythonExpression([
@@ -75,16 +66,23 @@ def generate_launch_description() -> LaunchDescription:
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('ros_gz_sim'), 'launch', 'gz_sim.launch.py'])),
         launch_arguments={'gz_args': [gz_flags, world]}.items())
+    spawn_robot = Node(
+        package='ros_gz_sim', executable='create', arguments=[
+            '-topic', '/robot_description', '-name', 'so_101', '-z', '0.001'])
+    spawn_controllers = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=spawn_robot,
+            on_exit=spawners,
+        ))
 
     return LaunchDescription([
         SetEnvironmentVariable(name='GZ_SIM_RESOURCE_PATH',
                                value=resource_path),
         headless_arg,
         robot_state_publisher,
-        spawn_controllers,
         gazebo,
-        Node(package='ros_gz_sim', executable='create', arguments=[
-            '-topic', '/robot_description', '-name', 'so_101', '-z', '0.001']),
+        spawn_controllers,
+        spawn_robot,
         Node(package='ros_gz_bridge', executable='parameter_bridge',
              arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock'],
              output='screen'),

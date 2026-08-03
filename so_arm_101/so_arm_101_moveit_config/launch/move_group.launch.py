@@ -1,6 +1,6 @@
 """Start MoveIt's move_group node for SO-ARM-101."""
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, GroupAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import SetParameter
 from moveit_configs_utils.launches import generate_move_group_launch
@@ -12,7 +12,10 @@ def generate_launch_description():
     generated = generate_move_group_launch(get_moveit_config())
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='false'),
-        SetParameter(
-            name='use_sim_time', value=LaunchConfiguration('use_sim_time')),
-        *generated.entities,
+        GroupAction(actions=[
+            SetParameter(
+                name='use_sim_time',
+                value=LaunchConfiguration('use_sim_time')),
+            *generated.entities,
+        ]),
     ])
