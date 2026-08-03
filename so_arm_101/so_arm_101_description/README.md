@@ -91,7 +91,7 @@ Esse launch não inicia Gazebo nem hardware. Ele inicia somente o teclado.
 
 ## Comandar a garra manualmente
 
-`right_clamp` usa metros: `0.0` aberta e `0.037` fechada.
+`right_clamp` usa metros: `0.0` fechada e `0.037` aberta.
 
 ```bash
 ros2 topic pub --once /gripper_controller/commands \

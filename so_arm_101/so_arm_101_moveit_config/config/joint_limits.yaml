@@ -1,0 +1,35 @@
+joint_limits:
+  base_link_to_link1:
+    has_velocity_limits: true
+    max_velocity: 5.236
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  link1_to_link2:
+    has_velocity_limits: true
+    max_velocity: 5.236
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  link2_to_link3:
+    has_velocity_limits: true
+    max_velocity: 5.236
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  link3_to_link4:
+    has_velocity_limits: true
+    max_velocity: 5.236
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  link4_to_link5:
+    has_velocity_limits: true
+    max_velocity: 5.236
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  right_clamp:
+    # Gazebo can report tiny negative floating-point noise around zero.
+    has_position_limits: true
+    min_position: -0.000001
+    max_position: 0.037
+    has_velocity_limits: true
+    max_velocity: 0.05
+    has_acceleration_limits: true
+    max_acceleration: 0.2

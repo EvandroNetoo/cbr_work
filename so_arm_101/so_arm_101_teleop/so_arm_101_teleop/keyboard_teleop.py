@@ -24,8 +24,8 @@ ARM_JOINTS = (
     'link4_to_link5',
 )
 GRIPPER_JOINT = 'right_clamp'
-GRIPPER_OPEN_POSITION = 0.0
-GRIPPER_CLOSED_POSITION = 0.037
+GRIPPER_OPEN_POSITION = 0.037
+GRIPPER_CLOSED_POSITION = 0.0
 GRIPPER_STEP = 0.005
 JOINT_LIMITS = {
     'base_link_to_link1': (-2.094395, 2.094395),
@@ -33,7 +33,7 @@ JOINT_LIMITS = {
     'link2_to_link3': (0.0, 3.316126),
     'link3_to_link4': (-1.658063, 1.658063),
     'link4_to_link5': (-4.276057, 1.570796),
-    GRIPPER_JOINT: (GRIPPER_OPEN_POSITION, GRIPPER_CLOSED_POSITION),
+    GRIPPER_JOINT: (GRIPPER_CLOSED_POSITION, GRIPPER_OPEN_POSITION),
 }
 KEY_BINDINGS = {
     'q': (ARM_JOINTS[0], 1), 'a': (ARM_JOINTS[0], -1),
@@ -41,7 +41,7 @@ KEY_BINDINGS = {
     'e': (ARM_JOINTS[2], 1), 'd': (ARM_JOINTS[2], -1),
     'r': (ARM_JOINTS[3], 1), 'f': (ARM_JOINTS[3], -1),
     't': (ARM_JOINTS[4], 1), 'g': (ARM_JOINTS[4], -1),
-    'y': (GRIPPER_JOINT, 1), 'h': (GRIPPER_JOINT, -1),
+    'y': (GRIPPER_JOINT, -1), 'h': (GRIPPER_JOINT, 1),
 }
 
 
@@ -54,7 +54,7 @@ def gripper_target(current_position, direction, step=GRIPPER_STEP):
     """Return the next gradual gripper position for a key direction."""
     return clamp(
         current_position + direction * step,
-        (GRIPPER_OPEN_POSITION, GRIPPER_CLOSED_POSITION),
+        JOINT_LIMITS[GRIPPER_JOINT],
     )
 
 

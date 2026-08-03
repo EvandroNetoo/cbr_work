@@ -9,6 +9,7 @@
   <exec_depend>so_arm_101_description</exec_depend>
   <exec_depend>so_arm_101_bringup</exec_depend>
   <exec_depend>so_arm_101_teleop</exec_depend>
+  <exec_depend>so_arm_101_moveit_config</exec_depend>
 
   <buildtool_depend>ament_python</buildtool_depend>
 
