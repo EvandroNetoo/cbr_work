@@ -21,6 +21,14 @@ def urdf_joints():
     return {el.attrib['name'] for el in root.findall('joint')}
 
 
+@pytest.fixture(scope='module')
+def ros2_control_joints():
+    tree = ET.parse(os.path.join(
+        BASE_DIR, 'urdf', 'so_101.ros2_control.xacro'))
+    control = tree.getroot().find('ros2_control')
+    return {el.attrib['name']: el for el in control.findall('joint')}
+
+
 def test_arm_controller_joints_exist_in_urdf(controllers, urdf_joints):
     arm_joints = controllers['arm_controller']['ros__parameters']['joints']
     for joint in arm_joints:
@@ -56,6 +64,19 @@ def test_arm_controller_has_5_joints(controllers):
 def test_gripper_controller_commands_only_the_physical_actuator(controllers):
     joints = controllers['gripper_controller']['ros__parameters']['joints']
     assert joints == ['right_clamp']
+
+
+def test_passive_mimic_is_not_exported_by_ros2_control(ros2_control_joints):
+    """Avoid a software mimic loop fighting Gazebo's native constraint."""
+    assert 'right_clamp' in ros2_control_joints
+    assert 'left_clamp' not in ros2_control_joints
+
+    right_interfaces = {
+        interface.attrib['name']
+        for interface in ros2_control_joints['right_clamp'].findall(
+            'command_interface')
+    }
+    assert right_interfaces == {'position'}
 
 
 def test_gazebo_position_gain_is_fast_and_stable(controllers):

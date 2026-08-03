@@ -5,6 +5,7 @@ from so_arm_101_description.keyboard_teleop import (
     GRIPPER_CLOSED_POSITION,
     GRIPPER_JOINT,
     GRIPPER_OPEN_POSITION,
+    GRIPPER_STEP,
     JOINT_LIMITS,
     KEY_BINDINGS,
     clamp,
@@ -33,8 +34,8 @@ def test_all_bound_joints_have_limits():
     assert {joint for joint, _ in KEY_BINDINGS.values()} == set(JOINT_LIMITS)
 
 
-def test_gripper_keys_select_the_open_and_closed_end_stops():
-    """One key press must request the complete gripper travel."""
+def test_gripper_keys_move_the_gripper_gradually():
+    """Each key press must advance the gripper by one bounded step."""
     assert KEY_BINDINGS['y'] == (GRIPPER_JOINT, 1)
     assert KEY_BINDINGS['h'] == (GRIPPER_JOINT, -1)
     assert JOINT_LIMITS[GRIPPER_JOINT] == (
@@ -43,8 +44,13 @@ def test_gripper_keys_select_the_open_and_closed_end_stops():
     )
     assert GRIPPER_OPEN_POSITION == 0.0
     assert GRIPPER_CLOSED_POSITION == 0.037
-    assert gripper_target(KEY_BINDINGS['y'][1]) == GRIPPER_CLOSED_POSITION
-    assert gripper_target(KEY_BINDINGS['h'][1]) == GRIPPER_OPEN_POSITION
+    assert gripper_target(GRIPPER_OPEN_POSITION, KEY_BINDINGS['y'][1]) == GRIPPER_STEP
+    assert gripper_target(GRIPPER_CLOSED_POSITION, KEY_BINDINGS['h'][1]) == (
+        GRIPPER_CLOSED_POSITION - GRIPPER_STEP)
+    assert gripper_target(
+        GRIPPER_CLOSED_POSITION, 1, GRIPPER_STEP) == GRIPPER_CLOSED_POSITION
+    assert gripper_target(
+        GRIPPER_OPEN_POSITION, -1, GRIPPER_STEP) == GRIPPER_OPEN_POSITION
 
 
 def test_clamp_respects_both_limits():

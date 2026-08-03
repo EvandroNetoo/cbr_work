@@ -100,6 +100,16 @@ def test_left_gripper_joint_mimics_the_single_actuator(urdf_root):
     pytest.fail('left_clamp joint not found')
 
 
+def test_gripper_velocity_is_visually_smooth(urdf_root):
+    """A 5 mm teleop step should take about 100 ms, not one sim frame."""
+    joints = {
+        el.attrib['name']: el for el in urdf_root.findall('joint')
+    }
+    for name in ('right_clamp', 'left_clamp'):
+        velocity = float(joints[name].find('limit').attrib['velocity'])
+        assert velocity == pytest.approx(0.05)
+
+
 def test_all_joints_have_dynamics(urdf_root):
     for el in urdf_root.findall('joint'):
         if el.attrib['type'] == 'fixed':

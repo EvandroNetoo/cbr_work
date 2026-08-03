@@ -43,16 +43,16 @@
       <state_interface name="velocity"/>
     </joint>
 
-    <!-- Only the physical actuator is commanded; left_clamp is a mimic. -->
+    <!--
+      Only the physical actuator belongs to ros2_control.  Do not list the
+      passive finger here: gz_ros2_control would add a second velocity-based
+      mimic loop on top of Gazebo's native SDF mimic constraint.
+    -->
     <joint name="right_clamp">
       <command_interface name="position"/>
       <state_interface name="position">
         <param name="initial_value">0.0</param>
       </state_interface>
-      <state_interface name="velocity"/>
-    </joint>
-    <joint name="left_clamp">
-      <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
   </ros2_control>

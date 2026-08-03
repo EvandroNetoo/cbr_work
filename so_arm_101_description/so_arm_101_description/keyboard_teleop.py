@@ -26,6 +26,7 @@ ARM_JOINTS = (
 GRIPPER_JOINT = 'right_clamp'
 GRIPPER_OPEN_POSITION = 0.0
 GRIPPER_CLOSED_POSITION = 0.037
+GRIPPER_STEP = 0.005
 JOINT_LIMITS = {
     'base_link_to_link1': (-2.094395, 2.094395),
     'link1_to_link2': (-3.228859, 0.174533),
@@ -49,12 +50,11 @@ def clamp(value, limits):
     return max(limits[0], min(limits[1], value))
 
 
-def gripper_target(direction):
-    """Return the gripper end stop selected by a key direction."""
-    return (
-        GRIPPER_CLOSED_POSITION
-        if direction > 0
-        else GRIPPER_OPEN_POSITION
+def gripper_target(current_position, direction, step=GRIPPER_STEP):
+    """Return the next gradual gripper position for a key direction."""
+    return clamp(
+        current_position + direction * step,
+        (GRIPPER_OPEN_POSITION, GRIPPER_CLOSED_POSITION),
     )
 
 
@@ -65,8 +65,10 @@ class KeyboardTeleop(Node):
         """Create publishers, subscriptions and the key reader."""
         super().__init__('keyboard_teleop')
         self.declare_parameter('arm_step', 0.10)
+        self.declare_parameter('gripper_step', GRIPPER_STEP)
         self.declare_parameter('trajectory_duration', 0.15)
         self.arm_step = self.get_parameter('arm_step').value
+        self.gripper_step = self.get_parameter('gripper_step').value
         self.trajectory_duration = self.get_parameter(
             'trajectory_duration').value
 
@@ -171,10 +173,11 @@ class KeyboardTeleop(Node):
             return False
 
         if joint == GRIPPER_JOINT:
-            # A parallel gripper is commanded as an open/close actuator.  A
-            # single key press must therefore select the corresponding end
-            # stop instead of moving only a small fraction of its travel.
-            self.targets[joint] = gripper_target(direction)
+            # Each key press advances the target, just like the arm joints.
+            # Keeping the target locally also allows repeated presses while
+            # the measured joint state is still catching up.
+            self.targets[joint] = gripper_target(
+                self.targets[joint], direction, self.gripper_step)
             message = Float64MultiArray()
             message.data = [self.targets[joint]]
             self.gripper_publisher.publish(message)

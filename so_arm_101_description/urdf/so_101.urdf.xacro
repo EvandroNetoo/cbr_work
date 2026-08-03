@@ -253,7 +253,7 @@
     <parent link="link5_1"/>
     <child link="clamp_1"/>
     <axis xyz="0.999848 -0.000154 0.017451"/>
-    <limit lower="0.0" upper="0.037" effort="1000.0" velocity="1.0"/>
+    <limit lower="0.0" upper="0.037" effort="100.0" velocity="0.05"/>
     <dynamics damping="0.01" friction="0.0"/>
   </joint>
 
@@ -263,7 +263,7 @@
     <parent link="link5_1"/>
     <child link="clamp_2"/>
     <axis xyz="0.999848 -0.000154 0.017451"/>
-    <limit lower="-0.037" upper="0.0" effort="1000.0" velocity="1.0"/>
+    <limit lower="-0.037" upper="0.0" effort="100.0" velocity="0.05"/>
     <dynamics damping="0.01" friction="0.0"/>
     <mimic joint="right_clamp" multiplier="-1" offset="0"/>
   </joint>

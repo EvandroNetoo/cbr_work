@@ -12,7 +12,9 @@ real:
 
 Não existe adaptador nem segundo comando para a garra. O controlador comanda
 somente `right_clamp`; no Gazebo, `left_clamp` é uma junta passiva acoplada por
-`mimic`, representando a engrenagem real.
+`mimic`, representando a engrenagem real. Por isso `left_clamp` não deve ser
+declarada como recurso de hardware no bloco `ros2_control`: isso criaria um
+segundo laço de mimic que disputaria com a restrição física do Gazebo.
 
 ## Simulação
 
@@ -21,9 +23,12 @@ source install/setup.bash
 ros2 launch so_arm_101_description keyboard_control.launch.py
 ```
 
-Teclas: `q/a`, `w/s`, `e/d`, `r/f`, `t/g` controlam o braço; uma pressão em
-`y` envia a garra ao fim de curso fechado (`0.037 m`) e uma pressão em `h` a
-envia ao fim de curso aberto (`0.0 m`).
+Teclas: `q/a`, `w/s`, `e/d`, `r/f`, `t/g` controlam o braço; cada pressão em
+`y`/`h` fecha/abre a garra gradualmente em `0.005 m`, até os limites
+(`0.037 m` fechada e `0.0 m` aberta). O passo pode ser alterado pelo parâmetro
+`gripper_step`. Na simulação, a velocidade da garra é limitada a `0.05 m/s`;
+assim, o passo padrão de `0.005 m` leva aproximadamente `0.1 s` em vez de
+acontecer em um único quadro.
 
 ## Hardware
 
