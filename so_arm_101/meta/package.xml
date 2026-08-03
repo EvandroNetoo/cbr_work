@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>so_arm_101</name>
+  <version>0.1.0</version>
+  <description>Metapackage for the SO-ARM-101 robot module.</description>
+  <maintainer email="todo@todo.com">author</maintainer>
+  <license>GPL-3.0-only</license>
+
+  <exec_depend>so_arm_101_description</exec_depend>
+  <exec_depend>so_arm_101_bringup</exec_depend>
+  <exec_depend>so_arm_101_teleop</exec_depend>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

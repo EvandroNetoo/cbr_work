@@ -1,6 +1,9 @@
 <?xml version="1.0" ?>
 <robot name="so_101" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+  <xacro:arg name="use_gz_ros2_control" default="false"/>
+  <xacro:arg name="controllers_file" default=""/>
+
   <!-- Includes -->
   <xacro:include filename="$(find so_arm_101_description)/urdf/materials.xacro"/>
   <xacro:include filename="$(find so_arm_101_description)/urdf/so_101.ros2_control.xacro"/>

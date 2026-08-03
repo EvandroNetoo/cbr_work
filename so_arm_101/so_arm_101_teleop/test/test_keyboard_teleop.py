@@ -1,6 +1,6 @@
 """Unit tests for keyboard teleoperation constants and limit handling."""
 
-from so_arm_101_description.keyboard_teleop import (
+from so_arm_101_teleop.keyboard_teleop import (
     ARM_JOINTS,
     GRIPPER_CLOSED_POSITION,
     GRIPPER_JOINT,

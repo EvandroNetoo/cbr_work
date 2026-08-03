@@ -6,6 +6,7 @@ import pytest
 import yaml
 
 BASE_DIR = os.path.join(os.path.dirname(__file__), '..')
+DESCRIPTION_DIR = os.path.join(BASE_DIR, '..', 'so_arm_101_description')
 
 
 @pytest.fixture(scope='module')
@@ -16,7 +17,8 @@ def controllers():
 
 @pytest.fixture(scope='module')
 def urdf_joints():
-    tree = ET.parse(os.path.join(BASE_DIR, 'urdf', 'so_101.urdf.xacro'))
+    tree = ET.parse(os.path.join(
+        DESCRIPTION_DIR, 'urdf', 'so_101.urdf.xacro'))
     root = tree.getroot()
     return {el.attrib['name'] for el in root.findall('joint')}
 
@@ -24,7 +26,7 @@ def urdf_joints():
 @pytest.fixture(scope='module')
 def ros2_control_joints():
     tree = ET.parse(os.path.join(
-        BASE_DIR, 'urdf', 'so_101.ros2_control.xacro'))
+        DESCRIPTION_DIR, 'urdf', 'so_101.ros2_control.xacro'))
     control = tree.getroot().find('ros2_control')
     return {el.attrib['name']: el for el in control.findall('joint')}
 
