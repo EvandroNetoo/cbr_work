@@ -27,4 +27,9 @@ setup(
     description='SO-ARM-101 robot description for Gazebo and RViz',
     license='GPL-3.0-only',
     tests_require=['pytest'],
+    entry_points={
+        'console_scripts': [
+            'keyboard_teleop = so_arm_101_description.keyboard_teleop:main',
+        ],
+    },
 )

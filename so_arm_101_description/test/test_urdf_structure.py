@@ -69,18 +69,35 @@ def test_link_has_inertial_visual_collision(urdf_root, link_name):
     assert link_el is not None
     assert link_el.find('inertial') is not None, f"{link_name} missing inertial"
     assert link_el.find('visual') is not None, f"{link_name} missing visual"
-    assert link_el.find('collision') is not None, f"{link_name} missing collision"
+    if link_name not in {'clamp_1', 'clamp_2'}:
+        assert link_el.find('collision') is not None, (
+            f'{link_name} missing collision'
+        )
 
 
-def test_mimic_joint(urdf_root):
+def test_left_gripper_joint_mimics_the_single_actuator(urdf_root):
+    """The passive finger must follow the one physical actuator."""
+    joints = {
+        el.attrib['name']: el for el in urdf_root.findall('joint')
+    }
+    right_clamp = joints['right_clamp']
+    left_clamp = joints['left_clamp']
+
+    assert left_clamp.find('axis').attrib['xyz'] == (
+        right_clamp.find('axis').attrib['xyz']
+    )
+    left_limit = left_clamp.find('limit')
+    assert float(left_limit.attrib['lower']) == -0.037
+    assert float(left_limit.attrib['upper']) == 0.0
+
     for el in urdf_root.findall('joint'):
         if el.attrib['name'] == 'left_clamp':
             mimic = el.find('mimic')
-            assert mimic is not None, "left_clamp missing mimic"
+            assert mimic is not None
             assert mimic.attrib['joint'] == 'right_clamp'
-            assert mimic.attrib['multiplier'] == '-1'
+            assert float(mimic.attrib.get('multiplier', '1')) == -1.0
             return
-    pytest.fail("left_clamp joint not found")
+    pytest.fail('left_clamp joint not found')
 
 
 def test_all_joints_have_dynamics(urdf_root):

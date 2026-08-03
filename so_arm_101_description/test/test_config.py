@@ -53,6 +53,14 @@ def test_arm_controller_has_5_joints(controllers):
     assert len(joints) == 5, f"Expected 5 arm joints, got {len(joints)}"
 
 
-def test_gripper_controller_commands_only_actuated_joint(controllers):
+def test_gripper_controller_commands_only_the_physical_actuator(controllers):
     joints = controllers['gripper_controller']['ros__parameters']['joints']
     assert joints == ['right_clamp']
+
+
+def test_gazebo_position_gain_is_fast_and_stable(controllers):
+    """Gazebo position control should respond quickly without overshoot."""
+    gain = controllers['gz_ros_control']['ros__parameters'][
+        'position_proportional_gain'
+    ]
+    assert 0.5 <= gain <= 1.0

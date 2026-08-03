@@ -9,34 +9,46 @@
     <!-- Arm joints -->
     <joint name="base_link_to_link1">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="link1_to_link2">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">-1.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="link2_to_link3">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">1.5</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="link3_to_link4">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="link4_to_link5">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
 
-    <!-- Gripper joints (both clamps) -->
+    <!-- Only the physical actuator is commanded; left_clamp is a mimic. -->
     <joint name="right_clamp">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="left_clamp">
