@@ -1,0 +1,8 @@
+<library path="so101_system">
+  <class
+    name="so_arm_101_hardware_interface/SO101System"
+    type="so_arm_101_hardware_interface::SO101System"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>SO-ARM-101 hardware interface backed by the LeRobot driver.</description>
+  </class>
+</library>

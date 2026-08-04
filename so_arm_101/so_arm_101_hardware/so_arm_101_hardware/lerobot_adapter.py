@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+import yaml
+
+from so_arm_101_description.limits import position_limits
+
 
 LEROBOT_JOINTS = (
     'shoulder_pan', 'shoulder_lift', 'elbow_flex',
@@ -26,8 +30,38 @@ LEROBOT_TO_ROS = {value: key for key, value in ROS_TO_LEROBOT.items()}
 # The physical gripper motor is angular, while the ROS model represents the
 # jaw motion as a prismatic joint.  These are the calibrated endpoints of the
 # physical motor and the corresponding URDF displacement.
-GRIPPER_OPEN_ANGLE_RAD = 1.7428
-GRIPPER_OPEN_POSITION_M = 0.037
+def _load_gripper_calibration() -> dict[str, float]:
+    """Load the physical servo endpoint configuration."""
+    try:
+        from ament_index_python.packages import PackageNotFoundError
+        from ament_index_python.packages import get_package_share_directory
+
+        try:
+            calibration_file = (
+                Path(get_package_share_directory('so_arm_101_hardware'))
+                / 'config' / 'gripper_calibration.yaml')
+        except PackageNotFoundError:
+            calibration_file = (
+                Path(__file__).resolve().parents[1]
+                / 'config' / 'gripper_calibration.yaml')
+    except ImportError:
+        calibration_file = (
+            Path(__file__).resolve().parents[1]
+            / 'config' / 'gripper_calibration.yaml')
+    if not calibration_file.is_file():
+        calibration_file = (
+            Path(__file__).resolve().parents[1]
+            / 'config' / 'gripper_calibration.yaml')
+    with calibration_file.open(encoding='utf-8') as stream:
+        return yaml.safe_load(stream)['gripper']
+
+
+GRIPPER_CALIBRATION = _load_gripper_calibration()
+GRIPPER_CLOSED_ANGLE_RAD = float(
+    GRIPPER_CALIBRATION['motor_closed_position_rad'])
+GRIPPER_OPEN_ANGLE_RAD = float(
+    GRIPPER_CALIBRATION['motor_open_position_rad'])
+GRIPPER_CLOSED_POSITION_M, GRIPPER_OPEN_POSITION_M = position_limits()['right_clamp']
 
 
 @dataclass(frozen=True)
@@ -73,12 +107,22 @@ def _ros_to_motor(joint_name: str, value: float) -> float:
 
 def _gripper_angle_to_position(angle_rad: float) -> float:
     """Convert the physical gripper angle to the URDF linear position."""
-    return angle_rad / GRIPPER_OPEN_ANGLE_RAD * GRIPPER_OPEN_POSITION_M
+    return (
+        GRIPPER_CLOSED_POSITION_M
+        + (angle_rad - GRIPPER_CLOSED_ANGLE_RAD)
+        / (GRIPPER_OPEN_ANGLE_RAD - GRIPPER_CLOSED_ANGLE_RAD)
+        * (GRIPPER_OPEN_POSITION_M - GRIPPER_CLOSED_POSITION_M)
+    )
 
 
 def _gripper_position_to_angle(position_m: float) -> float:
     """Convert the URDF linear position to the physical gripper angle."""
-    return position_m / GRIPPER_OPEN_POSITION_M * GRIPPER_OPEN_ANGLE_RAD
+    return (
+        GRIPPER_CLOSED_ANGLE_RAD
+        + (position_m - GRIPPER_CLOSED_POSITION_M)
+        / (GRIPPER_OPEN_POSITION_M - GRIPPER_CLOSED_POSITION_M)
+        * (GRIPPER_OPEN_ANGLE_RAD - GRIPPER_CLOSED_ANGLE_RAD)
+    )
 
 
 def make_follower(
@@ -113,7 +157,7 @@ def make_follower(
         calibration_id = robot_id
 
     config = SO101FollowerConfig(
-        port='/dev/ttyUSB1',  # não corrigir
+        port=port,
         id=calibration_id,
         calibration_dir=calibration_dir,
         use_degrees=use_degrees,

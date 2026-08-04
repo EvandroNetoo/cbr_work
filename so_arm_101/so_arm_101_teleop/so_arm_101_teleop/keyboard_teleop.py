@@ -15,6 +15,8 @@ from std_msgs.msg import String
 
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
+from so_arm_101_description.limits import position_limits
+
 
 ARM_JOINTS = (
     'base_link_to_link1',
@@ -24,17 +26,14 @@ ARM_JOINTS = (
     'link4_to_link5',
 )
 GRIPPER_JOINT = 'right_clamp'
-GRIPPER_OPEN_POSITION = 0.037
-GRIPPER_CLOSED_POSITION = 0.0
-GRIPPER_STEP = 0.005
+MODEL_LIMITS = position_limits()
 JOINT_LIMITS = {
-    'base_link_to_link1': (-2.094395, 2.094395),
-    'link1_to_link2': (-1.825, 1.825),
-    'link2_to_link3': (-1.71, 1.71),
-    'link3_to_link4': (-1.658063, 1.658063),
-    'link4_to_link5': (-4.276057, 1.570796),
-    GRIPPER_JOINT: (GRIPPER_CLOSED_POSITION, GRIPPER_OPEN_POSITION),
+    name: MODEL_LIMITS[name]
+    for name in (*ARM_JOINTS, GRIPPER_JOINT)
 }
+GRIPPER_OPEN_POSITION = JOINT_LIMITS['right_clamp'][1]
+GRIPPER_CLOSED_POSITION = JOINT_LIMITS['right_clamp'][0]
+GRIPPER_STEP = 0.005
 KEY_BINDINGS = {
     'q': (ARM_JOINTS[0], 1), 'a': (ARM_JOINTS[0], -1),
     'w': (ARM_JOINTS[1], 1), 's': (ARM_JOINTS[1], -1),

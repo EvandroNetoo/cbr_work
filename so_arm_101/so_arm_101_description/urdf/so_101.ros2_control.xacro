@@ -1,60 +1,45 @@
 <?xml version="1.0" ?>
 <robot name="so_101" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <!-- The hardware interfaces are reusable; the Gazebo plugin is optional. -->
-
+  <!-- The block remains top-level so tooling can inspect the control joints. -->
   <ros2_control name="so_101_system" type="system">
     <hardware>
-      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      <plugin>$(arg hardware_plugin)</plugin>
+      <xacro:if value="$(arg use_real_ros2_control)">
+        <param name="state_topic">/so101_hardware/raw_joint_states</param>
+        <param name="command_topic">/so101_hardware/command_positions</param>
+      </xacro:if>
     </hardware>
 
-    <!-- Arm joints -->
     <joint name="base_link_to_link1">
       <command_interface name="position"/>
-      <state_interface name="position">
-        <param name="initial_value">0.0</param>
-      </state_interface>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="link1_to_link2">
       <command_interface name="position"/>
-      <state_interface name="position">
-        <param name="initial_value">0.0</param>
-      </state_interface>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="link2_to_link3">
       <command_interface name="position"/>
-      <state_interface name="position">
-        <param name="initial_value">0.0</param>
-      </state_interface>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="link3_to_link4">
       <command_interface name="position"/>
-      <state_interface name="position">
-        <param name="initial_value">0.0</param>
-      </state_interface>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="link4_to_link5">
       <command_interface name="position"/>
-      <state_interface name="position">
-        <param name="initial_value">0.0</param>
-      </state_interface>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
       <state_interface name="velocity"/>
     </joint>
-
-    <!--
-      Only the physical actuator belongs to ros2_control.  Do not list the
-      passive finger here: gz_ros2_control would add a second velocity-based
-      mimic loop on top of Gazebo's native SDF mimic constraint.
-    -->
+    <!-- Only the physical actuator is controlled; left_clamp is mimic. -->
     <joint name="right_clamp">
       <command_interface name="position"/>
-      <state_interface name="position">
-        <param name="initial_value">0.0</param>
-      </state_interface>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
       <state_interface name="velocity"/>
     </joint>
   </ros2_control>

@@ -2,11 +2,14 @@
 <robot name="so_101" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:arg name="use_gz_ros2_control" default="false"/>
+  <xacro:arg name="use_real_ros2_control" default="false"/>
   <xacro:arg name="controllers_file" default=""/>
+  <xacro:arg name="hardware_plugin" default="gz_ros2_control/GazeboSimSystem"/>
 
   <!-- Includes -->
   <xacro:include filename="$(find so_arm_101_description)/urdf/materials.xacro"/>
   <xacro:include filename="$(find so_arm_101_description)/urdf/so_101.ros2_control.xacro"/>
+  <xacro:property name="joint_limits" value="${xacro.load_yaml('$(find so_arm_101_description)/config/joint_limits.yaml')['joint_limits']}"/>
 
   <!-- ============================================================ -->
   <!-- World frame — fixes the robot base to the ground              -->
@@ -201,7 +204,7 @@
     <parent link="base_link"/>
     <child link="link1_1"/>
     <axis xyz="-0.0 -0.008727 0.999962"/>
-    <limit lower="-2.094395" upper="2.094395" effort="100.0" velocity="5.236"/>
+    <limit lower="${joint_limits['base_link_to_link1']['min_position']}" upper="${joint_limits['base_link_to_link1']['max_position']}" effort="${joint_limits['base_link_to_link1']['max_effort']}" velocity="${joint_limits['base_link_to_link1']['max_velocity']}"/>
     <dynamics damping="0.1" friction="0.05"/>
     <safety_controller soft_lower_limit="-2.044" soft_upper_limit="2.044" k_position="100" k_velocity="10"/>
   </joint>
@@ -213,7 +216,7 @@
     <parent link="link1_1"/>
     <child link="link2_1"/>
     <axis xyz="-0.999962 -0.008726 -7.6e-05"/>
-    <limit lower="-1.825" upper="1.825" effort="100.0" velocity="5.236"/>
+    <limit lower="${joint_limits['link1_to_link2']['min_position']}" upper="${joint_limits['link1_to_link2']['max_position']}" effort="${joint_limits['link1_to_link2']['max_effort']}" velocity="${joint_limits['link1_to_link2']['max_velocity']}"/>
     <dynamics damping="0.1" friction="0.05"/>
     <safety_controller soft_lower_limit="-1.775" soft_upper_limit="1.775" k_position="100" k_velocity="10"/>
   </joint>
@@ -225,7 +228,7 @@
     <parent link="link2_1"/>
     <child link="link3_1"/>
     <axis xyz="-0.999924 -0.00865 -0.008802"/>
-    <limit lower="-1.71" upper="1.71" effort="100.0" velocity="5.236"/>
+    <limit lower="${joint_limits['link2_to_link3']['min_position']}" upper="${joint_limits['link2_to_link3']['max_position']}" effort="${joint_limits['link2_to_link3']['max_effort']}" velocity="${joint_limits['link2_to_link3']['max_velocity']}"/>
     <dynamics damping="0.1" friction="0.05"/>
     <safety_controller soft_lower_limit="-1.66" soft_upper_limit="1.66" k_position="100" k_velocity="10"/>
   </joint>
@@ -236,7 +239,7 @@
     <parent link="link3_1"/>
     <child link="link4_1"/>
     <axis xyz="-0.999848 0.000153 -0.017451"/>
-    <limit lower="-1.658063" upper="1.658063" effort="100.0" velocity="5.236"/>
+    <limit lower="${joint_limits['link3_to_link4']['min_position']}" upper="${joint_limits['link3_to_link4']['max_position']}" effort="${joint_limits['link3_to_link4']['max_effort']}" velocity="${joint_limits['link3_to_link4']['max_velocity']}"/>
     <dynamics damping="0.1" friction="0.05"/>
     <safety_controller soft_lower_limit="-1.608" soft_upper_limit="1.608" k_position="100" k_velocity="10"/>
   </joint>
@@ -247,7 +250,7 @@
     <parent link="link4_1"/>
     <child link="link5_1"/>
     <axis xyz="-1e-06 0.999961 0.008803"/>
-    <limit lower="-4.276057" upper="1.570796" effort="100.0" velocity="5.236"/>
+    <limit lower="${joint_limits['link4_to_link5']['min_position']}" upper="${joint_limits['link4_to_link5']['max_position']}" effort="${joint_limits['link4_to_link5']['max_effort']}" velocity="${joint_limits['link4_to_link5']['max_velocity']}"/>
     <dynamics damping="0.1" friction="0.05"/>
     <safety_controller soft_lower_limit="-4.226" soft_upper_limit="1.521" k_position="100" k_velocity="10"/>
   </joint>
@@ -258,7 +261,7 @@
     <parent link="link5_1"/>
     <child link="clamp_1"/>
     <axis xyz="0.999848 -0.000154 0.017451"/>
-    <limit lower="0.0" upper="0.037" effort="100.0" velocity="0.05"/>
+    <limit lower="${joint_limits['right_clamp']['min_position']}" upper="${joint_limits['right_clamp']['max_position']}" effort="${joint_limits['right_clamp']['max_effort']}" velocity="${joint_limits['right_clamp']['max_velocity']}"/>
     <dynamics damping="0.01" friction="0.0"/>
   </joint>
 
@@ -268,7 +271,7 @@
     <parent link="link5_1"/>
     <child link="clamp_2"/>
     <axis xyz="0.999848 -0.000154 0.017451"/>
-    <limit lower="-0.037" upper="0.0" effort="100.0" velocity="0.05"/>
+    <limit lower="${joint_limits['left_clamp']['min_position']}" upper="${joint_limits['left_clamp']['max_position']}" effort="${joint_limits['left_clamp']['max_effort']}" velocity="${joint_limits['left_clamp']['max_velocity']}"/>
     <dynamics damping="0.01" friction="0.0"/>
     <mimic joint="right_clamp" multiplier="-1" offset="0"/>
   </joint>

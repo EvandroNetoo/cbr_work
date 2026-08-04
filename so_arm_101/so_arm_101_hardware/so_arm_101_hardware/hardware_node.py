@@ -1,14 +1,15 @@
-"""ROS 2 node exposing a LeRobot SO101Follower as a simple arm interface."""
+"""Low-level LeRobot driver used by the ros2_control SystemInterface."""
 
 from __future__ import annotations
 
 import threading
+import time
 
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
+from std_msgs.msg import Float64MultiArray
 from std_srvs.srv import Trigger
-from trajectory_msgs.msg import JointTrajectory
 
 from .lerobot_adapter import (
     LEROBOT_TO_ROS,
@@ -18,28 +19,36 @@ from .lerobot_adapter import (
 )
 
 
+ROS_JOINT_ORDER = tuple(LEROBOT_TO_ROS.values())
+
+
 class SO101HardwareNode(Node):
+    """Expose only the physical driver boundary to the ros2_control plugin."""
+
     def __init__(self):
         super().__init__('so101_hardware')
-        self.declare_parameter('port', '/dev/ttyUSB0')
+        self.declare_parameter('port', '')
         self.declare_parameter('robot_id', 'so101_follower')
         self.declare_parameter('calibration_file', '')
         self.declare_parameter('use_degrees', False)
         self.declare_parameter('read_rate_hz', 30.0)
-        self.declare_parameter('arm_command_topic', '/arm_controller/joint_trajectory')
-        self.declare_parameter('gripper_command_topic', '/gripper_controller/joint_trajectory')
+        self.declare_parameter('state_topic', '/so101_hardware/raw_joint_states')
+        self.declare_parameter('command_topic', '/so101_hardware/command_positions')
         self._lock = threading.Lock()
         self._connected = False
-        self._last_positions = {}
         self._use_degrees = bool(self.get_parameter('use_degrees').value)
+        self._last_positions = {}
+        self._previous_positions = {}
+        self._previous_read_time = None
 
-        self.joint_state_pub = self.create_publisher(JointState, '/joint_states', 10)
-        self.arm_sub = self.create_subscription(
-            JointTrajectory, self.get_parameter('arm_command_topic').value,
-            self._trajectory_callback, 10)
-        self.gripper_sub = self.create_subscription(
-            JointTrajectory, self.get_parameter('gripper_command_topic').value,
-            self._trajectory_callback, 10)
+        self.state_pub = self.create_publisher(
+            JointState, self.get_parameter('state_topic').value, 10)
+        self.command_sub = self.create_subscription(
+            Float64MultiArray,
+            self.get_parameter('command_topic').value,
+            self._command_callback,
+            10,
+        )
         self.calibrate_srv = self.create_service(Trigger, '~/calibrate', self._calibrate)
         self.follower = None
 
@@ -53,7 +62,7 @@ class SO101HardwareNode(Node):
             self.follower.connect(calibrate=False)
             self._connected = True
             self.get_logger().info('SO-101 conectado via LeRobot/Feetech.')
-        except Exception as error:  # Hardware errors must be visible in ROS logs.
+        except Exception as error:
             self.get_logger().fatal(f'Falha ao conectar o SO-101: {error}')
 
         period = 1.0 / float(self.get_parameter('read_rate_hz').value)
@@ -65,28 +74,50 @@ class SO101HardwareNode(Node):
         try:
             with self._lock:
                 observation = self.follower.get_observation()
-            positions = observation_to_ros(observation, use_degrees=self._use_degrees)
+            positions = observation_to_ros(
+                observation, use_degrees=self._use_degrees)
             self._last_positions.update(positions)
+            if not all(name in self._last_positions for name in ROS_JOINT_ORDER):
+                return
+            read_time = time.monotonic()
+            if self._previous_read_time is None:
+                velocities = [0.0 for _ in ROS_JOINT_ORDER]
+            else:
+                period = read_time - self._previous_read_time
+                velocities = [
+                    (self._last_positions[name] - self._previous_positions[name]) / period
+                    if period > 0.0 else 0.0
+                    for name in ROS_JOINT_ORDER
+                ]
+            self._previous_positions = {
+                name: self._last_positions[name] for name in ROS_JOINT_ORDER}
+            self._previous_read_time = read_time
             message = JointState()
             message.header.stamp = self.get_clock().now().to_msg()
-            message.name = list(self._last_positions)
-            message.position = [self._last_positions[name] for name in message.name]
-            self.joint_state_pub.publish(message)
+            message.name = list(ROS_JOINT_ORDER)
+            message.position = [self._last_positions[name] for name in ROS_JOINT_ORDER]
+            message.velocity = velocities
+            self.state_pub.publish(message)
         except Exception as error:
-            self.get_logger().error(f'Falha ao ler os motores: {error}', throttle_duration_sec=2.0)
+            self.get_logger().error(
+                f'Falha ao ler os motores: {error}', throttle_duration_sec=2.0)
 
-    def _trajectory_callback(self, message: JointTrajectory):
-        if not self._connected or not message.points:
+    def _command_callback(self, message: Float64MultiArray):
+        if not self._connected:
             return
-        point = message.points[-1]
-        values = dict(zip(message.joint_names, point.positions))
-        if not values:
+        if len(message.data) != len(ROS_JOINT_ORDER):
+            self.get_logger().error(
+                f'Comando inválido: esperadas {len(ROS_JOINT_ORDER)} posições, '
+                f'recebidas {len(message.data)}.', throttle_duration_sec=2.0)
             return
+        values = dict(zip(ROS_JOINT_ORDER, message.data))
         try:
             with self._lock:
-                self.follower.send_action(ros_to_action(values, use_degrees=self._use_degrees))
+                self.follower.send_action(
+                    ros_to_action(values, use_degrees=self._use_degrees))
         except Exception as error:
-            self.get_logger().error(f'Falha ao comandar os motores: {error}', throttle_duration_sec=2.0)
+            self.get_logger().error(
+                f'Falha ao comandar os motores: {error}', throttle_duration_sec=2.0)
 
     def _calibrate(self, request, response):
         del request
@@ -123,6 +154,5 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        # launch may already have shut down the global context after SIGINT.
         if rclpy.ok():
             rclpy.shutdown()

@@ -1,109 +1,203 @@
-# SO-ARM-101
+# SO-ARM-101 follower no ROS 2 Jazzy
 
-Metapacote do módulo do braço SO-ARM-101.
+Este projeto controla somente o braço follower do SO-ARM101. O braço líder e a
+garra original não fazem parte da arquitetura. A ferramenta instalada é uma
+garra paralela adaptada, com uma junta física comandada (`right_clamp`) e uma
+junta passiva (`left_clamp`) que a acompanha por `mimic`.
 
-Pacotes incluídos:
+## Arquitetura
 
-- `so_arm_101_description`: URDF/Xacro e meshes;
-- `so_arm_101_bringup`: Gazebo, RViz, controladores e launchs;
-- `so_arm_101_teleop`: controle pelo teclado;
-- `so_arm_101_moveit_config`: planejamento e execução do braço com MoveIt 2.
-- `so_arm_101_hardware`: ponte para o braço físico via LeRobot/Feetech.
+```text
+so_arm_101_description  -> URDF/Xacro, ros2_control, limites e meshes
+so_arm_101_bringup      -> launch, controllers, RViz e Gazebo
+so_arm_101_hardware     -> nó Python LeRobot/Feetech do follower
+so_arm_101_hardware_interface -> plugin C++ SystemInterface
+so_arm_101_moveit_config -> MoveIt 2, SRDF, OMPL e RViz de planejamento
+so_arm_101_teleop       -> teclado opcional para os controllers
+so_arm_101              -> metapacote
+```
 
-## Compilar somente o módulo
+O nó Python conhece a API do LeRobot. O plugin C++ implementa
+`hardware_interface::SystemInterface`, exporta as interfaces para o
+`controller_manager` e troca estados/comandos com o nó Python por tópicos
+internos. Assim, o código dependente do vendor fica fora do ciclo de controle.
+
+## Estrutura dos diretórios
+
+```text
+so_arm_101_description/       urdf/, config/, meshes/
+so_arm_101_hardware/          adapter LeRobot, parâmetros e calibração
+so_arm_101_hardware_interface/ plugin C++ e registro pluginlib
+so_arm_101_bringup/            launch/, controllers.yaml e worlds/
+so_arm_101_moveit_config/      SRDF, cinemática, OMPL e launch MoveIt
+so_arm_101_teleop/             nó de teclado
+```
+
+## Requisitos e build
+
+Requisitos principais: Ubuntu 24.04, ROS 2 Jazzy, `colcon`, `xacro`,
+`ros2_control`, Gazebo Sim e MoveIt 2. O hardware real também requer LeRobot
+com suporte Feetech em um ambiente Python compatível com o ROS instalado.
 
 Na raiz do workspace:
 
 ```bash
-cd /home/evandro/ros2_ws
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install --base-paths src/cbr_work \
-  --packages-select so_arm_101 so_arm_101_description \
-  so_arm_101_bringup so_arm_101_teleop \
-  so_arm_101_moveit_config so_arm_101_hardware
+rosdep install --from-paths src --ignore-src --rosdistro jazzy -r -y
+colcon build --symlink-install
 source install/setup.bash
 ```
 
-## Iniciar a simulação
+Se o `rosdep` reportar que não conhece o próprio `ament_python`, isso é uma
+limitação da base rosdep local; o pacote continua usando o build type correto
+e o build deve ser a verificação final.
+
+## Verificar a descrição
+
+```bash
+xacro src/cbr_work/so_arm_101/so_arm_101_description/urdf/so_101.urdf.xacro \
+  -o /tmp/so_arm_101.urdf
+check_urdf /tmp/so_arm_101.urdf
+```
+
+Para o hardware, o Xacro recebe `use_real_ros2_control:=true` e o plugin
+`so_arm_101_hardware_interface/SO101System`. Para Gazebo, recebe
+`use_gz_ros2_control:=true`.
+
+## RViz e simulação
+
+Visualização sem controllers, usando sliders:
+
+```bash
+ros2 launch so_arm_101_bringup display.launch.py
+```
+
+Gazebo com `gz_ros2_control`:
+
+```bash
+ros2 launch so_arm_101_bringup sim.launch.py
+ros2 launch so_arm_101_bringup sim.launch.py headless:=true
+```
+
+Simulação com RViz e teclado:
 
 ```bash
 ros2 launch so_arm_101_bringup keyboard_control.launch.py
 ```
 
-## Braço físico via LeRobot
+O teclado publica `JointTrajectory` em `/arm_controller/joint_trajectory` e
+`/gripper_controller/joint_trajectory`. As teclas são `q/a`, `w/s`, `e/d`,
+`r/f`, `t/g` para as cinco juntas do braço e `y/h` para fechar/abrir a garra.
 
-Instale a variante Feetech do LeRobot no venv do workspace e calibre o follower
-antes de iniciar:
+## Hardware real
+
+Instale o LeRobot no ambiente Python usado para executar o nó. O arquivo
+`so_arm_101_hardware/config/so101_follower.json` é um exemplo de calibração;
+`so_arm_101_hardware/config/gripper_calibration.yaml` guarda os endpoints
+angulares da garra adaptada. Confirme IDs, offsets e faixas antes de energizar
+o braço.
+
+Inicie o sistema completo, informando explicitamente a porta:
 
 ```bash
-cd /home/evandro/ros2_ws
-source /opt/ros/jazzy/setup.bash
-uv venv --python /usr/bin/python3 .venv
-uv pip install --python .venv/bin/python -r requirements/lerobot-feetech.txt
-source .venv/bin/activate
-ros2 launch so_arm_101_hardware real.launch.py \
+ros2 launch so_arm_101_bringup real.launch.py \
   port:=/dev/ttyUSB0 robot_id:=meu_so101
 ```
 
-O hardware publica `/joint_states` e aceita os mesmos tópicos de trajetória do
-braço (`/arm_controller/joint_trajectory` e
-`/gripper_controller/joint_trajectory`). Consulte o README do pacote para
-detalhes da calibração.
+Esse launch inicia o driver LeRobot, `robot_state_publisher`,
+`ros2_control_node`, `joint_state_broadcaster`, `arm_controller` e
+`gripper_controller`. O launch `so_arm_101_hardware driver.launch.py` inicia
+somente o driver para diagnóstico; `real.launch.py` nesse pacote é mantido
+como wrapper de compatibilidade.
 
-## Dependências do MoveIt 2
-
-O OMPL gera o plano e o Simple Controller Manager entrega a trajetória ao
-`arm_controller`. Instale ambos antes de usar o MoveIt:
+Para calibrar pelo serviço do driver:
 
 ```bash
-sudo apt update
-sudo apt install ros-jazzy-moveit-planners-ompl \
-  ros-jazzy-moveit-simple-controller-manager
-```
-
-Também é possível instalar todas as dependências declaradas pelos pacotes:
-
-```bash
-cd /home/evandro/ros2_ws
-rosdep install --from-paths src/cbr_work --ignore-src -r -y
+ros2 service call /so101_hardware/calibrate std_srvs/srv/Trigger '{}'
 ```
 
 ## MoveIt 2
 
-Para iniciar apenas o `move_group` (o robô e o hardware devem estar ativos):
-
-```bash
-ros2 launch so_arm_101_moveit_config move_group.launch.py
-```
-
-Para iniciar Gazebo, MoveIt e RViz juntos:
+Simulação completa com MoveIt e RViz:
 
 ```bash
 ros2 launch so_arm_101_moveit_config demo.launch.py
 ```
 
-O `move_group` monitora `/joint_states` continuamente e conecta ao
-`arm_controller` quando sua action fica disponível. Antes de executar a
-primeira trajetória, aguarde o `arm_controller` aparecer como `active`.
-
-Para conferir a comunicação durante um diagnóstico:
+Hardware real, MoveIt e RViz:
 
 ```bash
+ros2 launch so_arm_101_moveit_config real_moveit.launch.py \
+  port:=/dev/ttyUSB0 robot_id:=meu_so101
+```
+
+O MoveIt usa o grupo `arm` para as cinco juntas revolutas e o grupo `gripper`
+para os dois dedos. A execução usa as actions padrão dos
+`JointTrajectoryController`:
+
+```text
+/arm_controller/follow_joint_trajectory
+/gripper_controller/follow_joint_trajectory
+```
+
+## Garra adaptada
+
+`right_clamp` é uma junta `prismatic` de `0.0 m` fechada a `0.037 m` aberta.
+`left_clamp` é passiva, tem limite `[-0.037, 0.0]` e usa
+`mimic multiplier="-1"`; ela não exporta interface no `ros2_control` e não é
+enviada ao servo.
+
+Os limites físicos do modelo ficam em
+`so_arm_101_description/config/joint_limits.yaml`. O Xacro, o teleop e o
+adapter de hardware usam esse arquivo. A conversão restante é específica do
+hardware: a posição linear ROS da garra é convertida para o ângulo do servo
+LeRobot, usando o endpoint angular existente de `1.7428 rad`. Esse endpoint e
+os valores de `so101_follower.json` ainda precisam ser confirmados por medição
+no conjunto mecânico real; não foram alterados por suposição.
+
+O `so_arm_101_moveit_config/config/joint_limits.yaml` contém somente a
+tolerância numérica adicional do planejamento e limites de aceleração. Ele não
+substitui os limites físicos do URDF.
+
+O endpoint angular do servo fica em
+`so_arm_101_hardware/config/gripper_calibration.yaml`; ele é separado dos
+limites geométricos do URDF porque pertence à calibração física do atuador.
+
+## Diagnóstico
+
+```bash
+ros2 node list
+ros2 topic list -t
 ros2 topic echo /joint_states --once
-ros2 action info /arm_controller/follow_joint_trajectory
 ros2 control list_controllers
+ros2 control list_hardware_interfaces
+ros2 action info /arm_controller/follow_joint_trajectory
+ros2 topic echo /tf --once
+ros2 service list | sort
 ```
 
-Os grupos `arm` e `gripper` são executáveis pelos respectivos
-`JointTrajectoryController`. A garra comanda apenas `right_clamp`;
-`left_clamp` acompanha o movimento pela relação `mimic` do URDF.
+Estados devem chegar a `/joint_states` pelo `joint_state_broadcaster`. No
+hardware, os tópicos internos são `/so101_hardware/raw_joint_states` e
+`/so101_hardware/command_positions`; eles não substituem a API pública dos
+controllers.
 
-## Ver os pacotes do módulo
+## Testes locais
 
 ```bash
-ros2 pkg prefix so_arm_101
-ros2 pkg prefix so_arm_101_description
-ros2 pkg prefix so_arm_101_bringup
-ros2 pkg prefix so_arm_101_teleop
-ros2 pkg prefix so_arm_101_moveit_config
+/usr/bin/python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_description/test -v
+/usr/bin/python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_bringup/test -v
+/usr/bin/python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_moveit_config/test -v
+/usr/bin/python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_teleop/test -v
 ```
+
+O teste do hardware real não conecta automaticamente à porta serial. Confira
+interfaces e limites com o braço desligado primeiro e faça depois uma
+trajetória pequena e supervisionada.
+
+## Como expandir
+
+Adicione novos links/juntas e limites em `description`, atualize o SRDF e os
+controllers apenas quando a interface for realmente controlável, e acrescente
+um teste de consistência. Novas formas de execução devem compor os launchs de
+`bringup`; não copie novamente a criação do `robot_description`, do
+`controller_manager` ou dos spawners.

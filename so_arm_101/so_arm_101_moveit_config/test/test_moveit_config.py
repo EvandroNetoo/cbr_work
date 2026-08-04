@@ -4,6 +4,8 @@ import xml.etree.ElementTree as ET
 
 import yaml
 
+from so_arm_101_description.limits import load_joint_limits
+
 
 BASE_DIR = os.path.join(os.path.dirname(__file__), '..')
 CONFIG_DIR = os.path.join(BASE_DIR, 'config')
@@ -21,23 +23,20 @@ def test_srdf_matches_urdf_root_and_arm_chain():
     assert world_joint.attrib['type'] == 'fixed'
     assert world_joint.find('parent').attrib['link'] == 'world'
     assert world_joint.find('child').attrib['link'] == 'base_link'
-    assert chain.attrib == {
-        'base_link': 'base_link', 'tip_link': 'link5_1'}
+    assert chain.attrib == {'base_link': 'base_link', 'tip_link': 'link5_1'}
 
 
 def test_moveit_controllers_match_ros2_control():
     path = os.path.join(CONFIG_DIR, 'moveit_controllers.yaml')
     data = yaml.safe_load(open(path))
     controllers = data['moveit_simple_controller_manager']
-    assert controllers['controller_names'] == [
-        'arm_controller', 'gripper_controller']
+    assert controllers['controller_names'] == ['arm_controller', 'gripper_controller']
     assert controllers['arm_controller']['type'] == 'FollowJointTrajectory'
     assert controllers['arm_controller']['joints'] == [
         'base_link_to_link1', 'link1_to_link2', 'link2_to_link3',
         'link3_to_link4', 'link4_to_link5',
     ]
-    assert controllers['gripper_controller']['type'] == (
-        'FollowJointTrajectory')
+    assert controllers['gripper_controller']['type'] == 'FollowJointTrajectory'
     assert controllers['gripper_controller']['joints'] == ['right_clamp']
 
 
@@ -73,7 +72,6 @@ def test_gripper_group_contains_actuated_and_mimic_joints():
     joints = root.findall("group[@name='gripper']/joint")
     assert [joint.attrib['name'] for joint in joints] == [
         'right_clamp', 'left_clamp']
-
     end_effector = root.find("end_effector[@name='gripper']")
     assert end_effector.attrib['parent_group'] == 'arm'
 
@@ -82,19 +80,13 @@ def test_gripper_planning_limits_only_add_numeric_tolerance():
     data = yaml.safe_load(open(os.path.join(CONFIG_DIR, 'joint_limits.yaml')))
     right = data['joint_limits']['right_clamp']
     left = data['joint_limits']['left_clamp']
-    urdf = ET.parse(URDF_PATH).getroot()
-    right_urdf_limit = urdf.find(
-        "joint[@name='right_clamp']/limit").attrib
-    left_urdf_limit = urdf.find(
-        "joint[@name='left_clamp']/limit").attrib
-
+    model_limits = load_joint_limits()
     assert right['min_position'] == -1e-6
     assert right['max_position'] == 0.037001
     assert left['min_position'] == -0.037001
     assert left['max_position'] == 1e-6
-
-    assert float(right_urdf_limit['lower']) == 0.0
-    assert float(right_urdf_limit['upper']) == 0.037
-    assert float(right_urdf_limit['velocity']) == 0.05
-    assert float(left_urdf_limit['lower']) == -0.037
-    assert float(left_urdf_limit['upper']) == 0.0
+    assert model_limits['right_clamp']['min_position'] == 0.0
+    assert model_limits['right_clamp']['max_position'] == 0.037
+    assert model_limits['right_clamp']['max_velocity'] == 0.05
+    assert model_limits['left_clamp']['min_position'] == -0.037
+    assert model_limits['left_clamp']['max_position'] == 0.0

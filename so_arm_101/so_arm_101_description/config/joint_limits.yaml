@@ -1,0 +1,38 @@
+# Model limits shared by the URDF, teleoperation and hardware adapter.
+# Values are unchanged from the previous URDF and teleoperation code.
+joint_limits:
+  base_link_to_link1:
+    min_position: -2.094395
+    max_position: 2.094395
+    max_velocity: 5.236
+    max_effort: 100.0
+  link1_to_link2:
+    min_position: -1.825
+    max_position: 1.825
+    max_velocity: 5.236
+    max_effort: 100.0
+  link2_to_link3:
+    min_position: -1.71
+    max_position: 1.71
+    max_velocity: 5.236
+    max_effort: 100.0
+  link3_to_link4:
+    min_position: -1.658063
+    max_position: 1.658063
+    max_velocity: 5.236
+    max_effort: 100.0
+  link4_to_link5:
+    min_position: -4.276057
+    max_position: 1.570796
+    max_velocity: 5.236
+    max_effort: 100.0
+  right_clamp:
+    min_position: 0.0
+    max_position: 0.037
+    max_velocity: 0.05
+    max_effort: 100.0
+  left_clamp:
+    min_position: -0.037
+    max_position: 0.0
+    max_velocity: 0.05
+    max_effort: 100.0

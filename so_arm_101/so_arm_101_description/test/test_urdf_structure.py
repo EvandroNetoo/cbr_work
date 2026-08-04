@@ -3,6 +3,7 @@ import os
 import xml.etree.ElementTree as ET
 
 import pytest
+from so_arm_101_description.limits import load_joint_limits
 
 URDF_PATH = os.path.join(os.path.dirname(__file__), '..', 'urdf', 'so_101.urdf.xacro')
 
@@ -26,6 +27,11 @@ EXPECTED_JOINTS = {
 def urdf_root():
     tree = ET.parse(URDF_PATH)
     return tree.getroot()
+
+
+@pytest.fixture(scope='module')
+def model_limits():
+    return load_joint_limits()
 
 
 def test_xml_wellformed(urdf_root):
@@ -75,7 +81,7 @@ def test_link_has_inertial_visual_collision(urdf_root, link_name):
         )
 
 
-def test_left_gripper_joint_mimics_the_single_actuator(urdf_root):
+def test_left_gripper_joint_mimics_the_single_actuator(urdf_root, model_limits):
     """The passive finger must follow the one physical actuator."""
     joints = {
         el.attrib['name']: el for el in urdf_root.findall('joint')
@@ -86,9 +92,8 @@ def test_left_gripper_joint_mimics_the_single_actuator(urdf_root):
     assert left_clamp.find('axis').attrib['xyz'] == (
         right_clamp.find('axis').attrib['xyz']
     )
-    left_limit = left_clamp.find('limit')
-    assert float(left_limit.attrib['lower']) == -0.037
-    assert float(left_limit.attrib['upper']) == 0.0
+    assert model_limits['left_clamp']['min_position'] == -0.037
+    assert model_limits['left_clamp']['max_position'] == 0.0
 
     for el in urdf_root.findall('joint'):
         if el.attrib['name'] == 'left_clamp':
@@ -100,14 +105,13 @@ def test_left_gripper_joint_mimics_the_single_actuator(urdf_root):
     pytest.fail('left_clamp joint not found')
 
 
-def test_gripper_velocity_is_visually_smooth(urdf_root):
+def test_gripper_velocity_is_visually_smooth(urdf_root, model_limits):
     """A 5 mm teleop step should take about 100 ms, not one sim frame."""
     joints = {
         el.attrib['name']: el for el in urdf_root.findall('joint')
     }
     for name in ('right_clamp', 'left_clamp'):
-        velocity = float(joints[name].find('limit').attrib['velocity'])
-        assert velocity == pytest.approx(0.05)
+        assert model_limits[name]['max_velocity'] == pytest.approx(0.05)
 
 
 def test_all_joints_have_dynamics(urdf_root):

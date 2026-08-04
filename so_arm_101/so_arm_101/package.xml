@@ -11,6 +11,7 @@
   <exec_depend>so_arm_101_teleop</exec_depend>
   <exec_depend>so_arm_101_moveit_config</exec_depend>
   <exec_depend>so_arm_101_hardware</exec_depend>
+  <exec_depend>so_arm_101_hardware_interface</exec_depend>
 
   <buildtool_depend>ament_python</buildtool_depend>
 

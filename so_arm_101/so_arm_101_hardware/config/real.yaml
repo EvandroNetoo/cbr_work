@@ -1,9 +1,11 @@
 so101_hardware_node:
   ros__parameters:
-    port: /dev/ttyUSB0
+    # Set this through the launch argument; the empty default avoids assuming
+    # a particular USB device name on the host.
+    port: ''
     robot_id: so101_follower
     # ROS uses radians; the adapter converts to/from LeRobot degrees.
     use_degrees: true
     read_rate_hz: 30.0
-    arm_command_topic: /arm_controller/joint_trajectory
-    gripper_command_topic: /gripper_controller/joint_trajectory
+    state_topic: /so101_hardware/raw_joint_states
+    command_topic: /so101_hardware/command_positions

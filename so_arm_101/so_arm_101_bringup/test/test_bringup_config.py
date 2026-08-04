@@ -49,12 +49,9 @@ def test_controller_types_valid(controllers):
         name: params['type'] for name, params in cm.items()
         if isinstance(params, dict) and 'type' in params
     } == {
-        'joint_state_broadcaster': (
-            'joint_state_broadcaster/JointStateBroadcaster'),
-        'arm_controller': (
-            'joint_trajectory_controller/JointTrajectoryController'),
-        'gripper_controller': (
-            'joint_trajectory_controller/JointTrajectoryController'),
+        'joint_state_broadcaster': 'joint_state_broadcaster/JointStateBroadcaster',
+        'arm_controller': 'joint_trajectory_controller/JointTrajectoryController',
+        'gripper_controller': 'joint_trajectory_controller/JointTrajectoryController',
     }
 
 
@@ -75,7 +72,6 @@ def test_passive_mimic_is_not_exported_by_ros2_control(ros2_control_joints):
     """Avoid a software mimic loop fighting Gazebo's native constraint."""
     assert 'right_clamp' in ros2_control_joints
     assert 'left_clamp' not in ros2_control_joints
-
     right_interfaces = {
         interface.attrib['name']
         for interface in ros2_control_joints['right_clamp'].findall(
@@ -89,8 +85,7 @@ def test_gripper_starts_at_physical_lower_bound(ros2_control_joints):
         interface
         for interface in ros2_control_joints['right_clamp'].findall(
             'state_interface')
-        if interface.attrib['name'] == 'position'
-    )
+        if interface.attrib['name'] == 'position')
     initial_position = float(
         position_state.find("param[@name='initial_value']").text)
     assert initial_position == 0.0
@@ -99,6 +94,5 @@ def test_gripper_starts_at_physical_lower_bound(ros2_control_joints):
 def test_gazebo_position_gain_is_fast_and_stable(controllers):
     """Gazebo position control should respond quickly without overshoot."""
     gain = controllers['gz_ros_control']['ros__parameters'][
-        'position_proportional_gain'
-    ]
+        'position_proportional_gain']
     assert 0.5 <= gain <= 1.0

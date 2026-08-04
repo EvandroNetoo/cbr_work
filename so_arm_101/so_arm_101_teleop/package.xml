@@ -7,10 +7,10 @@
   <license>GPL-3.0-only</license>
 
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>so_arm_101_description</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>trajectory_msgs</exec_depend>
-  <exec_depend>gnome-terminal</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 
