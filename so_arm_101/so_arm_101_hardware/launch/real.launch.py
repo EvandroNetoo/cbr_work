@@ -12,6 +12,12 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('port', default_value='/dev/ttyUSB0'),
         DeclareLaunchArgument('robot_id', default_value='so101_follower'),
+        DeclareLaunchArgument(
+            'calibration_file',
+            default_value=PathJoinSubstitution([
+                FindPackageShare('so_arm_101_hardware'),
+                'config', 'so101_follower.json']),
+        ),
         Node(
             package='so_arm_101_hardware',
             executable='so101_hardware_node',
@@ -21,7 +27,8 @@ def generate_launch_description():
                 PathJoinSubstitution([
                     FindPackageShare('so_arm_101_hardware'), 'config', 'real.yaml']),
                 {'port': LaunchConfiguration('port'),
-                 'robot_id': LaunchConfiguration('robot_id')},
+                 'robot_id': LaunchConfiguration('robot_id'),
+                 'calibration_file': LaunchConfiguration('calibration_file')},
             ],
         ),
     ])

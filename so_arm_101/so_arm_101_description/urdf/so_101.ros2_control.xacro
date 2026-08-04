@@ -19,14 +19,14 @@
     <joint name="link1_to_link2">
       <command_interface name="position"/>
       <state_interface name="position">
-        <param name="initial_value">-1.0</param>
+        <param name="initial_value">0.0</param>
       </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="link2_to_link3">
       <command_interface name="position"/>
       <state_interface name="position">
-        <param name="initial_value">1.5</param>
+        <param name="initial_value">0.0</param>
       </state_interface>
       <state_interface name="velocity"/>
     </joint>

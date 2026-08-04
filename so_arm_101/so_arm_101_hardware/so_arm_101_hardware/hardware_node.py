@@ -23,6 +23,7 @@ class SO101HardwareNode(Node):
         super().__init__('so101_hardware')
         self.declare_parameter('port', '/dev/ttyUSB0')
         self.declare_parameter('robot_id', 'so101_follower')
+        self.declare_parameter('calibration_file', '')
         self.declare_parameter('use_degrees', False)
         self.declare_parameter('read_rate_hz', 30.0)
         self.declare_parameter('arm_command_topic', '/arm_controller/joint_trajectory')
@@ -47,6 +48,7 @@ class SO101HardwareNode(Node):
                 self.get_parameter('port').value,
                 self.get_parameter('robot_id').value,
                 use_degrees=self._use_degrees,
+                calibration_file=self.get_parameter('calibration_file').value,
             )
             self.follower.connect(calibrate=False)
             self._connected = True

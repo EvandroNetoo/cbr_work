@@ -29,8 +29,8 @@ GRIPPER_CLOSED_POSITION = 0.0
 GRIPPER_STEP = 0.005
 JOINT_LIMITS = {
     'base_link_to_link1': (-2.094395, 2.094395),
-    'link1_to_link2': (-3.228859, 0.174533),
-    'link2_to_link3': (0.0, 3.316126),
+    'link1_to_link2': (-1.825, 1.825),
+    'link2_to_link3': (-1.71, 1.71),
     'link3_to_link4': (-1.658063, 1.658063),
     'link4_to_link5': (-4.276057, 1.570796),
     GRIPPER_JOINT: (GRIPPER_CLOSED_POSITION, GRIPPER_OPEN_POSITION),
