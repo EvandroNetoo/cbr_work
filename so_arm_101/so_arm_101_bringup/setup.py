@@ -25,5 +25,4 @@ setup(
     maintainer_email='todo@todo.com',
     description='SO-ARM-101 bringup, controllers and simulation',
     license='GPL-3.0-only',
-    tests_require=['pytest'],
 )

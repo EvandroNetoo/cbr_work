@@ -8,6 +8,7 @@ Pacotes incluídos:
 - `so_arm_101_bringup`: Gazebo, RViz, controladores e launchs;
 - `so_arm_101_teleop`: controle pelo teclado;
 - `so_arm_101_moveit_config`: planejamento e execução do braço com MoveIt 2.
+- `so_arm_101_hardware`: ponte para o braço físico via LeRobot/Feetech.
 
 ## Compilar somente o módulo
 
@@ -19,7 +20,7 @@ source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install --base-paths src/cbr_work \
   --packages-select so_arm_101 so_arm_101_description \
   so_arm_101_bringup so_arm_101_teleop \
-  so_arm_101_moveit_config
+  so_arm_101_moveit_config so_arm_101_hardware
 source install/setup.bash
 ```
 
@@ -28,6 +29,26 @@ source install/setup.bash
 ```bash
 ros2 launch so_arm_101_bringup keyboard_control.launch.py
 ```
+
+## Braço físico via LeRobot
+
+Instale a variante Feetech do LeRobot no venv do workspace e calibre o follower
+antes de iniciar:
+
+```bash
+cd /home/evandro/ros2_ws
+source /opt/ros/jazzy/setup.bash
+uv venv --python /usr/bin/python3 .venv
+uv pip install --python .venv/bin/python -r requirements/lerobot-feetech.txt
+source .venv/bin/activate
+ros2 launch so_arm_101_hardware real.launch.py \
+  port:=/dev/ttyUSB0 robot_id:=meu_so101
+```
+
+O hardware publica `/joint_states` e aceita os mesmos tópicos de trajetória do
+braço (`/arm_controller/joint_trajectory` e
+`/gripper_controller/joint_trajectory`). Consulte o README do pacote para
+detalhes da calibração.
 
 ## Dependências do MoveIt 2
 

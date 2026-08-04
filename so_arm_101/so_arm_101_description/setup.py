@@ -23,5 +23,4 @@ setup(
     maintainer_email='todo@todo.com',
     description='SO-ARM-101 robot description and meshes',
     license='GPL-3.0-only',
-    tests_require=['pytest'],
 )

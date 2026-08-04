@@ -24,5 +24,4 @@ setup(
     maintainer_email='todo@todo.com',
     description='MoveIt 2 configuration for SO-ARM-101',
     license='GPL-3.0-only',
-    tests_require=['pytest'],
 )
