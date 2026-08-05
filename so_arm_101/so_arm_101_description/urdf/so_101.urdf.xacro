@@ -224,7 +224,7 @@
     <axis xyz="-0.0 -0.008727 0.999962"/>
     <limit lower="${joint_limits['base_link_to_link1']['min_position']}" upper="${joint_limits['base_link_to_link1']['max_position']}" effort="${joint_limits['base_link_to_link1']['max_effort']}" velocity="${joint_limits['base_link_to_link1']['max_velocity']}"/>
     <dynamics damping="0.1" friction="0.05"/>
-    <safety_controller soft_lower_limit="-2.044" soft_upper_limit="2.044" k_position="100" k_velocity="10"/>
+    <!-- <safety_controller soft_lower_limit="-2.044" soft_upper_limit="2.044" k_position="100" k_velocity="10"/> -->
   </joint>
 
   <!-- Joint 2: Shoulder pitch — STS3215 servo -->
@@ -236,7 +236,7 @@
     <axis xyz="-0.999962 -0.008726 -7.6e-05"/>
     <limit lower="${joint_limits['link1_to_link2']['min_position']}" upper="${joint_limits['link1_to_link2']['max_position']}" effort="${joint_limits['link1_to_link2']['max_effort']}" velocity="${joint_limits['link1_to_link2']['max_velocity']}"/>
     <dynamics damping="0.1" friction="0.05"/>
-    <safety_controller soft_lower_limit="-1.775" soft_upper_limit="1.775" k_position="100" k_velocity="10"/>
+    <!-- <safety_controller soft_lower_limit="-1.775" soft_upper_limit="1.775" k_position="100" k_velocity="10"/> -->
   </joint>
 
   <!-- Joint 3: Elbow — STS3215 servo -->
@@ -248,7 +248,7 @@
     <axis xyz="-0.999924 -0.00865 -0.008802"/>
     <limit lower="${joint_limits['link2_to_link3']['min_position']}" upper="${joint_limits['link2_to_link3']['max_position']}" effort="${joint_limits['link2_to_link3']['max_effort']}" velocity="${joint_limits['link2_to_link3']['max_velocity']}"/>
     <dynamics damping="0.1" friction="0.05"/>
-    <safety_controller soft_lower_limit="-1.66" soft_upper_limit="1.66" k_position="100" k_velocity="10"/>
+    <!-- <safety_controller soft_lower_limit="-1.66" soft_upper_limit="1.66" k_position="100" k_velocity="10"/> -->
   </joint>
 
   <!-- Joint 4: Wrist pitch — STS3215 servo -->
@@ -259,7 +259,7 @@
     <axis xyz="-0.999848 0.000153 -0.017451"/>
     <limit lower="${joint_limits['link3_to_link4']['min_position']}" upper="${joint_limits['link3_to_link4']['max_position']}" effort="${joint_limits['link3_to_link4']['max_effort']}" velocity="${joint_limits['link3_to_link4']['max_velocity']}"/>
     <dynamics damping="0.1" friction="0.05"/>
-    <safety_controller soft_lower_limit="-1.608" soft_upper_limit="1.608" k_position="100" k_velocity="10"/>
+    <!-- <safety_controller soft_lower_limit="-1.608" soft_upper_limit="1.608" k_position="100" k_velocity="10"/> -->
   </joint>
 
   <!-- Joint 5: Wrist roll — STS3215 servo -->
@@ -270,7 +270,7 @@
     <axis xyz="-1e-06 0.999961 0.008803"/>
     <limit lower="${joint_limits['link4_to_link5']['min_position']}" upper="${joint_limits['link4_to_link5']['max_position']}" effort="${joint_limits['link4_to_link5']['max_effort']}" velocity="${joint_limits['link4_to_link5']['max_velocity']}"/>
     <dynamics damping="0.1" friction="0.05"/>
-    <safety_controller soft_lower_limit="-4.226" soft_upper_limit="1.521" k_position="100" k_velocity="10"/>
+    <!-- <safety_controller soft_lower_limit="-4.226" soft_upper_limit="1.521" k_position="100" k_velocity="10"/> -->
   </joint>
 
   <!-- Gripper: right clamp (primary) — STS3215 servo -->

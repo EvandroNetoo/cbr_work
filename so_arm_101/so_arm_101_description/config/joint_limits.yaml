@@ -2,23 +2,23 @@
 # Values are unchanged from the previous URDF and teleoperation code.
 joint_limits:
   base_link_to_link1:
-    min_position: -2.094395
-    max_position: 2.094395
+    min_position: -2.2
+    max_position: 2
     max_velocity: 5.236
     max_effort: 100.0
   link1_to_link2:
-    min_position: -1.825
-    max_position: 1.825
+    min_position: -1.84
+    max_position: 1.84
     max_velocity: 5.236
     max_effort: 100.0
   link2_to_link3:
-    min_position: -1.71
-    max_position: 1.71
+    min_position: -1.705
+    max_position: 1.705
     max_velocity: 5.236
     max_effort: 100.0
   link3_to_link4:
-    min_position: -1.658063
-    max_position: 1.658063
+    min_position: -1.81
+    max_position: 1.81
     max_velocity: 5.236
     max_effort: 100.0
   link4_to_link5:

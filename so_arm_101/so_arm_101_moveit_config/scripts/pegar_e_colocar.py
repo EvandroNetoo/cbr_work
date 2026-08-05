@@ -16,6 +16,7 @@ from moveit_msgs.msg import (
     PositionConstraint,
 )
 from rclpy.action import ActionClient
+from sensor_msgs.msg import JointState
 from shape_msgs.msg import SolidPrimitive
 
 
@@ -28,15 +29,15 @@ END_EFFECTOR_LINK = "gripper_tcp"
 
 # Estas são as únicas coordenadas necessárias para o pick-and-place.
 # Todas estão em metros e no referencial base_link.
-OBJECT_X = -0.10
-OBJECT_Y = -0.15
+OBJECT_X = -0.15
+OBJECT_Y = -0.20
 OBJECT_Z = 0.025
-APPROACH_HEIGHT = 0.10
-PLACE_X = 0.10
-PLACE_Y = -0.15
+APPROACH_HEIGHT = 0.05
+PLACE_X = 0.15
+PLACE_Y = 0.0
 PLACE_Z = 0.025
-OBJECT_ANGLE_DEG = 90.0
-PLACE_ANGLE_DEG = 90.0
+OBJECT_ANGLE_DEG = 0.0
+PLACE_ANGLE_DEG = 0.0
 
 POSITION_TOLERANCE = 0.01
 # Pega por cima: uma rotação de +90 graus em X aponta o eixo local -Y da
@@ -46,12 +47,24 @@ ANGLE_TOLERANCE = math.radians(5.0)
 
 # Conforme os estados definidos no SO-ARM-101.srdf.
 GRIPPER_OPEN_POSITION = 0.037
-GRIPPER_CLOSED_POSITION = 0.015
+GRIPPER_CLOSED_POSITION = 0.018
+GRIPPER_JOINT_TOLERANCE = 0.001
+
+# Pose ``home`` definida em so_arm_101.srdf. Como este script envia a ação
+# MoveGroup diretamente, ela é representada pelas restrições articulares.
+HOME_JOINTS = {
+    "base_link_to_link1": 1.5,
+    "link1_to_link2": 1.83,
+    "link2_to_link3": -1.6,
+    "link3_to_link4": 1.7,
+    "link4_to_link5": 0.0,
+}
+HOME_JOINT_TOLERANCE = 0.01
 
 PLANNING_TIME = 15.0
 PLANNING_ATTEMPTS = 10
-MAX_VELOCITY = 0.25
-MAX_ACCELERATION = 0.25
+MAX_VELOCITY = 0.9
+MAX_ACCELERATION = 0.9
 
 # =======================================================================
 
@@ -60,6 +73,15 @@ class PickAndPlace:
     def __init__(self):
         self.node = rclpy.create_node("pegar_e_colocar")
         self.move_group = ActionClient(self.node, MoveGroup, "/move_action")
+        self.current_joint_positions = {}
+        self.joint_state_sequence = 0
+        self.joint_states_subscription = self.node.create_subscription(
+            JointState, "/joint_states", self._joint_states_callback, 10
+        )
+
+    def _joint_states_callback(self, message):
+        self.current_joint_positions.update(zip(message.name, message.position))
+        self.joint_state_sequence += 1
 
     def wait_for_moveit(self):
         self.node.get_logger().info("Aguardando o servidor de planejamento do MoveIt...")
@@ -120,10 +142,24 @@ class PickAndPlace:
         joint = JointConstraint()
         joint.joint_name = "right_clamp"
         joint.position = position
-        joint.tolerance_above = 0.001
-        joint.tolerance_below = 0.001
+        joint.tolerance_above = GRIPPER_JOINT_TOLERANCE
+        joint.tolerance_below = GRIPPER_JOINT_TOLERANCE
         joint.weight = 1.0
         constraints.joint_constraints.append(joint)
+        return constraints
+
+    @staticmethod
+    def home_constraints():
+        """Cria a meta articular equivalente ao estado nomeado ``home``."""
+        constraints = Constraints()
+        for joint_name, position in HOME_JOINTS.items():
+            joint = JointConstraint()
+            joint.joint_name = joint_name
+            joint.position = position
+            joint.tolerance_above = HOME_JOINT_TOLERANCE
+            joint.tolerance_below = HOME_JOINT_TOLERANCE
+            joint.weight = 1.0
+            constraints.joint_constraints.append(joint)
         return constraints
 
     def execute_goal(self, group, constraints):
@@ -159,15 +195,23 @@ class PickAndPlace:
     def move_arm(self, pose, description):
         self.node.get_logger().info(description)
         self.execute_goal(ARM_GROUP, self.position_constraints(pose))
+        time.sleep(1)
+
+    def move_home(self):
+        self.node.get_logger().info("Indo para a pose home")
+        self.execute_goal(ARM_GROUP, self.home_constraints())
+        time.sleep(1)
 
     def move_gripper(self, position, description):
         self.node.get_logger().info(description)
         self.execute_goal(GRIPPER_GROUP, self.gripper_constraints(position))
-        time.sleep(5)
+        time.sleep(1)
 
     def run(self):
         self.wait_for_moveit()
+        self.move_home()
 
+        # Definindo as poses para pegar e colocar o objeto
         object_pose = self.pose(OBJECT_X, OBJECT_Y, OBJECT_Z, OBJECT_ANGLE_DEG)
         object_above = self.pose(
             OBJECT_X, OBJECT_Y, OBJECT_Z + APPROACH_HEIGHT, OBJECT_ANGLE_DEG
@@ -177,15 +221,22 @@ class PickAndPlace:
             PLACE_X, PLACE_Y, PLACE_Z + APPROACH_HEIGHT, PLACE_ANGLE_DEG
         )
 
-        # self.move_gripper(GRIPPER_OPEN_POSITION, "Abrindo a garra")
+        # Executando a sequência de pegar objeto
+        self.move_gripper(GRIPPER_OPEN_POSITION, "Abrindo a garra")
         self.move_arm(object_above, "Indo para cima do objeto")
         self.move_arm(object_pose, "Descendo até o objeto")
         self.move_gripper(GRIPPER_CLOSED_POSITION, "Fechando a garra")
         self.move_arm(object_above, "Levantando o objeto")
+
+        # Executando a sequência de colocar objeto
+        self.move_home()
         self.move_arm(place_above, "Indo para a aproximação do destino")
         self.move_arm(place_pose, "Indo para a posição de colocação")
         self.move_gripper(GRIPPER_OPEN_POSITION, "Abrindo a garra")
         self.move_arm(place_above, "Levantando a garra")
+
+        # Retornando para a pose home
+        self.move_home()
         self.node.get_logger().info("Sequência concluída")
 
 
