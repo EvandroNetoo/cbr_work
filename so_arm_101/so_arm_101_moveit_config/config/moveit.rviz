@@ -13,6 +13,13 @@ Visualization Manager:
     - Class: rviz_default_plugins/Grid
       Name: Grid
       Value: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: RobotModel (TCP visível)
+      Robot Description: robot_description
+      Update Interval: 0
+      Visual Enabled: true
+      Collision Enabled: false
+      Value: true
     - Class: moveit_rviz_plugin/MotionPlanning
       Name: MotionPlanning
       Planned Path:

@@ -14,7 +14,7 @@ URDF_PATH = os.path.join(
     'so_101.urdf.xacro')
 
 
-def test_srdf_matches_urdf_root_and_arm_chain():
+def test_srdf_matches_urdf_root_arm_chain_and_tcp():
     root = ET.parse(os.path.join(CONFIG_DIR, 'so_arm_101.srdf')).getroot()
     urdf = ET.parse(URDF_PATH).getroot()
     chain = root.find("group[@name='arm']/chain")
@@ -23,7 +23,13 @@ def test_srdf_matches_urdf_root_and_arm_chain():
     assert world_joint.attrib['type'] == 'fixed'
     assert world_joint.find('parent').attrib['link'] == 'world'
     assert world_joint.find('child').attrib['link'] == 'base_link'
-    assert chain.attrib == {'base_link': 'base_link', 'tip_link': 'link5_1'}
+    assert chain.attrib == {'base_link': 'base_link', 'tip_link': 'gripper_tcp'}
+    tcp_joint = urdf.find("joint[@name='link5_to_gripper_tcp']")
+    assert tcp_joint.attrib['type'] == 'fixed'
+    assert tcp_joint.find('parent').attrib['link'] == 'link5_1'
+    assert tcp_joint.find('child').attrib['link'] == 'gripper_tcp'
+    assert tcp_joint.find('origin').attrib == {
+        'xyz': '0 -0.10 0', 'rpy': '0 0 0'}
 
 
 def test_moveit_controllers_match_ros2_control():
@@ -51,10 +57,11 @@ def test_all_arm_joints_have_acceleration_overrides():
         assert limits[name]['max_acceleration'] > 0.0
 
 
-def test_kinematics_uses_jazzy_solver_key():
+def test_kinematics_uses_position_only_kdl_for_five_dof_arm():
     data = yaml.safe_load(open(os.path.join(CONFIG_DIR, 'kinematics.yaml')))
     assert data['arm']['kinematics_solver'] == (
         'kdl_kinematics_plugin/KDLKinematicsPlugin')
+    assert data['arm']['position_only_ik'] is True
 
 
 def test_gripper_named_states_match_visual_motion():

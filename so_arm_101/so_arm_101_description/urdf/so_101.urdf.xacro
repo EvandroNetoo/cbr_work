@@ -152,6 +152,24 @@
     </collision>
   </link>
 
+  <!-- Tool Center Point: centro nominal de pega entre os dedos. -->
+  <link name="gripper_tcp">
+    <!-- Esfera vermelha para localizar o TCP no RobotModel do RViz. -->
+    <visual>
+      <geometry>
+        <sphere radius="0.006"/>
+      </geometry>
+      <material name="tcp_marker"/>
+    </visual>
+  </link>
+
+  <joint name="link5_to_gripper_tcp" type="fixed">
+    <parent link="link5_1"/>
+    <child link="gripper_tcp"/>
+    <!-- Os dedos ocupam aproximadamente y=-0.052 a -0.132 m em link5_1. -->
+    <origin xyz="0 -0.10 0" rpy="0 0 0"/>
+  </joint>
+
   <link name="clamp_1">
     <inertial>
       <origin xyz="0.0601695113719365 0.14480677890200364 0.1844826866723634" rpy="0 0 0"/>

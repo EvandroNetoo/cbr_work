@@ -5,4 +5,9 @@
     <color rgba="0.700 0.700 0.700 1.000"/>
   </material>
 
+  <!-- Marcador visual do Tool Center Point no RViz. -->
+  <material name="tcp_marker">
+    <color rgba="1.000 0.050 0.050 1.000"/>
+  </material>
+
 </robot>
