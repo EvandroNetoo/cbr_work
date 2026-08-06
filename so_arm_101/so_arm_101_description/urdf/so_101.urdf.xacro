@@ -167,7 +167,7 @@
     <parent link="link5_1"/>
     <child link="gripper_tcp"/>
     <!-- Os dedos ocupam aproximadamente y=-0.052 a -0.132 m em link5_1. -->
-    <origin xyz="0 -0.10 0" rpy="0 0 0"/>
+    <origin xyz="0 -0.127 0" rpy="0 0 0"/>
   </joint>
 
   <link name="clamp_1">
@@ -242,7 +242,7 @@
   <!-- Joint 3: Elbow — STS3215 servo -->
   <joint name="link2_to_link3" type="revolute">
     <!-- Rotate the joint frame so q=0 is the LeRobot calibration zero. -->
-    <origin xyz="0.00151 0.112435 0.029417" rpy="-1.6 0 0"/>
+    <origin xyz="0.00151 0.112435 0.029417" rpy="-1.7 0 0"/>
     <parent link="link2_1"/>
     <child link="link3_1"/>
     <axis xyz="-0.999924 -0.00865 -0.008802"/>

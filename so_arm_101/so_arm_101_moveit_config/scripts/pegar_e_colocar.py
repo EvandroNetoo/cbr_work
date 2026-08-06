@@ -29,15 +29,16 @@ END_EFFECTOR_LINK = "gripper_tcp"
 
 # Estas são as únicas coordenadas necessárias para o pick-and-place.
 # Todas estão em metros e no referencial base_link.
-OBJECT_X = -0.15
-OBJECT_Y = -0.20
-OBJECT_Z = 0.025
+OBJECT_X = -0.20
+OBJECT_Y = -0.15
+OBJECT_Z = 0.0
+OBJECT_ANGLE_DEG = 0.0
 APPROACH_HEIGHT = 0.05
+
 PLACE_X = 0.15
 PLACE_Y = 0.0
-PLACE_Z = 0.025
-OBJECT_ANGLE_DEG = 0.0
-PLACE_ANGLE_DEG = 0.0
+PLACE_Z = 0.0
+PLACE_ANGLE_DEG = 90.0
 
 POSITION_TOLERANCE = 0.01
 # Pega por cima: uma rotação de +90 graus em X aponta o eixo local -Y da
@@ -46,20 +47,30 @@ TILT_TOLERANCE = 0.20
 ANGLE_TOLERANCE = math.radians(5.0)
 
 # Conforme os estados definidos no SO-ARM-101.srdf.
-GRIPPER_OPEN_POSITION = 0.037
-GRIPPER_CLOSED_POSITION = 0.018
+GRIPPER_OPEN_POSITION = 0.03
+GRIPPER_CLOSED_POSITION = 0.02
 GRIPPER_JOINT_TOLERANCE = 0.001
 
 # Pose ``home`` definida em so_arm_101.srdf. Como este script envia a ação
 # MoveGroup diretamente, ela é representada pelas restrições articulares.
 HOME_JOINTS = {
-    "base_link_to_link1": 1.5,
+    "base_link_to_link1": 1.57,
     "link1_to_link2": 1.83,
     "link2_to_link3": -1.6,
     "link3_to_link4": 1.7,
     "link4_to_link5": 0.0,
 }
 HOME_JOINT_TOLERANCE = 0.01
+
+
+DEPOSIT_CUBE_LEFT_JOINTS = {
+    "base_link_to_link1": 1.57,
+    "link1_to_link2": 0.98,
+    "link2_to_link3": -1.13,
+    "link3_to_link4": -1.56,
+    "link4_to_link5": 0.0
+}
+
 
 PLANNING_TIME = 15.0
 PLANNING_ATTEMPTS = 10
