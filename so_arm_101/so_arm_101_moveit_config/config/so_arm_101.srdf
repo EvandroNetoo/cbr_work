@@ -46,6 +46,10 @@
     <joint name="right_clamp" value="0.0"/>
   </group_state>
 
+  <group_state name="grip" group="gripper">
+    <joint name="right_clamp" value="0.023"/>
+  </group_state>
+
   <!-- Adjacent links are intentionally allowed to be in contact. -->
   <disable_collisions link1="base_link" link2="link1_1" reason="Adjacent"/>
   <disable_collisions link1="link1_1" link2="link2_1" reason="Adjacent"/>
