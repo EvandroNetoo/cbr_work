@@ -6,6 +6,9 @@ import pytest
 from so_arm_101_description.limits import load_joint_limits
 
 URDF_PATH = os.path.join(os.path.dirname(__file__), '..', 'urdf', 'so_101.urdf.xacro')
+CAMERA_MODULE_PATH = os.path.join(
+    os.path.dirname(__file__), '..', 'urdf', 'laptop_camera.xacro'
+)
 
 EXPECTED_LINKS = [
     'base_link', 'link1_1', 'link2_1', 'link3_1',
@@ -79,6 +82,22 @@ def test_link_has_inertial_visual_collision(urdf_root, link_name):
         assert link_el.find('collision') is not None, (
             f'{link_name} missing collision'
         )
+
+
+def test_laptop_camera_module_is_visual_only_and_compact():
+    module_root = ET.parse(CAMERA_MODULE_PATH).getroot()
+    camera = module_root.find(".//link[@name='${camera_link}']")
+    joint = module_root.find(".//joint[@name='${parent_link}_to_${camera_link}']")
+    assert camera is not None
+    assert camera.find('collision') is None
+    assert camera.find("visual/geometry/box").attrib['size'] == '0.050 0.002 0.020'
+    assert joint is not None
+
+
+def test_laptop_camera_is_attached_to_link4(urdf_root):
+    camera_call = urdf_root.find('{http://www.ros.org/wiki/xacro}laptop_camera')
+    assert camera_call is not None
+    assert camera_call.attrib['parent_link'] == 'link4_1'
 
 
 def test_left_gripper_joint_mimics_the_single_actuator(urdf_root, model_limits):

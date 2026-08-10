@@ -8,6 +8,7 @@
 
   <!-- Includes -->
   <xacro:include filename="$(find so_arm_101_description)/urdf/materials.xacro"/>
+  <xacro:include filename="$(find so_arm_101_description)/urdf/laptop_camera.xacro"/>
   <xacro:include filename="$(find so_arm_101_description)/urdf/so_101.ros2_control.xacro"/>
   <xacro:property name="joint_limits" value="${xacro.load_yaml('$(find so_arm_101_description)/config/joint_limits.yaml')['joint_limits']}"/>
 
@@ -169,6 +170,9 @@
     <!-- Os dedos ocupam aproximadamente y=-0.052 a -0.132 m em link5_1. -->
     <origin xyz="0 -0.13 0" rpy="0 0 0"/>
   </joint>
+
+  <!-- Webcam modular colada à face inferior do link4_1. -->
+  <xacro:laptop_camera parent_link="link4_1"/>
 
   <link name="clamp_1">
     <inertial>

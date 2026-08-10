@@ -10,4 +10,12 @@
     <color rgba="1.000 0.050 0.050 1.000"/>
   </material>
 
+  <!-- Materiais da webcam compacta fixada no punho. -->
+  <material name="camera_body">
+    <color rgba="0.075 0.075 0.085 1.000"/>
+  </material>
+  <material name="camera_lens">
+    <color rgba="0.020 0.120 0.180 1.000"/>
+  </material>
+
 </robot>
