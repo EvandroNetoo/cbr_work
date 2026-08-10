@@ -11,7 +11,7 @@
       <!-- Largura (X) 50 mm, espessura (Y) 2 mm, altura (Z) 20 mm. -->
       <visual>
         <geometry>
-          <box size="0.050 0.002 0.015"/>
+          <box size="0.0635 0.0026 0.0087"/>
         </geometry>
         <material name="camera_body"/>
       </visual>
