@@ -20,12 +20,13 @@ LINK_FIM_DA_GARRA: Final[str] = "gripper_tcp"
 
 OBJETO_X: Final[float] = -0.15
 OBJETO_Y: Final[float] = -0.25
-OBJETO_Z: Final[float] = 0.02
+OBJETO_Z: Final[float] = 0.065
 ANGULO_DO_OBJETO_EM_GRAUS: Final[float] = 0.0
-ALTURA_DE_APROXIMACAO: Final[float] = 0.0
+ALTURA_DE_APROXIMACAO: Final[float] = 0.07
 
 TOLERANCIA_DE_POSICAO: Final[float] = 0.01
 TOLERANCIA_DE_INCLINACAO: Final[float] = 0.20
+TOLERANCIA_DE_INCLINACAO_DA_PRE_PEGADA: Final[float] = math.radians(35.0)
 TOLERANCIA_DE_ANGULO: Final[float] = math.radians(5.0)
 TOLERANCIA_DA_JUNTA_DA_GARRA: Final[float] = 0.001
 TOLERANCIA_DAS_JUNTAS_DE_ESTADOS: Final[float] = 0.01

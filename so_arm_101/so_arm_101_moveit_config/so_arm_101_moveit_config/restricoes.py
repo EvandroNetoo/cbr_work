@@ -20,6 +20,7 @@ from .configuracao import (
     TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
     TOLERANCIA_DE_ANGULO,
     TOLERANCIA_DE_INCLINACAO,
+    TOLERANCIA_DE_INCLINACAO_DA_PRE_PEGADA,
     TOLERANCIA_DE_POSICAO,
 )
 
@@ -58,14 +59,17 @@ def _criar_restricao_de_posicao(posicao: PoseStamped) -> PositionConstraint:
     return restricao
 
 
-def _criar_restricao_de_orientacao(posicao: PoseStamped) -> OrientationConstraint:
+def _criar_restricao_de_orientacao(
+    posicao: PoseStamped,
+    tolerancia_de_inclinacao: float = TOLERANCIA_DE_INCLINACAO,
+) -> OrientationConstraint:
     restricao = OrientationConstraint()
     restricao.header = posicao.header
     restricao.link_name = LINK_FIM_DA_GARRA
     restricao.orientation = posicao.pose.orientation
-    restricao.absolute_x_axis_tolerance = TOLERANCIA_DE_INCLINACAO
+    restricao.absolute_x_axis_tolerance = tolerancia_de_inclinacao
     restricao.absolute_y_axis_tolerance = TOLERANCIA_DE_ANGULO
-    restricao.absolute_z_axis_tolerance = TOLERANCIA_DE_INCLINACAO
+    restricao.absolute_z_axis_tolerance = tolerancia_de_inclinacao
     restricao.weight = 1.0
     return restricao
 
@@ -91,16 +95,24 @@ def restricoes_de_deposito_acima(posicao: PoseStamped) -> ListaDeRestricoes:
 
 
 def restricoes_de_pre_pegada(posicao: PoseStamped) -> ListaDeRestricoes:
-    """Restringe posição e orientação antes de pegar o objeto."""
+    """Permite inclinar a garra na aproximação para ampliar as soluções de IK."""
     restricoes = Constraints()
     restricoes.position_constraints.append(_criar_restricao_de_posicao(posicao))
-    restricoes.orientation_constraints.append(_criar_restricao_de_orientacao(posicao))
+    restricoes.orientation_constraints.append(
+        _criar_restricao_de_orientacao(
+            posicao,
+            TOLERANCIA_DE_INCLINACAO_DA_PRE_PEGADA,
+        )
+    )
     return [restricoes]
 
 
 def restricoes_de_pegada(posicao: PoseStamped) -> ListaDeRestricoes:
-    """Restringe posição e orientação durante a pegada."""
-    return restricoes_de_pre_pegada(posicao)
+    """Mantém a orientação mais precisa durante o contato com o objeto."""
+    restricoes = Constraints()
+    restricoes.position_constraints.append(_criar_restricao_de_posicao(posicao))
+    restricoes.orientation_constraints.append(_criar_restricao_de_orientacao(posicao))
+    return [restricoes]
 
 
 def restricoes_de_posicao_inicial(

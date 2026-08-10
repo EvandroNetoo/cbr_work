@@ -108,6 +108,10 @@ class ExecutorDoMoveIt:
         objetivo.request.start_state.is_diff = True
         objetivo.planning_options.plan_only = False
         objetivo.planning_options.replan = True
+        # Aplica o objetivo sobre a Planning Scene monitorada, preservando os
+        # objetos do ambiente para a verificação de colisão de toda a trajetória.
+        objetivo.planning_options.planning_scene_diff.is_diff = True
+        objetivo.planning_options.planning_scene_diff.robot_state.is_diff = True
 
         futuro_do_envio = self.cliente_do_move_group.send_goal_async(objetivo)
         rclpy.spin_until_future_complete(self.no, futuro_do_envio)
