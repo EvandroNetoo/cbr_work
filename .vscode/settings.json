@@ -1,0 +1,33 @@
+{
+    "ROS2.distro": "jazzy",
+    "python.autoComplete.extraPaths": [
+        "/home/evandro/ros2_ws/build/so_arm_101",
+        "/home/evandro/ros2_ws/install/so_arm_101/lib/python3.12/site-packages",
+        "/home/evandro/ros2_ws/build/so_arm_101_teleop",
+        "/home/evandro/ros2_ws/install/so_arm_101_teleop/lib/python3.12/site-packages",
+        "/home/evandro/ros2_ws/build/so_arm_101_moveit_config",
+        "/home/evandro/ros2_ws/install/so_arm_101_moveit_config/lib/python3.12/site-packages",
+        "/home/evandro/ros2_ws/build/so_arm_101_bringup",
+        "/home/evandro/ros2_ws/install/so_arm_101_bringup/lib/python3.12/site-packages",
+        "/home/evandro/ros2_ws/build/so_arm_101_hardware",
+        "/home/evandro/ros2_ws/install/so_arm_101_hardware/lib/python3.12/site-packages",
+        "/home/evandro/ros2_ws/build/so_arm_101_description",
+        "/home/evandro/ros2_ws/install/so_arm_101_description/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/evandro/ros2_ws/build/so_arm_101",
+        "/home/evandro/ros2_ws/install/so_arm_101/lib/python3.12/site-packages",
+        "/home/evandro/ros2_ws/build/so_arm_101_teleop",
+        "/home/evandro/ros2_ws/install/so_arm_101_teleop/lib/python3.12/site-packages",
+        "/home/evandro/ros2_ws/build/so_arm_101_moveit_config",
+        "/home/evandro/ros2_ws/install/so_arm_101_moveit_config/lib/python3.12/site-packages",
+        "/home/evandro/ros2_ws/build/so_arm_101_bringup",
+        "/home/evandro/ros2_ws/install/so_arm_101_bringup/lib/python3.12/site-packages",
+        "/home/evandro/ros2_ws/build/so_arm_101_hardware",
+        "/home/evandro/ros2_ws/install/so_arm_101_hardware/lib/python3.12/site-packages",
+        "/home/evandro/ros2_ws/build/so_arm_101_description",
+        "/home/evandro/ros2_ws/install/so_arm_101_description/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ]
+}

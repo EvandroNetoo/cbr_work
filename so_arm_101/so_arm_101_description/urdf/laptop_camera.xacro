@@ -31,6 +31,14 @@
       <child link="${camera_link}"/>
       <origin xyz="-0.01 -0.04 -0.016" rpy="1.57079632679 0 0"/>
     </joint>
+
+    <!-- ROS optical-frame convention: X right, Y down, Z forward (lens). -->
+    <link name="${camera_link}_optical_frame"/>
+    <joint name="${camera_link}_to_optical_frame" type="fixed">
+      <parent link="${camera_link}"/>
+      <child link="${camera_link}_optical_frame"/>
+      <origin xyz="0 0 0" rpy="-1.57079632679 0 3.14159265359"/>
+    </joint>
   </xacro:macro>
 
 </robot>

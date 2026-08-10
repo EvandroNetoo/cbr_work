@@ -1,0 +1,12 @@
+apriltag_detector:
+  ros__parameters:
+    image_topic: /camera/image_rect
+    camera_info_topic: /camera/camera_info
+    base_frame: base_link
+    tag_frame_prefix: apriltag
+    family: tag36h11
+    tag_size_m: 0.032
+    nthreads: 2
+    quad_decimate: 1.0
+    min_decision_margin: 30.0
+    max_hamming: 0
