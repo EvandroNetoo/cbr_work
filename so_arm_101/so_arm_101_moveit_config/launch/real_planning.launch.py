@@ -27,7 +27,11 @@ def generate_launch_description():
         }.items())
     controller_ready = Node(
         package='so_arm_101_bringup', executable='wait_for_controllers',
-        output='screen', parameters=[{'timeout_sec': 10.0}])
+        output='screen',
+        # On Banana Pi, controller plugins can take several seconds to load
+        # sequentially after the manager service becomes available.
+        parameters=[{'timeout_sec': 60.0}],
+    )
     move_group_entities = generate_move_group_launch(moveit_config).entities
 
     def start_move_group(event, context):
