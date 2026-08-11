@@ -24,8 +24,10 @@ class ControllerReadiness(Node):
             ListControllers,
             self.get_parameter('controller_manager').value + '/list_controllers',
         )
-        self._deadline = self.get_clock().now().nanoseconds + int(
-            float(self.get_parameter('timeout_sec').value) * 1e9)
+        # The control manager starts only after the physical state readiness
+        # gate.  Do not spend the controller timeout while waiting for that
+        # gate; start the deadline when the service first appears.
+        self._deadline = None
         self._future = None
         self._exit_code = 1
         self._timer = self.create_timer(0.1, self._poll)
@@ -35,7 +37,7 @@ class ControllerReadiness(Node):
         return self._exit_code
 
     def _poll(self) -> None:
-        if self.get_clock().now().nanoseconds >= self._deadline:
+        if self._deadline is not None and self.get_clock().now().nanoseconds >= self._deadline:
             self.get_logger().fatal('Timeout aguardando controllers ativos.')
             rclpy.shutdown()
             return
@@ -60,6 +62,9 @@ class ControllerReadiness(Node):
                 self._future = None
             return
         if self._client.service_is_ready():
+            if self._deadline is None:
+                self._deadline = self.get_clock().now().nanoseconds + int(
+                    float(self.get_parameter('timeout_sec').value) * 1e9)
             self._future = self._client.call_async(ListControllers.Request())
 
 
