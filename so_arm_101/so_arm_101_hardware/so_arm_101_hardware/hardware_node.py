@@ -32,6 +32,7 @@ class SO101HardwareNode(Node):
         self.declare_parameter('calibration_file', '')
         self.declare_parameter('use_degrees', False)
         self.declare_parameter('read_rate_hz', 30.0)
+        self.declare_parameter('max_consecutive_io_failures', 5)
         self.declare_parameter('state_topic', '/so101_hardware/raw_joint_states')
         self.declare_parameter('command_topic', '/so101_hardware/command_positions')
         self._lock = threading.Lock()
@@ -40,6 +41,10 @@ class SO101HardwareNode(Node):
         self._last_positions = {}
         self._previous_positions = {}
         self._previous_read_time = None
+        self._max_consecutive_io_failures = max(
+            1, int(self.get_parameter('max_consecutive_io_failures').value))
+        self._read_failures = 0
+        self._write_failures = 0
 
         self.state_pub = self.create_publisher(
             JointState, self.get_parameter('state_topic').value, 10)
@@ -64,6 +69,7 @@ class SO101HardwareNode(Node):
             self.get_logger().info('SO-101 conectado via LeRobot/Feetech.')
         except Exception as error:
             self.get_logger().fatal(f'Falha ao conectar o SO-101: {error}')
+            raise RuntimeError(f'Falha ao conectar o SO-101: {error}') from error
 
         period = 1.0 / float(self.get_parameter('read_rate_hz').value)
         self.timer = self.create_timer(period, self._read_observation)
@@ -92,6 +98,7 @@ class SO101HardwareNode(Node):
             self._previous_positions = {
                 name: self._last_positions[name] for name in ROS_JOINT_ORDER}
             self._previous_read_time = read_time
+            self._reset_io_failure('_read_failures')
             message = JointState()
             message.header.stamp = self.get_clock().now().to_msg()
             message.name = list(ROS_JOINT_ORDER)
@@ -99,8 +106,7 @@ class SO101HardwareNode(Node):
             message.velocity = velocities
             self.state_pub.publish(message)
         except Exception as error:
-            self.get_logger().error(
-                f'Falha ao ler os motores: {error}', throttle_duration_sec=2.0)
+            self._handle_io_failure('ler', error, '_read_failures')
 
     def _command_callback(self, message: Float64MultiArray):
         if not self._connected:
@@ -115,9 +121,23 @@ class SO101HardwareNode(Node):
             with self._lock:
                 self.follower.send_action(
                     ros_to_action(values, use_degrees=self._use_degrees))
+            self._reset_io_failure('_write_failures')
         except Exception as error:
-            self.get_logger().error(
-                f'Falha ao comandar os motores: {error}', throttle_duration_sec=2.0)
+            self._handle_io_failure('comandar', error, '_write_failures')
+
+    def _handle_io_failure(self, operation, error, counter_name):
+        count = getattr(self, counter_name) + 1
+        setattr(self, counter_name, count)
+        message = (
+            f'Falha ao {operation} os motores ({count}/'
+            f'{self._max_consecutive_io_failures}): {error}')
+        if count >= self._max_consecutive_io_failures:
+            self.get_logger().fatal(message)
+            raise RuntimeError(message) from error
+        self.get_logger().error(message, throttle_duration_sec=2.0)
+
+    def _reset_io_failure(self, counter_name):
+        setattr(self, counter_name, 0)
 
     def _calibrate(self, request, response):
         del request
@@ -147,12 +167,20 @@ class SO101HardwareNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = SO101HardwareNode()
+    node = None
+    exit_code = 0
     try:
+        node = SO101HardwareNode()
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
+    except Exception as error:
+        if node is not None:
+            node.get_logger().fatal(f'Nó de hardware encerrado: {error}')
+        exit_code = 1
     finally:
-        node.destroy_node()
+        if node is not None:
+            node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+    return exit_code

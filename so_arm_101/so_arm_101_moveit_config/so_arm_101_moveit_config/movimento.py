@@ -42,7 +42,7 @@ class ExecutorDoMoveIt:
         self.no.get_logger().info("Aguardando o servidor de planejamento do MoveIt...")
         if not self.cliente_do_move_group.wait_for_server(timeout_sec=15.0):
             raise RuntimeError(
-                "Servidor /move_action não encontrado. Inicie o real_moveit.launch.py."
+                "Servidor /move_action não encontrado. Inicie o real_planning.launch.py na Banana Pi."
             )
 
     def mover_para_estado(

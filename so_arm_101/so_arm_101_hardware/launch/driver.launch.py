@@ -11,7 +11,9 @@ import sys
 from pathlib import Path
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -51,6 +53,22 @@ def _default_python_executable() -> str:
 
 def generate_launch_description() -> LaunchDescription:
     hardware_share = FindPackageShare('so_arm_101_hardware')
+    driver_node = Node(
+        package='so_arm_101_hardware',
+        executable='so101_hardware_node',
+        name='so101_hardware_node',
+        output='screen',
+        prefix=LaunchConfiguration('python_executable'),
+        parameters=[
+            PathJoinSubstitution([hardware_share, 'config', 'real.yaml']),
+            {
+                'port': LaunchConfiguration('port'),
+                'robot_id': LaunchConfiguration('robot_id'),
+                'calibration_file': LaunchConfiguration('calibration_file'),
+            },
+        ],
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument('port', default_value=''),
         DeclareLaunchArgument('robot_id', default_value='so101_follower'),
@@ -66,19 +84,12 @@ def generate_launch_description() -> LaunchDescription:
             default_value=PathJoinSubstitution([
                 hardware_share, 'config', 'so101_follower.json']),
         ),
-        Node(
-            package='so_arm_101_hardware',
-            executable='so101_hardware_node',
-            name='so101_hardware_node',
-            output='screen',
-            prefix=LaunchConfiguration('python_executable'),
-            parameters=[
-                PathJoinSubstitution([hardware_share, 'config', 'real.yaml']),
-                {
-                    'port': LaunchConfiguration('port'),
-                    'robot_id': LaunchConfiguration('robot_id'),
-                    'calibration_file': LaunchConfiguration('calibration_file'),
-                },
-            ],
+        driver_node,
+        RegisterEventHandler(
+            OnProcessExit(
+                target_action=driver_node,
+                on_exit=[EmitEvent(event=Shutdown(reason=(
+                    'O driver físico do SO-101 encerrou inesperadamente.')))],
+            )
         ),
     ])

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>cbr_bringup</name>
+  <version>0.1.0</version>
+  <description>Embedded bringup profile for the CBR robot.</description>
+  <maintainer email="todo@todo.com">author</maintainer>
+  <license>GPL-3.0-only</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>so_arm_101_hardware</exec_depend>
+  <exec_depend>so_arm_101_bringup</exec_depend>
+  <exec_depend>so_arm_101_moveit_config</exec_depend>
+  <exec_depend>cbr_apriltag</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -8,8 +8,9 @@ junta passiva (`left_clamp`) que a acompanha por `mimic`.
 ## Arquitetura
 
 ```text
+cbr_bringup              -> perfil embarcado do robô (Banana Pi)
 so_arm_101_description  -> URDF/Xacro, ros2_control, limites e meshes
-so_arm_101_bringup      -> launch, controllers, RViz e Gazebo
+so_arm_101_bringup      -> launch headless, controllers, RViz e Gazebo
 so_arm_101_hardware     -> nó Python LeRobot/Feetech do follower
 so_arm_101_hardware_interface -> plugin C++ SystemInterface
 so_arm_101_moveit_config -> MoveIt 2, SRDF, OMPL e RViz de planejamento
@@ -66,10 +67,16 @@ Para o hardware, o Xacro recebe `use_real_ros2_control:=true` e o plugin
 
 ## RViz e simulação
 
-Visualização sem controllers, usando sliders:
+Visualização do robô em execução (no notebook):
 
 ```bash
-ros2 launch so_arm_101_bringup display.launch.py
+ros2 launch so_arm_101_bringup rviz.launch.py
+```
+
+Inspeção offline do modelo, usando sliders:
+
+```bash
+ros2 launch so_arm_101_bringup model_demo.launch.py
 ```
 
 Gazebo com `gz_ros2_control`:
@@ -79,15 +86,11 @@ ros2 launch so_arm_101_bringup sim.launch.py
 ros2 launch so_arm_101_bringup sim.launch.py headless:=true
 ```
 
-Simulação com RViz e teclado:
-
-```bash
-ros2 launch so_arm_101_bringup keyboard_control.launch.py
-```
-
-O teclado publica `JointTrajectory` em `/arm_controller/joint_trajectory` e
+O teclado (executado separadamente no notebook) publica `JointTrajectory` em
+`/arm_controller/joint_trajectory` e
 `/gripper_controller/joint_trajectory`. As teclas são `q/a`, `w/s`, `e/d`,
 `r/f`, `t/g` para as cinco juntas do braço e `y/h` para fechar/abrir a garra.
+Execute-o no notebook com `ros2 run so_arm_101_teleop keyboard_teleop`.
 
 ## Hardware real
 
@@ -110,6 +113,22 @@ Esse launch inicia o driver LeRobot, `robot_state_publisher`,
 somente o driver para diagnóstico; `real.launch.py` nesse pacote é mantido
 como wrapper de compatibilidade.
 
+Para executar o perfil embarcado completo na Banana Pi, com planejamento
+MoveIt e sem telas:
+
+```bash
+ros2 launch cbr_bringup robot.launch.py \
+  port:=/dev/ttyUSB0 robot_id:=meu_so101
+```
+
+O AprilTag é opcional e exige que um driver externo publique os tópicos da
+câmera:
+
+```bash
+ros2 launch cbr_bringup robot.launch.py \
+  port:=/dev/ttyUSB0 enable_apriltag:=true
+```
+
 Para calibrar pelo serviço do driver:
 
 ```bash
@@ -124,11 +143,17 @@ Simulação completa com MoveIt e RViz:
 ros2 launch so_arm_101_moveit_config demo.launch.py
 ```
 
-Hardware real, MoveIt e RViz:
+Hardware real e MoveIt no computador do robô:
 
 ```bash
-ros2 launch so_arm_101_moveit_config real_moveit.launch.py \
+ros2 launch so_arm_101_moveit_config real_planning.launch.py \
   port:=/dev/ttyUSB0 robot_id:=meu_so101
+```
+
+No notebook, abra apenas a interface gráfica do MoveIt:
+
+```bash
+ros2 launch so_arm_101_moveit_config moveit_rviz.launch.py
 ```
 
 O MoveIt usa o grupo `arm` para as cinco juntas revolutas e o grupo `gripper`
