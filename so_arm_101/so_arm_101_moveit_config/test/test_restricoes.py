@@ -9,9 +9,27 @@ from so_arm_101_moveit_config.configuracao import (
 )
 from so_arm_101_moveit_config.restricoes import (
     criar_pose,
+    normalizar_angulo_de_pegada,
     restricoes_de_pegada,
     restricoes_de_pre_pegada,
 )
+
+
+def test_angulo_da_pegada_usa_simetria_do_cubo_a_cada_90_graus():
+    casos = {
+        0.0: 0.0,
+        30.0: 30.0,
+        45.0: 45.0,
+        80.0: -10.0,
+        100.0: 10.0,
+        170.0: -10.0,
+        -45.0: -45.0,
+        -70.0: 20.0,
+        -100.0: -10.0,
+    }
+
+    for angulo, esperado in casos.items():
+        assert normalizar_angulo_de_pegada(angulo) == esperado
 
 
 def _orientacao_das(restricoes):

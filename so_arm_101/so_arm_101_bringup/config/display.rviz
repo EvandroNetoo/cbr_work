@@ -92,7 +92,7 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        laptop_camera:
+        camera_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -129,7 +129,7 @@ Visualization Manager:
           Value: true
         link5_1:
           Value: true
-        laptop_camera:
+        camera_link:
           Value: true
         clamp_1:
           Value: true
@@ -146,8 +146,9 @@ Visualization Manager:
             link2_1:
               link3_1:
                 link4_1:
-                  laptop_camera:
-                    {}
+                  camera_link:
+                    camera_optical_frame:
+                      {}
                   link5_1:
                     clamp_1:
                       {}

@@ -10,3 +10,5 @@ apriltag_detector:
     quad_decimate: 1.0
     min_decision_margin: 30.0
     max_hamming: 0
+    feedback_rate_hz: 5.0
+    suppress_native_pose_warning: true

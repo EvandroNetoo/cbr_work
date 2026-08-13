@@ -28,6 +28,21 @@ from .configuracao import (
 ListaDeRestricoes = list[Constraints]
 
 
+def normalizar_angulo_de_pegada(angulo_em_graus: float) -> float:
+    """Escolhe a orientação equivalente que exige no máximo 45 graus.
+
+    Um cubo pode ser segurado por qualquer um dos seus dois pares de faces
+    laterais. Como a garra é paralela, girá-la 90 graus produz uma pegada
+    equivalente.
+    """
+    angulo_equivalente = math.fmod(angulo_em_graus, 90.0)
+    if angulo_equivalente > 45.0:
+        angulo_equivalente -= 90.0
+    elif angulo_equivalente < -45.0:
+        angulo_equivalente += 90.0
+    return angulo_equivalente
+
+
 def criar_pose(x: float, y: float, z: float, angulo_em_graus: float) -> PoseStamped:
     """Cria uma pose com a garra apontada para baixo."""
     metade_do_angulo = math.radians(angulo_em_graus) / 2.0

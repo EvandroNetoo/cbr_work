@@ -121,12 +121,11 @@ ros2 launch cbr_bringup robot.launch.py \
   port:=/dev/ttyUSB0 robot_id:=meu_so101
 ```
 
-O AprilTag é opcional e exige que um driver externo publique os tópicos da
-câmera:
+O perfil embarcado inicia também a câmera calibrada e o detector AprilTag:
 
 ```bash
 ros2 launch cbr_bringup robot.launch.py \
-  port:=/dev/ttyUSB0 enable_apriltag:=true
+  port:=/dev/ttyUSB0
 ```
 
 Para calibrar pelo serviço do driver:
@@ -164,6 +163,38 @@ para os dois dedos. A execução usa as actions padrão dos
 /arm_controller/follow_joint_trajectory
 /gripper_controller/follow_joint_trajectory
 ```
+
+### Pegar e colocar por AprilTag
+
+Em `so_arm_101_moveit_config/so_arm_101_moveit_config/configuracao.py`, defina
+`APRIL_TAG_ID` com o ID preso ao objeto:
+
+```python
+APRIL_TAG_ID: Final[int | None] = 7
+```
+
+A sequência move a câmera para o estado `detect_apriltags`, chama a ação
+`/apriltags/analyze` por `TEMPO_DE_ANALISE_DA_APRIL_TAG`, procura o ID no
+resultado transformado para `base_link` e usa a posição da tag como
+`OBJETO_X`, `OBJETO_Y` e `OBJETO_Z`. Como a tag fica sobre o cubo e o TCP está
+na ponta da garra, a sequência subtrai `TAMANHO_DO_CUBO` do `Z` detectado para
+calcular a altura da pegada. O valor inicial é `0.05` m (5 cm). O yaw da
+pegada vem da orientação detectada da tag. Como o objeto é um cubo e a garra é
+paralela, orientações separadas por 90 graus são equivalentes; a sequência
+escolhe automaticamente a equivalente no intervalo de -45 a +45 graus para
+evitar uma rotação desnecessária do punho.
+
+Para manter o comportamento cartesiano anterior, use:
+
+```python
+APRIL_TAG_ID: Final[int | None] = None
+```
+
+Nesse modo, o yaw continua vindo de `ANGULO_DO_OBJETO_EM_GRAUS` e recebe a
+mesma normalização por simetria.
+
+Se o detector, a transformação para `base_link` ou o ID solicitado não
+estiver disponível, a sequência é interrompida antes da aproximação.
 
 ## Garra adaptada
 

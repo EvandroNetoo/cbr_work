@@ -62,7 +62,9 @@ def generate_launch_description() -> LaunchDescription:
     readiness = Node(
         package='so_arm_101_bringup', executable='wait_for_joint_states',
         output='screen',
-        parameters=[{'timeout_sec': 10.0}],
+        parameters=[{
+            'timeout_sec': LaunchConfiguration('hardware_state_timeout'),
+        }],
     )
     spawn_joint = Node(
         package='controller_manager', executable='spawner',
@@ -101,6 +103,13 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('port', default_value=''),
         DeclareLaunchArgument('robot_id', default_value='so101_follower'),
+        DeclareLaunchArgument(
+            'hardware_state_timeout',
+            default_value='45.0',
+            description=(
+                'Maximum seconds to wait for the physical driver to connect '
+                'and publish one complete joint state.'),
+        ),
         DeclareLaunchArgument(
             'calibration_file',
             default_value=PathJoinSubstitution([

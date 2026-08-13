@@ -24,6 +24,8 @@ def generate_launch_description():
             'port': LaunchConfiguration('port'),
             'robot_id': LaunchConfiguration('robot_id'),
             'calibration_file': LaunchConfiguration('calibration_file'),
+            'hardware_state_timeout': LaunchConfiguration(
+                'hardware_state_timeout'),
         }.items())
     controller_ready = Node(
         package='so_arm_101_bringup', executable='wait_for_controllers',
@@ -52,6 +54,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('port', default_value=''),
         DeclareLaunchArgument('robot_id', default_value='so101_follower'),
+        DeclareLaunchArgument(
+            'hardware_state_timeout', default_value='45.0'),
         DeclareLaunchArgument(
             'calibration_file',
             default_value=PathJoinSubstitution([

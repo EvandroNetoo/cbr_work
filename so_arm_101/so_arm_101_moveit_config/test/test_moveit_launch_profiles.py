@@ -11,6 +11,7 @@ def test_real_planning_is_headless():
     assert 'generate_move_group_launch' in source
     assert 'generate_moveit_rviz_launch' not in source
     assert 'rviz2' not in source
+    assert "'hardware_state_timeout': LaunchConfiguration(" in source
 
 
 def test_old_real_moveit_profile_is_removed():

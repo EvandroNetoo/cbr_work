@@ -1,0 +1,39 @@
+<?xml version="1.0" ?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Camera rigidly mounted under link4_1. Measurements are lens-centered. -->
+  <xacro:macro name="cbr_camera_mount" params="parent_link">
+    <link name="camera_link">
+      <visual>
+        <geometry>
+          <box size="0.0635 0.0026 0.0087"/>
+        </geometry>
+        <material name="camera_body"/>
+      </visual>
+      <visual>
+        <!-- The physical lens points along -Y of camera_link. -->
+        <origin xyz="0 -0.0015 0" rpy="1.57079632679 0 0"/>
+        <geometry>
+          <cylinder radius="0.0025" length="0.001"/>
+        </geometry>
+        <material name="camera_lens"/>
+      </visual>
+    </link>
+
+    <joint name="${parent_link}_to_camera_link" type="fixed">
+      <parent link="${parent_link}"/>
+      <child link="camera_link"/>
+      <!-- Measured from link4_1 origin to the optical center. -->
+      <origin xyz="-0.0105 -0.0435 -0.016" rpy="1.57079632679 0 0"/>
+    </joint>
+
+    <!-- REP-103 optical convention: X right, Y down, Z forward. -->
+    <link name="camera_optical_frame"/>
+    <joint name="camera_link_to_camera_optical_frame" type="fixed">
+      <parent link="camera_link"/>
+      <child link="camera_optical_frame"/>
+      <origin xyz="0 0 0" rpy="-1.57079632679 0 3.14159265359"/>
+    </joint>
+  </xacro:macro>
+
+</robot>

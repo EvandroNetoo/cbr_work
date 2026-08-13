@@ -7,7 +7,7 @@ from so_arm_101_description.limits import load_joint_limits
 
 URDF_PATH = os.path.join(os.path.dirname(__file__), '..', 'urdf', 'so_101.urdf.xacro')
 CAMERA_MODULE_PATH = os.path.join(
-    os.path.dirname(__file__), '..', 'urdf', 'laptop_camera.xacro'
+    os.path.dirname(__file__), '..', 'urdf', 'camera_mount.xacro'
 )
 
 EXPECTED_LINKS = [
@@ -84,18 +84,22 @@ def test_link_has_inertial_visual_collision(urdf_root, link_name):
         )
 
 
-def test_laptop_camera_module_is_visual_only_and_compact():
+def test_camera_mount_is_visual_only_and_uses_measured_pose():
     module_root = ET.parse(CAMERA_MODULE_PATH).getroot()
-    camera = module_root.find(".//link[@name='${camera_link}']")
-    joint = module_root.find(".//joint[@name='${parent_link}_to_${camera_link}']")
+    camera = module_root.find(".//link[@name='camera_link']")
+    joint = module_root.find(
+        ".//joint[@name='${parent_link}_to_camera_link']")
     assert camera is not None
     assert camera.find('collision') is None
-    assert camera.find("visual/geometry/box").attrib['size'] == '0.050 0.002 0.020'
+    assert camera.find("visual/geometry/box").attrib['size'] == (
+        '0.0635 0.0026 0.0087')
     assert joint is not None
+    assert joint.find('origin').attrib['xyz'] == '-0.0105 -0.0435 -0.016'
 
 
-def test_laptop_camera_is_attached_to_link4(urdf_root):
-    camera_call = urdf_root.find('{http://www.ros.org/wiki/xacro}laptop_camera')
+def test_camera_is_attached_to_link4(urdf_root):
+    camera_call = urdf_root.find(
+        '{http://www.ros.org/wiki/xacro}cbr_camera_mount')
     assert camera_call is not None
     assert camera_call.attrib['parent_link'] == 'link4_1'
 

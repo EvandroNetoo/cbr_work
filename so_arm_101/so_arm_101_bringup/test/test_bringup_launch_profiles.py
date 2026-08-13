@@ -16,6 +16,13 @@ def test_embedded_profiles_do_not_start_desktop_processes():
     assert not any(term in source for term in banned)
 
 
+def test_real_profile_waits_for_slow_physical_initialization():
+    source = _source('real.launch.py')
+    assert "DeclareLaunchArgument(\n            'hardware_state_timeout'" in source
+    assert "default_value='45.0'" in source
+    assert "LaunchConfiguration('hardware_state_timeout')" in source
+
+
 def test_live_rviz_profile_has_no_robot_state_or_joint_state_publisher():
     source = _source('rviz.launch.py')
     assert "package='rviz2'" in source

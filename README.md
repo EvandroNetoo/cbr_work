@@ -15,6 +15,7 @@ O notebook não é necessário para o controle ou planejamento do robô.
 ## Pacotes principais
 
 - `cbr_bringup`: perfil embarcado completo do robô.
+- `cbr_camera`: aquisição e retificação da câmera, independentes do robô.
 - `so_arm_101`: descrição, hardware, controllers, teleop e MoveIt do braço.
 - `cbr_apriltag`: detector AprilTag, usando tópicos de câmera externos.
 
@@ -40,14 +41,9 @@ ros2 launch cbr_bringup robot.launch.py \
   robot_id:=so101_follower
 ```
 
-O AprilTag fica desligado por padrão. Habilite-o quando uma câmera já estiver
-publicando os tópicos configurados:
-
-```bash
-ros2 launch cbr_bringup robot.launch.py \
-  port:=/dev/ttyUSB0 \
-  enable_apriltag:=true
-```
+Esse único launch também inicia `/dev/video1` em 320 x 240, carrega a
+calibração intrínseca, publica `/camera/image_rect` e executa o detector dos
+AprilTags `tag36h11` de IDs 0 a 14.
 
 O sistema aguarda um estado completo das seis juntas antes de iniciar os
 controllers. Falha inicial de conexão ou cinco falhas consecutivas de
