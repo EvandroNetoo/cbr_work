@@ -14,6 +14,7 @@ from moveit_msgs.action import MoveGroup
 from rclpy.action import ActionClient
 from sensor_msgs.msg import JointState
 
+from .cena_de_planejamento import CenaDePlanejamento
 from .configuracao import (
     ACELERACAO_MAXIMA,
     AMOSTRAS_ESTAVEIS_NECESSARIAS,
@@ -45,6 +46,7 @@ class ExecutorDoMoveIt:
         self.cliente_da_april_tag = ActionClient(
             self.no, AnalyzeAprilTags, "/apriltags/analyze"
         )
+        self.cena = CenaDePlanejamento(self.no)
         self.posicoes_juntas_atuais: dict[str, float] = {}
         self.velocidades_juntas_atuais: dict[str, float] = {}
         self.sequencia_dos_estados_das_juntas = 0
@@ -63,6 +65,23 @@ class ExecutorDoMoveIt:
             raise RuntimeError(
                 "Servidor /move_action não encontrado. Inicie o real_planning.launch.py na Banana Pi."
             )
+        self.cena.aguardar_servicos()
+
+    def obter_deteccoes_de_april_tags(
+        self, duracao_da_analise: float
+    ) -> list[AprilTagStampedDetection]:
+        """Devolve a melhor detecção de cada tag no referencial da base."""
+        deteccoes = self._analisar_april_tags(duracao_da_analise)
+        for deteccao in deteccoes:
+            if deteccao.header.frame_id != REFERENCIAL_BASE:
+                raise RuntimeError(
+                    f"A AprilTag {deteccao.id} foi retornada em "
+                    f"'{deteccao.header.frame_id}', não em '{REFERENCIAL_BASE}'."
+                )
+        self.no.get_logger().info(
+            f"Análise retornou {len(deteccoes)} AprilTag(s) em {REFERENCIAL_BASE}."
+        )
+        return deteccoes
 
     def obter_pose_da_april_tag(
         self, tag_id: int, duracao_da_analise: float
@@ -70,11 +89,25 @@ class ExecutorDoMoveIt:
         """Devolve posição e yaw da tag no referencial da base."""
         if tag_id < 0:
             raise ValueError("O ID da AprilTag não pode ser negativo.")
+        deteccoes = self.obter_deteccoes_de_april_tags(duracao_da_analise)
+        deteccao = self._selecionar_april_tag(deteccoes, tag_id)
+        if deteccao is None:
+            ids_encontrados = sorted({item.id for item in deteccoes})
+            raise RuntimeError(
+                f"AprilTag {tag_id} não encontrada em base_link durante "
+                f"{duracao_da_analise:.1f}s. IDs encontrados: {ids_encontrados}. "
+                "Confirme a visibilidade da tag e o TF da câmera."
+            )
+        return self._pose_da_deteccao(deteccao)
+
+    def _analisar_april_tags(
+        self, duracao_da_analise: float
+    ) -> list[AprilTagStampedDetection]:
         if duracao_da_analise <= 0.0:
             raise ValueError("A duração da análise da AprilTag deve ser positiva.")
 
         self.no.get_logger().info(
-            f"Aguardando /apriltags/analyze para localizar a AprilTag {tag_id}..."
+            "Aguardando /apriltags/analyze para fotografar os cubos identificados..."
         )
         if not self.cliente_da_april_tag.wait_for_server(timeout_sec=10.0):
             raise RuntimeError(
@@ -115,25 +148,11 @@ class ExecutorDoMoveIt:
             )
             raise RuntimeError(f"A análise de AprilTags falhou (estado {estado}).")
 
-        deteccao = self._selecionar_april_tag(
-            resultado_da_acao.result.best_detections_base, tag_id
-        )
-        if deteccao is None:
-            ids_encontrados = sorted(
-                {item.id for item in resultado_da_acao.result.best_detections_base}
-            )
-            raise RuntimeError(
-                f"AprilTag {tag_id} não encontrada em base_link durante "
-                f"{duracao_da_analise:.1f}s. IDs encontrados: {ids_encontrados}. "
-                "Confirme a visibilidade da tag e o TF da câmera."
-            )
+        return list(resultado_da_acao.result.best_detections_base)
 
-        if deteccao.header.frame_id != REFERENCIAL_BASE:
-            raise RuntimeError(
-                f"A AprilTag {tag_id} foi retornada em "
-                f"'{deteccao.header.frame_id}', não em '{REFERENCIAL_BASE}'."
-            )
-
+    def _pose_da_deteccao(
+        self, deteccao: AprilTagStampedDetection
+    ) -> tuple[float, float, float, float]:
         posicao = deteccao.pose.position
         orientacao = deteccao.pose.orientation
         xyz = (float(posicao.x), float(posicao.y), float(posicao.z))
@@ -144,11 +163,22 @@ class ExecutorDoMoveIt:
             float(orientacao.w),
         )
         self.no.get_logger().info(
-            f"AprilTag {tag_id} localizada em {REFERENCIAL_BASE}: "
+            f"AprilTag {deteccao.id} localizada em {REFERENCIAL_BASE}: "
             f"x={xyz[0]:.4f}, y={xyz[1]:.4f}, z={xyz[2]:.4f} m, "
             f"yaw={yaw_em_graus:.1f}°."
         )
         return (*xyz, yaw_em_graus)
+
+    def obter_pose_da_deteccao(
+        self, deteccao: AprilTagStampedDetection
+    ) -> tuple[float, float, float, float]:
+        """Converte uma detecção já adquirida sem iniciar outra análise."""
+        if deteccao.header.frame_id != REFERENCIAL_BASE:
+            raise ValueError(
+                f"A AprilTag {deteccao.id} está em '{deteccao.header.frame_id}', "
+                f"não em '{REFERENCIAL_BASE}'."
+            )
+        return self._pose_da_deteccao(deteccao)
 
     def obter_xyz_da_april_tag(
         self, tag_id: int, duracao_da_analise: float

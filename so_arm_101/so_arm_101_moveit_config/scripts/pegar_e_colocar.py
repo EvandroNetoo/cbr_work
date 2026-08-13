@@ -43,6 +43,7 @@ class PegarEColocar:
 
     def executar(self) -> None:
         self.executor.aguardar_o_servidor()
+        self.executor.cena.verificar_sem_cubos_anexados()
 
         # self.executor.mover_para_estado(
         #     GRUPO_BRACO,
@@ -72,15 +73,27 @@ class PegarEColocar:
                 velocidade=VELOCIDADE_MAXIMA,
                 aceleracao=ACELERACAO_MAXIMA,
             )
+            deteccoes = self.executor.obter_deteccoes_de_april_tags(
+                TEMPO_DE_ANALISE_DA_APRIL_TAG
+            )
+            deteccao_alvo = self.executor._selecionar_april_tag(
+                deteccoes, APRIL_TAG_ID
+            )
+            if deteccao_alvo is None:
+                ids_encontrados = sorted({item.id for item in deteccoes})
+                raise RuntimeError(
+                    f"AprilTag alvo {APRIL_TAG_ID} não encontrada. "
+                    f"IDs encontrados: {ids_encontrados}."
+                )
             (
                 objeto_x,
                 objeto_y,
                 objeto_z,
                 angulo_do_objeto,
-            ) = self.executor.obter_pose_da_april_tag(
-                APRIL_TAG_ID, TEMPO_DE_ANALISE_DA_APRIL_TAG
-            )
+            ) = self.executor.obter_pose_da_deteccao(deteccao_alvo)
             objeto_z -= TAMANHO_DO_CUBO
+            ids_dos_cubos = self.executor.cena.sincronizar_cubos(deteccoes)
+            id_do_cubo_alvo = ids_dos_cubos[APRIL_TAG_ID]
             self.executor.no.get_logger().info(
                 f"Compensando {TAMANHO_DO_CUBO:.3f} m no Z da AprilTag; "
                 f"Z da pegada: {objeto_z:.3f} m"
@@ -96,6 +109,9 @@ class PegarEColocar:
         else:
             self.executor.no.get_logger().info(
                 "APRIL_TAG_ID=None; usando as coordenadas XYZ configuradas."
+            )
+            id_do_cubo_alvo = self.executor.cena.sincronizar_cubo_manual(
+                objeto_x, objeto_y, objeto_z, angulo_do_objeto
             )
 
         angulo_da_pegada = normalizar_angulo_de_pegada(angulo_do_objeto)
@@ -124,20 +140,46 @@ class PegarEColocar:
             VELOCIDADE_MAXIMA,
             ACELERACAO_MAXIMA,
         )
-        self.executor.executar_objetivo(
-            GRUPO_BRACO,
-            restricoes_de_pegada(pose_do_objeto),
-            VELOCIDADE_MAXIMA,
-            ACELERACAO_MAXIMA,
+        matriz_original = self.executor.cena.permitir_contato_com_a_garra(
+            id_do_cubo_alvo
         )
-        self.executor.mover_para_estado(
-            GRUPO_GARRA,
-            "grip",
-            "Fechando a garra",
-            tolerancia=TOLERANCIA_DA_JUNTA_DA_GARRA,
-            velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
-            aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
-        )
+        try:
+            self.executor.executar_objetivo(
+                GRUPO_BRACO,
+                restricoes_de_pegada(pose_do_objeto),
+                VELOCIDADE_MAXIMA,
+                ACELERACAO_MAXIMA,
+            )
+            self.executor.mover_para_estado(
+                GRUPO_GARRA,
+                "grip",
+                "Fechando a garra",
+                tolerancia=TOLERANCIA_DA_JUNTA_DA_GARRA,
+                velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
+                aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
+            )
+            # Depois que a garra segurou o alvo, ele deixa de ser obstáculo.
+            # Os demais cubos permanecem na Planning Scene durante o transporte.
+            self.executor.cena.ignorar_cubo(id_do_cubo_alvo)
+        except BaseException:
+            try:
+                self.executor.cena.restaurar_matriz_de_colisoes(matriz_original)
+            except Exception as erro_da_restauracao:
+                self.executor.no.get_logger().error(
+                    "Também falhou a restauração da matriz de colisões: "
+                    f"{erro_da_restauracao}"
+                )
+            raise
+        else:
+            try:
+                self.executor.cena.restaurar_matriz_de_colisoes(matriz_original)
+            except BaseException:
+                self.executor.no.get_logger().error(
+                    "A matriz de colisões temporária não pôde ser restaurada; "
+                    "o transporte não será iniciado."
+                )
+                raise
+
         self.executor.executar_objetivo(
             GRUPO_BRACO,
             restricoes_de_pre_pegada(pose_acima_do_objeto),
@@ -168,6 +210,7 @@ class PegarEColocar:
             velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
             aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
         )
+
         self.executor.mover_para_estado(
             GRUPO_BRACO,
             "home",
