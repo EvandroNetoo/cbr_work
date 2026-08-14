@@ -92,3 +92,19 @@ def test_extrai_yaw_da_tag_horizontal_mesmo_com_eixo_invertido():
 def test_rejeita_quaternion_nulo_da_apriltag():
     with pytest.raises(ValueError, match="quaternion nulo"):
         ExecutorDoMoveIt._yaw_em_graus(0.0, 0.0, 0.0, 0.0)
+
+
+def test_cubo_da_cena_fica_meia_aresta_abaixo_da_tag_sem_alterar_deteccao():
+    deteccao = AprilTagStampedDetection(id=8)
+    deteccao.header.frame_id = "base_link"
+    deteccao.pose.position.x = 0.12
+    deteccao.pose.position.y = -0.24
+    deteccao.pose.position.z = 0.10
+    deteccao.pose.orientation.w = 1.0
+
+    cubo = ExecutorDoMoveIt._criar_objeto_cubo(deteccao)
+
+    assert cubo.id == "cubo_apriltag_8"
+    assert list(cubo.primitives[0].dimensions) == [0.05, 0.05, 0.05]
+    assert cubo.primitive_poses[0].position.z == pytest.approx(0.075)
+    assert deteccao.pose.position.z == pytest.approx(0.10)

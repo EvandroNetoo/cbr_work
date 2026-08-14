@@ -63,6 +63,8 @@ class PegarEColocar:
 
         objeto_x, objeto_y, objeto_z = OBJETO_X, OBJETO_Y, OBJETO_Z
         angulo_do_objeto = ANGULO_DO_OBJETO_EM_GRAUS
+        deteccao_alvo = None
+        deteccoes = []
         if APRIL_TAG_ID is not None:
             self.executor.mover_para_estado(
                 GRUPO_BRACO,
@@ -72,13 +74,28 @@ class PegarEColocar:
                 velocidade=VELOCIDADE_MAXIMA,
                 aceleracao=ACELERACAO_MAXIMA,
             )
-            (
-                objeto_x,
-                objeto_y,
-                objeto_z,
-                angulo_do_objeto,
-            ) = self.executor.obter_pose_da_april_tag(
-                APRIL_TAG_ID, TEMPO_DE_ANALISE_DA_APRIL_TAG
+            deteccoes = self.executor.obter_deteccoes_das_april_tags(
+                TEMPO_DE_ANALISE_DA_APRIL_TAG
+            )
+            deteccao_alvo = self.executor._selecionar_april_tag(
+                deteccoes, APRIL_TAG_ID
+            )
+            if deteccao_alvo is None:
+                ids_encontrados = sorted({item.id for item in deteccoes})
+                raise RuntimeError(
+                    f"AprilTag {APRIL_TAG_ID} não encontrada. "
+                    f"IDs encontrados: {ids_encontrados}."
+                )
+            self.executor.adicionar_cubos_a_cena(deteccoes)
+            objeto_x = float(deteccao_alvo.pose.position.x)
+            objeto_y = float(deteccao_alvo.pose.position.y)
+            objeto_z = float(deteccao_alvo.pose.position.z)
+            orientacao = deteccao_alvo.pose.orientation
+            angulo_do_objeto = self.executor._yaw_em_graus(
+                float(orientacao.x),
+                float(orientacao.y),
+                float(orientacao.z),
+                float(orientacao.w),
             )
             objeto_z -= TAMANHO_DO_CUBO
             self.executor.no.get_logger().info(
@@ -124,6 +141,10 @@ class PegarEColocar:
             VELOCIDADE_MAXIMA,
             ACELERACAO_MAXIMA,
         )
+        if deteccao_alvo is not None:
+            # A partir daqui os dedos podem tocar o alvo. Os demais cubos
+            # continuam no mundo e participando normalmente das colisões.
+            self.executor.preparar_contato_com_cubo(deteccao_alvo.id)
         self.executor.executar_objetivo(
             GRUPO_BRACO,
             restricoes_de_pegada(pose_do_objeto),
@@ -138,6 +159,8 @@ class PegarEColocar:
             velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
             aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
         )
+        if deteccao_alvo is not None:
+            self.executor.anexar_cubo(deteccao_alvo)
         self.executor.executar_objetivo(
             GRUPO_BRACO,
             restricoes_de_pre_pegada(pose_acima_do_objeto),
@@ -168,6 +191,8 @@ class PegarEColocar:
             velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
             aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
         )
+        if deteccao_alvo is not None:
+            self.executor.remover_todos_os_cubos_da_cena()
         self.executor.mover_para_estado(
             GRUPO_BRACO,
             "home",

@@ -10,15 +10,20 @@ import rclpy
 from action_msgs.msg import GoalStatus
 from cbr_interfaces.action import AnalyzeAprilTags
 from cbr_interfaces.msg import AprilTagStampedDetection
+from geometry_msgs.msg import Pose
 from moveit_msgs.action import MoveGroup
+from moveit_msgs.msg import AttachedCollisionObject, CollisionObject, PlanningScene
+from moveit_msgs.srv import ApplyPlanningScene
 from rclpy.action import ActionClient
 from sensor_msgs.msg import JointState
+from shape_msgs.msg import SolidPrimitive
 
 from .configuracao import (
     ACELERACAO_MAXIMA,
     AMOSTRAS_ESTAVEIS_NECESSARIAS,
     ESTADOS_DOS_GRUPOS,
     GRUPO_GARRA,
+    LINKS_DE_CONTATO_DA_GARRA,
     REFERENCIAL_BASE,
     TENTATIVAS_DE_PLANEJAMENTO,
     TENTATIVAS_DE_PLANEJAMENTO_ARTICULAR,
@@ -28,6 +33,7 @@ from .configuracao import (
     TOLERANCIA_DE_ASSENTAMENTO_DA_GARRA,
     TOLERANCIA_DE_ASSENTAMENTO_DO_BRACO,
     TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
+    TAMANHO_DO_CUBO,
     VELOCIDADE_DE_ASSENTAMENTO_DA_GARRA,
     VELOCIDADE_DE_ASSENTAMENTO_DO_BRACO,
     VELOCIDADE_MAXIMA,
@@ -45,6 +51,10 @@ class ExecutorDoMoveIt:
         self.cliente_da_april_tag = ActionClient(
             self.no, AnalyzeAprilTags, "/apriltags/analyze"
         )
+        self.cliente_da_cena = self.no.create_client(
+            ApplyPlanningScene, "/apply_planning_scene"
+        )
+        self.ids_dos_cubos_na_cena: set[str] = set()
         self.posicoes_juntas_atuais: dict[str, float] = {}
         self.velocidades_juntas_atuais: dict[str, float] = {}
         self.sequencia_dos_estados_das_juntas = 0
@@ -63,19 +73,19 @@ class ExecutorDoMoveIt:
             raise RuntimeError(
                 "Servidor /move_action não encontrado. Inicie o real_planning.launch.py na Banana Pi."
             )
+        if not self.cliente_da_cena.wait_for_service(timeout_sec=15.0):
+            raise RuntimeError(
+                "Serviço /apply_planning_scene não encontrado no move_group."
+            )
 
-    def obter_pose_da_april_tag(
-        self, tag_id: int, duracao_da_analise: float
-    ) -> tuple[float, float, float, float]:
-        """Devolve posição e yaw da tag no referencial da base."""
-        if tag_id < 0:
-            raise ValueError("O ID da AprilTag não pode ser negativo.")
+    def obter_deteccoes_das_april_tags(
+        self, duracao_da_analise: float
+    ) -> list[AprilTagStampedDetection]:
+        """Analisa uma imagem temporal e devolve a melhor pose de cada tag."""
         if duracao_da_analise <= 0.0:
             raise ValueError("A duração da análise da AprilTag deve ser positiva.")
 
-        self.no.get_logger().info(
-            f"Aguardando /apriltags/analyze para localizar a AprilTag {tag_id}..."
-        )
+        self.no.get_logger().info("Aguardando /apriltags/analyze para mapear os cubos...")
         if not self.cliente_da_april_tag.wait_for_server(timeout_sec=10.0):
             raise RuntimeError(
                 "A ação /apriltags/analyze não está disponível. "
@@ -108,20 +118,38 @@ class ExecutorDoMoveIt:
             resultado_da_acao is None
             or resultado_da_acao.status != GoalStatus.STATUS_SUCCEEDED
         ):
-            estado = (
-                resultado_da_acao.status
-                if resultado_da_acao is not None
-                else "sem resultado"
-            )
+            estado = resultado_da_acao.status if resultado_da_acao else "sem resultado"
             raise RuntimeError(f"A análise de AprilTags falhou (estado {estado}).")
 
-        deteccao = self._selecionar_april_tag(
-            resultado_da_acao.result.best_detections_base, tag_id
+        deteccoes = list(resultado_da_acao.result.best_detections_base)
+        referencia_invalida = next(
+            (
+                item.header.frame_id
+                for item in deteccoes
+                if item.header.frame_id != REFERENCIAL_BASE
+            ),
+            None,
         )
-        if deteccao is None:
-            ids_encontrados = sorted(
-                {item.id for item in resultado_da_acao.result.best_detections_base}
+        if referencia_invalida is not None:
+            raise RuntimeError(
+                f"Uma AprilTag foi retornada em '{referencia_invalida}', "
+                f"não em '{REFERENCIAL_BASE}'."
             )
+        return deteccoes
+
+    def obter_pose_da_april_tag(
+        self, tag_id: int, duracao_da_analise: float
+    ) -> tuple[float, float, float, float]:
+        """Devolve posição e yaw da tag no referencial da base."""
+        if tag_id < 0:
+            raise ValueError("O ID da AprilTag não pode ser negativo.")
+        if duracao_da_analise <= 0.0:
+            raise ValueError("A duração da análise da AprilTag deve ser positiva.")
+
+        deteccoes = self.obter_deteccoes_das_april_tags(duracao_da_analise)
+        deteccao = self._selecionar_april_tag(deteccoes, tag_id)
+        if deteccao is None:
+            ids_encontrados = sorted({item.id for item in deteccoes})
             raise RuntimeError(
                 f"AprilTag {tag_id} não encontrada em base_link durante "
                 f"{duracao_da_analise:.1f}s. IDs encontrados: {ids_encontrados}. "
@@ -149,6 +177,97 @@ class ExecutorDoMoveIt:
             f"yaw={yaw_em_graus:.1f}°."
         )
         return (*xyz, yaw_em_graus)
+
+    def adicionar_cubos_a_cena(
+        self, deteccoes: Sequence[AprilTagStampedDetection]
+    ) -> None:
+        """Representa cada tag detectada por um cubo no mundo do MoveIt."""
+        cena = PlanningScene()
+        cena.is_diff = True
+        for deteccao in deteccoes:
+            objeto = self._criar_objeto_cubo(deteccao)
+            cena.world.collision_objects.append(objeto)
+            self.ids_dos_cubos_na_cena.add(objeto.id)
+        self._aplicar_cena(cena, "adicionar os cubos detectados")
+
+    def preparar_contato_com_cubo(self, tag_id: int) -> None:
+        """Retira apenas o alvo do mundo antes do contato dos dedos."""
+        objeto = CollisionObject()
+        objeto.header.frame_id = REFERENCIAL_BASE
+        objeto.id = self._id_do_cubo(tag_id)
+        objeto.operation = CollisionObject.REMOVE
+        cena = PlanningScene()
+        cena.is_diff = True
+        cena.world.collision_objects.append(objeto)
+        self._aplicar_cena(cena, f"liberar o contato da garra com o cubo {tag_id}")
+
+    def anexar_cubo(self, deteccao: AprilTagStampedDetection) -> None:
+        """Anexa o alvo ao TCP; touch_links não libera colisão com outros cubos."""
+        anexado = AttachedCollisionObject()
+        anexado.link_name = LINKS_DE_CONTATO_DA_GARRA[0]
+        anexado.touch_links = list(LINKS_DE_CONTATO_DA_GARRA)
+        anexado.object = self._criar_objeto_cubo(deteccao)
+        cena = PlanningScene()
+        cena.is_diff = True
+        cena.robot_state.is_diff = True
+        cena.robot_state.attached_collision_objects.append(anexado)
+        self._aplicar_cena(cena, f"anexar o cubo {deteccao.id} à garra")
+
+    def remover_todos_os_cubos_da_cena(self) -> None:
+        """Remove do mundo e da garra todos os cubos desta execução."""
+        cena = PlanningScene()
+        cena.is_diff = True
+        cena.robot_state.is_diff = True
+        for identificador in sorted(self.ids_dos_cubos_na_cena):
+            objeto = CollisionObject()
+            objeto.header.frame_id = REFERENCIAL_BASE
+            objeto.id = identificador
+            objeto.operation = CollisionObject.REMOVE
+            cena.world.collision_objects.append(objeto)
+
+            anexado = AttachedCollisionObject()
+            anexado.link_name = LINKS_DE_CONTATO_DA_GARRA[0]
+            anexado.object.id = identificador
+            anexado.object.operation = CollisionObject.REMOVE
+            cena.robot_state.attached_collision_objects.append(anexado)
+        self._aplicar_cena(cena, "remover todos os cubos")
+        self.ids_dos_cubos_na_cena.clear()
+
+    @staticmethod
+    def _id_do_cubo(tag_id: int) -> str:
+        return f"cubo_apriltag_{tag_id}"
+
+    @classmethod
+    def _criar_objeto_cubo(
+        cls, deteccao: AprilTagStampedDetection
+    ) -> CollisionObject:
+        objeto = CollisionObject()
+        objeto.header.frame_id = REFERENCIAL_BASE
+        objeto.id = cls._id_do_cubo(deteccao.id)
+        objeto.operation = CollisionObject.ADD
+        forma = SolidPrimitive()
+        forma.type = SolidPrimitive.BOX
+        forma.dimensions = [TAMANHO_DO_CUBO] * 3
+        # Não reutilize a mensagem da detecção: mensagens ROS são mutáveis e
+        # a pose original ainda é usada para calcular a aproximação e o attach.
+        pose = Pose()
+        pose.position.x = float(deteccao.pose.position.x)
+        pose.position.y = float(deteccao.pose.position.y)
+        pose.position.z = float(deteccao.pose.position.z) - TAMANHO_DO_CUBO / 2.0
+        pose.orientation = deteccao.pose.orientation
+        objeto.primitives.append(forma)
+        objeto.primitive_poses.append(pose)
+        return objeto
+
+    def _aplicar_cena(self, cena: PlanningScene, descricao: str) -> None:
+        requisicao = ApplyPlanningScene.Request()
+        requisicao.scene = cena
+        futuro = self.cliente_da_cena.call_async(requisicao)
+        rclpy.spin_until_future_complete(self.no, futuro, timeout_sec=5.0)
+        resposta = futuro.result() if futuro.done() else None
+        if resposta is None or not resposta.success:
+            raise RuntimeError(f"MoveIt não conseguiu {descricao} na Planning Scene.")
+        self.no.get_logger().info(f"Planning Scene atualizada: {descricao}.")
 
     def obter_xyz_da_april_tag(
         self, tag_id: int, duracao_da_analise: float

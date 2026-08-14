@@ -17,6 +17,12 @@ GRUPO_BRACO: Final[str] = "arm"
 GRUPO_GARRA: Final[str] = "gripper"
 REFERENCIAL_BASE: Final[str] = "base_link"
 LINK_FIM_DA_GARRA: Final[str] = "gripper_tcp"
+LINKS_DE_CONTATO_DA_GARRA: Final[tuple[str, ...]] = (
+    "gripper_tcp",
+    "link5_1",
+    "clamp_1",
+    "clamp_2",
+)
 
 OBJETO_X: Final[float] = -0.0
 OBJETO_Y: Final[float] = -0.25
