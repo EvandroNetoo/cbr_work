@@ -1,0 +1,35 @@
+cbr_motor_control:
+  ros__parameters:
+    # Hardware real é o padrão. Use true somente para testar sem abrir seriais.
+    dry_run: false
+    command_mode: cmd_vel
+    watchdog_timeout: 0.5
+
+    # Limites dos comandos de velocidade do robô e dos motores.
+    max_linear_speed: 0.227
+    max_angular_speed: 1.083
+    max_motor_speed: 100.0
+    deadband: 0.02
+
+    expansion_port: 3
+    baud_rate: 250000
+    serial_timeout: 0.005
+    front_left_id: 0
+    front_right_id: 7
+
+    # Inversões
+    front_left_inverted: true
+    front_right_inverted: false
+    rear_left_inverted: false
+    rear_right_inverted: true
+
+    # Sequência de reset/freio/calibração copiada do exemplo.
+    configure_on_start: true
+    calibration_clockwise: 80
+    calibration_counterclockwise: -80
+    brake_kp: 3.0
+    brake_kd: 10.0
+    brake_delta: 20
+    motor_kp: 2.0
+    motor_ki: 2.0
+    motor_kd: 2.0
