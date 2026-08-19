@@ -24,7 +24,7 @@ OBJETO_Z: Final[float] = 0.03
 # Use None para manter as coordenadas OBJETO_X/Y/Z acima. Quando definido,
 # o ID é procurado pelo detector AprilTag e sua posição em base_link substitui
 # as três coordenadas do objeto.
-APRIL_TAG_ID: Final[int | None] = 5
+APRIL_TAG_ID: Final[int | None] = 1
 TEMPO_DE_ANALISE_DA_APRIL_TAG: Final[float] = 2.0
 # A AprilTag fica sobre o cubo, enquanto o TCP fica na ponta da garra. Portanto,
 # a altura completa do cubo deve ser descontada do Z medido para obter o Z da

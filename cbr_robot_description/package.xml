@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>cbr_robot_description</name>
+  <version>0.1.0</version>
+  <description>Composed mobile base and SO-101 robot description.</description>
+  <maintainer email="todo@todo.com">author</maintainer>
+  <license>GPL-3.0-only</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>cbr_base_description</exec_depend>
+  <exec_depend>so_arm_101_description</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

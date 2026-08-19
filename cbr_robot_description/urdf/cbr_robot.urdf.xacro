@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="cbr_robot">
+  <!-- These internal mode arguments are fixed by this composed description. -->
+  <xacro:arg name="arm_base_link_name" default="arm_base_link"/>
+  <xacro:arg name="attach_to_mobile_base" default="true"/>
+  <xacro:arg name="use_gz_ros2_control" default="false"/>
+  <xacro:arg name="use_real_ros2_control" default="true"/>
+  <xacro:arg name="controllers_file" default=""/>
+  <xacro:arg name="hardware_plugin" default="so_arm_101_hardware_interface/SO101System"/>
+
+  <xacro:include filename="$(find cbr_base_description)/urdf/cbr_base.urdf.xacro"/>
+  <xacro:include filename="$(find so_arm_101_description)/urdf/so_101.urdf.xacro"/>
+</robot>

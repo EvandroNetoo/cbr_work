@@ -1,50 +1,117 @@
-"""Run all currently available embedded robot services on the Banana Pi."""
+"""Run the complete physical CBR robot with one controller manager."""
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
+from moveit_configs_utils.launches import generate_move_group_launch
+
+from so_arm_101_moveit_config.configuration import get_combined_moveit_config
 
 
 def generate_launch_description():
-    moveit_share = FindPackageShare('so_arm_101_moveit_config')
-    camera_share = FindPackageShare('cbr_camera')
-    apriltag_share = FindPackageShare('cbr_apriltag')
-    port = LaunchConfiguration('port')
-    robot_id = LaunchConfiguration('robot_id')
-    calibration_file = LaunchConfiguration('calibration_file')
-    hardware_state_timeout = LaunchConfiguration('hardware_state_timeout')
+    hardware_timeout = LaunchConfiguration('hardware_state_timeout')
+    robot_description = ParameterValue(Command([
+        'xacro ', PathJoinSubstitution([
+            FindPackageShare('cbr_robot_description'), 'urdf', 'cbr_robot.urdf.xacro']),
+    ]), value_type=str)
+    controllers = PathJoinSubstitution([
+        FindPackageShare('cbr_bringup'), 'config', 'controllers.yaml'])
+
+    arm_driver = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('so_arm_101_hardware'), 'launch', 'driver.launch.py'])),
+        launch_arguments={
+            'port': LaunchConfiguration('port'),
+            'robot_id': LaunchConfiguration('robot_id'),
+            'calibration_file': LaunchConfiguration('calibration_file'),
+        }.items())
+    base_driver = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('cbr_base_hardware'), 'launch', 'driver.launch.py'])))
+    camera = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('cbr_camera'), 'launch', 'camera.launch.py'])),
+        launch_arguments={'rectify': 'true'}.items())
+    apriltag = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('cbr_apriltag'), 'launch', 'apriltag.launch.py'])),
+        launch_arguments={
+            'image_topic': LaunchConfiguration('image_topic'),
+            'camera_info_topic': LaunchConfiguration('camera_info_topic'),
+            'base_frame': LaunchConfiguration('base_frame'),
+        }.items())
+    readiness = Node(
+        package='cbr_bringup', executable='wait_for_hardware_states',
+        parameters=[{'timeout_sec': hardware_timeout}], output='screen')
+    rsp = Node(
+        package='robot_state_publisher', executable='robot_state_publisher',
+        parameters=[{'robot_description': robot_description, 'use_sim_time': False}],
+        output='screen')
+    control = Node(
+        package='controller_manager', executable='ros2_control_node',
+        parameters=[{'robot_description': robot_description}, controllers], output='screen')
+    joint = Node(
+        package='controller_manager', executable='spawner',
+        arguments=['joint_state_broadcaster', '-c', '/controller_manager'], output='screen')
+    arm = Node(
+        package='controller_manager', executable='spawner',
+        arguments=['arm_controller', '-c', '/controller_manager'], output='screen')
+    gripper = Node(
+        package='controller_manager', executable='spawner',
+        arguments=['gripper_controller', '-c', '/controller_manager'], output='screen')
+    base = Node(
+        package='controller_manager', executable='spawner',
+        arguments=[
+            'base_controller', '-c', '/controller_manager',
+            '--controller-ros-args', '--remap ~/reference:=/cmd_vel',
+            '--controller-ros-args', '--remap ~/odometry:=/odom',
+            '--controller-ros-args', '--remap ~/tf_odometry:=/tf',
+        ], output='screen')
+    move_group_entities = generate_move_group_launch(get_combined_moveit_config()).entities
+
+    def shutdown(reason):
+        return [EmitEvent(event=Shutdown(reason=reason))]
+
+    def start_control(event, context):
+        del context
+        return [control, joint] if event.returncode == 0 else shutdown(
+            'Braço ou base não forneceram estado válido.')
+
+    def chain(current, following, label):
+        def callback(event, context):
+            del context
+            return [following] if event.returncode == 0 else shutdown(
+                f'Falha ao ativar {label}.')
+        return RegisterEventHandler(OnProcessExit(target_action=current, on_exit=callback))
+
+    def start_move_group(event, context):
+        del context
+        return move_group_entities if event.returncode == 0 else shutdown(
+            'Falha ao ativar base_controller.')
+
     return LaunchDescription([
         DeclareLaunchArgument('port', default_value=''),
         DeclareLaunchArgument('robot_id', default_value='so101_follower'),
-        DeclareLaunchArgument(
-            'hardware_state_timeout', default_value='45.0'),
+        DeclareLaunchArgument('hardware_state_timeout', default_value='45.0'),
         DeclareLaunchArgument('calibration_file', default_value=PathJoinSubstitution([
-            FindPackageShare('so_arm_101_hardware'), 'config',
-            'so101_follower.json'])),
+            FindPackageShare('so_arm_101_hardware'), 'config', 'so101_follower.json'])),
         DeclareLaunchArgument('image_topic', default_value='/camera/image_rect'),
         DeclareLaunchArgument('camera_info_topic', default_value='/camera/camera_info'),
         DeclareLaunchArgument('base_frame', default_value='base_link'),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(PathJoinSubstitution([
-                camera_share, 'launch', 'camera.launch.py'])),
-            launch_arguments={'rectify': 'true'}.items()),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(PathJoinSubstitution([
-                moveit_share, 'launch', 'real_planning.launch.py'])),
-            launch_arguments={
-                'port': port,
-                'robot_id': robot_id,
-                'calibration_file': calibration_file,
-                'hardware_state_timeout': hardware_state_timeout,
-            }.items()),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(PathJoinSubstitution([
-                apriltag_share, 'launch', 'apriltag.launch.py'])),
-            launch_arguments={
-                'image_topic': LaunchConfiguration('image_topic'),
-                'camera_info_topic': LaunchConfiguration('camera_info_topic'),
-                'base_frame': LaunchConfiguration('base_frame'),
-            }.items()),
+        arm_driver, base_driver, camera, apriltag, rsp, readiness,
+        RegisterEventHandler(OnProcessExit(target_action=readiness, on_exit=start_control)),
+        chain(joint, arm, 'joint_state_broadcaster'),
+        chain(arm, gripper, 'arm_controller'),
+        chain(gripper, base, 'gripper_controller'),
+        RegisterEventHandler(OnProcessExit(target_action=base, on_exit=start_move_group)),
+        RegisterEventHandler(OnProcessExit(
+            target_action=control,
+            on_exit=lambda event, context: shutdown(
+                f'controller_manager encerrou com código {event.returncode}.'))),
     ])

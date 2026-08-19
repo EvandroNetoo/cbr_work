@@ -111,13 +111,13 @@ class PegarEColocar:
                 objeto_x,
                 objeto_y,
                 objeto_z,
-                angulo_da_pegada - 90.0,
+                angulo_da_pegada,
             )
             pose_acima_do_objeto = criar_pose(
                 objeto_x,
                 objeto_y,
                 objeto_z + ALTURA_DE_APROXIMACAO,
-                angulo_da_pegada - 90.0,
+                angulo_da_pegada,
             )
 
             self.executor.no.get_logger().info("Indo para cima do objeto")

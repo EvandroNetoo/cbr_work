@@ -29,7 +29,12 @@ EXPECTED_JOINTS = {
 @pytest.fixture(scope='module')
 def urdf_root():
     tree = ET.parse(URDF_PATH)
-    return tree.getroot()
+    arm = tree.getroot().find(
+        '{http://www.ros.org/wiki/xacro}macro[@name="so_101_arm"]')
+    for element in arm.iter():
+        for key, value in element.attrib.items():
+            element.attrib[key] = value.replace('${arm_base_link_name}', 'base_link')
+    return arm
 
 
 @pytest.fixture(scope='module')
@@ -38,8 +43,10 @@ def model_limits():
 
 
 def test_xml_wellformed(urdf_root):
-    assert urdf_root.tag == 'robot'
-    assert urdf_root.attrib['name'] == 'so_101'
+    assert urdf_root is not None
+    document = ET.parse(URDF_PATH).getroot()
+    assert document.tag == 'robot'
+    assert document.attrib['name'] == 'so_101'
 
 
 def test_all_links_present(urdf_root):

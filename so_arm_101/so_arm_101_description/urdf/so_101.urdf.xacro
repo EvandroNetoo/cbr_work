@@ -5,6 +5,8 @@
   <xacro:arg name="use_real_ros2_control" default="false"/>
   <xacro:arg name="controllers_file" default=""/>
   <xacro:arg name="hardware_plugin" default="gz_ros2_control/GazeboSimSystem"/>
+  <xacro:arg name="arm_base_link_name" default="base_link"/>
+  <xacro:arg name="attach_to_mobile_base" default="false"/>
 
   <!-- Includes -->
   <xacro:include filename="$(find so_arm_101_description)/urdf/materials.xacro"/>
@@ -12,22 +14,36 @@
   <xacro:include filename="$(find so_arm_101_description)/urdf/so_101.ros2_control.xacro"/>
   <xacro:property name="joint_limits" value="${xacro.load_yaml('$(find so_arm_101_description)/config/joint_limits.yaml')['joint_limits']}"/>
 
+  <!-- Keep the complete arm reusable inside a larger robot description. -->
+  <xacro:macro name="so_101_arm" params="arm_base_link_name attach_to_mobile_base">
+
   <!-- ============================================================ -->
   <!-- World frame — fixes the robot base to the ground              -->
   <!-- ============================================================ -->
 
-  <link name="world"/>
-  <joint name="world_to_base" type="fixed">
-    <parent link="world"/>
-    <child link="base_link"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-  </joint>
+  <xacro:unless value="${attach_to_mobile_base}">
+    <link name="world"/>
+    <joint name="world_to_base" type="fixed">
+      <parent link="world"/>
+      <child link="${arm_base_link_name}"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+  </xacro:unless>
+  <xacro:if value="${attach_to_mobile_base}">
+    <xacro:property name="arm_mount" value="${xacro.load_yaml('$(find cbr_robot_description)/config/arm_mount.yaml')['arm_mount']}"/>
+    <joint name="mobile_base_to_arm" type="fixed">
+      <parent link="upper_platform_link"/>
+      <child link="${arm_base_link_name}"/>
+      <origin xyz="${arm_mount['x']} ${arm_mount['y']} ${arm_mount['z']}"
+        rpy="${arm_mount['roll']} ${arm_mount['pitch']} ${arm_mount['yaw']}"/>
+    </joint>
+  </xacro:if>
 
   <!-- ============================================================ -->
   <!-- Links                                                         -->
   <!-- ============================================================ -->
 
-  <link name="base_link">
+  <link name="${arm_base_link_name}">
     <inertial>
       <origin xyz="-7.395983749131527e-05 0.018688778123587116 0.031975817456183726" rpy="0 0 0"/>
       <mass value="0.2092095548721987"/>
@@ -223,7 +239,7 @@
   <!-- Joint 1: Base rotation (Yaw) -->
   <joint name="base_link_to_link1" type="revolute">
     <origin xyz="-9.9e-05 -0.007243 0.027983" rpy="0 0 0"/>
-    <parent link="base_link"/>
+    <parent link="${arm_base_link_name}"/>
     <child link="link1_1"/>
     <axis xyz="-0.0 -0.008727 0.999962"/>
     <limit lower="${joint_limits['base_link_to_link1']['min_position']}" upper="${joint_limits['base_link_to_link1']['max_position']}" effort="${joint_limits['base_link_to_link1']['max_effort']}" velocity="${joint_limits['base_link_to_link1']['max_velocity']}"/>
@@ -297,5 +313,11 @@
     <dynamics damping="0.01" friction="0.0"/>
     <mimic joint="right_clamp" multiplier="-1" offset="0"/>
   </joint>
+
+  </xacro:macro>
+
+  <xacro:so_101_arm
+    arm_base_link_name="$(arg arm_base_link_name)"
+    attach_to_mobile_base="$(arg attach_to_mobile_base)"/>
 
 </robot>

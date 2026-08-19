@@ -19,7 +19,8 @@ def controllers():
 def urdf_joints():
     tree = ET.parse(os.path.join(
         DESCRIPTION_DIR, 'urdf', 'so_101.urdf.xacro'))
-    root = tree.getroot()
+    root = tree.getroot().find(
+        '{http://www.ros.org/wiki/xacro}macro[@name="so_101_arm"]')
     return {el.attrib['name'] for el in root.findall('joint')}
 
 

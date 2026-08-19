@@ -1,22 +1,14 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="cbr_base">
-  <!-- Initial estimates. Replace them with measurements before physical tests.
-       Dimensions are in metres and masses are in kilograms. -->
-  <xacro:arg name="mock_hardware" default="true"/>
-  <xacro:arg name="serial_port" default="/dev/ttyUSB0"/>
-  <xacro:arg name="motor_ids" default="0,1,2,3"/>
-  <xacro:arg name="motor_directions" default="1,1,1,1"/>
-  <xacro:arg name="ticks_per_revolution" default="0"/>
-  <xacro:arg name="max_wheel_velocity" default="0"/>
-
-  <!-- Measurements to replace: wheels and their centre-to-centre spacing. -->
+  <!-- Validated physical dimensions in metres; masses are in kilograms. -->
+  <!-- Wheels and their measured centre-to-centre spacing. -->
   <xacro:property name="wheel_radius" value="0.034"/>
   <xacro:property name="wheel_width" value="0.034"/>
   <xacro:property name="wheelbase" value="0.170"/>
   <xacro:property name="track_width" value="0.275"/>
   <xacro:property name="wheel_mass" value="0.35"/>
 
-  <!-- Measurements to replace: hollow lower rectangular frame. -->
+  <!-- Hollow lower rectangular frame. -->
   <xacro:property name="lower_frame_length" value="0.232"/>
   <xacro:property name="lower_frame_width" value="0.232"/>
   <xacro:property name="lower_frame_height" value="0.074"/>
@@ -24,13 +16,13 @@
   <xacro:property name="lower_frame_ground_clearance" value="0.015"/>
   <xacro:property name="lower_frame_mass" value="6.0"/>
 
-  <!-- Measurements to replace: solid upper platform, larger than the frame. -->
+  <!-- Solid upper platform, larger than the frame. -->
   <xacro:property name="upper_platform_length" value="0.232"/>
   <xacro:property name="upper_platform_width" value="0.306"/>
   <xacro:property name="upper_platform_thickness" value="0.008"/>
   <xacro:property name="upper_platform_mass" value="2.0"/>
 
-  <!-- Measurements to replace: IMU box and pose relative to base_link. -->
+  <!-- IMU box and pose relative to base_link. -->
   <xacro:property name="imu_length" value="0.039"/>
   <xacro:property name="imu_width" value="0.020"/>
   <xacro:property name="imu_height" value="0.010"/>
@@ -42,7 +34,7 @@
   <xacro:property name="imu_pitch" value="0.0"/>
   <xacro:property name="imu_yaw" value="-1.5708"/>
 
-  <!-- Measurements to replace: the single central orange/black LiDAR. -->
+  <!-- The single central orange/black LiDAR. -->
   <xacro:property name="lidar_body_length" value="0.078"/>
   <xacro:property name="lidar_body_width" value="0.078"/>
   <xacro:property name="lidar_body_height" value="0.041"/>
@@ -278,15 +270,10 @@
 
   <ros2_control name="CBRMecanumSystem" type="system">
     <hardware>
-      <plugin>cbr_base_hardware/MariolaSystem</plugin>
-      <param name="mock_hardware">$(arg mock_hardware)</param>
-      <param name="serial_port">$(arg serial_port)</param>
-      <param name="baud_rate">250000</param>
-      <param name="timeout_ms">10</param>
-      <param name="motor_ids">$(arg motor_ids)</param>
-      <param name="motor_directions">$(arg motor_directions)</param>
-      <param name="ticks_per_revolution">$(arg ticks_per_revolution)</param>
-      <param name="max_wheel_velocity">$(arg max_wheel_velocity)</param>
+      <plugin>cbr_base_hardware_interface/MariolaSystem</plugin>
+      <param name="state_topic">/cbr_base_hardware/raw_joint_states</param>
+      <param name="command_topic">/cbr_base_hardware/command_velocities</param>
+      <param name="state_timeout_sec">0.25</param>
     </hardware>
     <xacro:macro name="wheel_control" params="name">
       <joint name="${name}_wheel_joint">
