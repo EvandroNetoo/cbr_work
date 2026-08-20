@@ -44,3 +44,4 @@ def test_base_launches_have_no_cli_arguments():
     assert 'DeclareLaunchArgument' not in launch_source
     assert 'DeclareLaunchArgument' not in driver_source
     assert "os.environ.get('VIRTUAL_ENV')" in driver_source
+    assert "FindPackageShare('cbr_lidar')" in launch_source

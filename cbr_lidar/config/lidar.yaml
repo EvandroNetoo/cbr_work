@@ -1,0 +1,22 @@
+cbr_lidar_node:
+  ros__parameters:
+    poll_rate_hz: 100.0
+
+    scan.topic: /scan_front
+    scan.frame_id: lidar_front_link
+    scan.angle_start_deg: 307
+    scan.angle_end_deg: 67
+    scan.range_min_m: 0.10
+    scan.range_max_m: 3.0
+
+    # SERIAL1 da Mariola: conector USB físico 1.4, protocolo XV-11.
+    hardware.serial_port: 1
+    hardware.serial_baud_rate: 115200
+    hardware.serial_read_chunk_size: 64
+    hardware.serial_timeout_sec: 0.10
+    hardware.data_timeout_sec: 5.0
+
+    # P7 controla um relé ativo em nível baixo.
+    hardware.relay_gpio_chip: /dev/gpiochip1
+    hardware.relay_pin: 266
+    hardware.relay_active_low: true

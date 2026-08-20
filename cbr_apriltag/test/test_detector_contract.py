@@ -1,10 +1,23 @@
 from pathlib import Path
+import sys
+from types import ModuleType, SimpleNamespace
 
 import numpy as np
+import yaml
 from cbr_interfaces.msg import AprilTagStampedDetection
 from geometry_msgs.msg import Pose
 
-from cbr_apriltag.apriltag_detector import AprilTagDetector
+try:
+    import pupil_apriltags  # noqa: F401
+except ModuleNotFoundError:
+    pupil_apriltags = ModuleType('pupil_apriltags')
+    pupil_apriltags.Detector = object
+    sys.modules['pupil_apriltags'] = pupil_apriltags
+
+from cbr_apriltag.apriltag_detector import (
+    AprilTagDetector,
+    _capture_request_succeeded,
+)
 
 
 PACKAGE = Path(__file__).parents[1]
@@ -27,8 +40,10 @@ def test_action_and_idle_subscription_contract():
     assert 'handle_accepted_callback=self.handle_accepted_callback' in source
     assert "name='apriltag-action-goal'" in source
     assert 'self.latest_image_subscription = None' in source
-    assert 'self._ensure_image_subscription()' in source
-    assert 'self._remove_image_subscription_if_idle()' in source
+    assert 'self.camera_info_subscription = None' in source
+    assert 'self.tf_listener = None' in source
+    assert 'self._activate_inputs_locked()' in source
+    assert 'self._deactivate_inputs_locked()' in source
     assert 'estimate_tag_pose=True' in source
     assert 'camera_params=parameters' in source
     assert 'tag_size=self.tag_size_m' in source
@@ -38,7 +53,40 @@ def test_one_detection_pass_is_shared_by_all_sessions():
     source = (PACKAGE / 'cbr_apriltag' / 'apriltag_detector.py').read_text()
     assert source.count('self.detector.detect(') == 1
     assert 'for session in sessions:' in source
-    assert 'MultiThreadedExecutor(num_threads=3)' in source
+    assert 'SingleThreadedExecutor()' in source
+    assert 'MultiThreadedExecutor' not in source
+
+
+def test_real_profile_stops_camera_while_idle():
+    config = yaml.safe_load(
+        (PACKAGE / 'config' / 'apriltag.yaml').read_text())
+    parameters = config['apriltag_detector']['ros__parameters']
+    assert parameters['manage_camera_capture'] is True
+    assert parameters['camera_capture_service'] == '/camera/set_capture'
+    assert parameters['camera_capture_timeout_sec'] == 5.0
+    assert parameters['camera_idle_timeout_sec'] == 0.5
+    assert parameters['camera_capture_retry_sec'] == 1.0
+
+    source = (PACKAGE / 'cbr_apriltag' / 'apriltag_detector.py').read_text()
+    assert 'SetBool' in source
+    assert 'self._stop_camera_if_idle' in source
+    assert 'self._wait_for_camera_capture()' in source
+
+
+def test_usb_cam_start_and_stop_responses_are_treated_as_success():
+    # usb_cam 0.8.x reports the operation in the message and leaves success false.
+    started = SimpleNamespace(success=False, message='Start Capturing')
+    stopped = SimpleNamespace(success=False, message='Stop Capturing')
+    assert _capture_request_succeeded(started, True)
+    assert not _capture_request_succeeded(started, False)
+    assert _capture_request_succeeded(stopped, False)
+    assert not _capture_request_succeeded(stopped, True)
+
+
+def test_capture_service_failures_are_not_hidden():
+    failed = SimpleNamespace(success=False, message='device unavailable')
+    assert not _capture_request_succeeded(failed, False)
+    assert not _capture_request_succeeded(None, False)
 
 
 def test_best_detection_order_is_error_margin_hamming_then_time():

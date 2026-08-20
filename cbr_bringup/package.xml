@@ -14,6 +14,7 @@
   <exec_depend>so_arm_101_moveit_config</exec_depend>
   <exec_depend>cbr_base_hardware</exec_depend>
   <exec_depend>cbr_base_hardware_interface</exec_depend>
+  <exec_depend>cbr_lidar</exec_depend>
   <exec_depend>cbr_robot_description</exec_depend>
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>joint_state_broadcaster</exec_depend>
@@ -21,6 +22,7 @@
   <exec_depend>mecanum_drive_controller</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rviz2</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>cbr_camera</exec_depend>
   <exec_depend>cbr_apriltag</exec_depend>

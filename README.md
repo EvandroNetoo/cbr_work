@@ -15,6 +15,7 @@ O notebook não é necessário para o controle ou planejamento do robô.
 ## Pacotes principais
 
 - `cbr_bringup`: perfil embarcado completo do robô.
+- `cbr_lidar`: aquisição do LiDAR XV-11 e publicação de `/scan_front`.
 - `cbr_camera`: aquisição e retificação da câmera, independentes do robô.
 - `so_arm_101`: descrição, hardware, controllers, teleop e MoveIt do braço.
 - `cbr_apriltag`: detector AprilTag, usando tópicos de câmera externos.
@@ -43,7 +44,8 @@ ros2 launch cbr_bringup robot.launch.py \
 
 Esse único launch também inicia `/dev/video1` em 320 x 240, carrega a
 calibração intrínseca, publica `/camera/image_rect` e executa o detector dos
-AprilTags `tag36h11` de IDs 0 a 14.
+AprilTags `tag36h11` de IDs 0 a 14. O LiDAR XV-11 é ligado pelo relé e publica
+o setor frontal em `/scan_front`, no frame `lidar_front_link`.
 
 O sistema aguarda um estado completo das seis juntas antes de iniciar os
 controllers. Falha inicial de conexão ou cinco falhas consecutivas de
@@ -61,7 +63,7 @@ export ROS_DOMAIN_ID=10
 Visualização do robô físico:
 
 ```bash
-ros2 launch so_arm_101_bringup rviz.launch.py
+ros2 launch cbr_bringup telemetry.launch.py
 ```
 
 Interface MotionPlanning do MoveIt:
@@ -76,7 +78,7 @@ Teleoperação manual:
 ros2 run so_arm_101_teleop keyboard_teleop
 ```
 
-O `rviz.launch.py` não inicia outro `robot_state_publisher` nem publica
+O `telemetry.launch.py` não inicia outro `robot_state_publisher` nem publica
 `/joint_states`; ele consome os dados fornecidos pela Banana Pi.
 
 ## Simulação e modelo offline

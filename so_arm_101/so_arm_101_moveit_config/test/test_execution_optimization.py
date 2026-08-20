@@ -68,6 +68,14 @@ def test_seleciona_a_apriltag_pelo_id_configurado():
     assert ExecutorDoMoveIt._selecionar_april_tag([primeira], 7) is None
 
 
+def test_erro_da_apriltag_propaga_detalhe_retornado_pelo_servidor():
+    movimento = (
+        PACKAGE_DIR / "so_arm_101_moveit_config" / "movimento.py"
+    ).read_text()
+    assert "resultado_da_acao.result.message" in movimento
+    assert "(estado {estado}): {detalhe}" in movimento
+
+
 def test_extrai_yaw_da_orientacao_da_apriltag():
     metade = math.radians(35.0) / 2.0
 

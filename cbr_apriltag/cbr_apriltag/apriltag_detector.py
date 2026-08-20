@@ -18,10 +18,11 @@ from pupil_apriltags import Detector
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.duration import Duration
-from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
+from std_srvs.srv import SetBool
 from tf2_geometry_msgs import do_transform_pose_stamped
 from tf2_ros import Buffer, TransformBroadcaster, TransformException, TransformListener
 
@@ -108,6 +109,21 @@ def _ros_duration(seconds: float):
     return msg
 
 
+def _capture_request_succeeded(response, target: bool) -> bool:
+    """Normalize the non-standard SetBool response used by usb_cam 0.8.x.
+
+    That driver leaves ``success`` false and reports the completed operation
+    only through ``Start Capturing`` or ``Stop Capturing``.  Keep the exception
+    deliberately narrow so genuine failures are still reported and retried.
+    """
+    if response is None:
+        return False
+    if response.success:
+        return True
+    expected = 'start capturing' if target else 'stop capturing'
+    return response.message.strip().casefold() == expected
+
+
 @dataclass
 class Session:
     goal_handle: object
@@ -137,6 +153,12 @@ class AprilTagDetector(Node):
         self.declare_parameter('max_hamming', 0)
         self.declare_parameter('feedback_rate_hz', 5.0)
         self.declare_parameter('suppress_native_pose_warning', True)
+        self.declare_parameter('manage_camera_capture', True)
+        self.declare_parameter(
+            'camera_capture_service', '/camera/set_capture')
+        self.declare_parameter('camera_capture_timeout_sec', 5.0)
+        self.declare_parameter('camera_idle_timeout_sec', 0.5)
+        self.declare_parameter('camera_capture_retry_sec', 1.0)
 
         self.warning_filter = (NativeWarningFilter()
                                if bool(self.get_parameter('suppress_native_pose_warning').value)
@@ -148,23 +170,47 @@ class AprilTagDetector(Node):
         self.min_decision_margin = float(self.get_parameter('min_decision_margin').value)
         self.max_hamming = int(self.get_parameter('max_hamming').value)
         self.feedback_period = 1.0 / max(0.1, float(self.get_parameter('feedback_rate_hz').value))
+        self.manage_camera_capture = bool(
+            self.get_parameter('manage_camera_capture').value)
+        self.camera_capture_timeout = max(
+            0.1, float(self.get_parameter('camera_capture_timeout_sec').value))
+        self.camera_idle_timeout = max(
+            0.0, float(self.get_parameter('camera_idle_timeout_sec').value))
+        self.camera_capture_retry = max(
+            0.1, float(self.get_parameter('camera_capture_retry_sec').value))
         self.camera_info: CameraInfo | None = None
+        self.camera_info_subscription = None
         self.latest_image_subscription = None
+        self.tf_buffer = None
+        self.tf_listener = None
         self.sessions: dict[bytes, Session] = {}
         self.sessions_lock = threading.RLock()
+        self.last_session_end = time.monotonic() - self.camera_idle_timeout
         self.detector = Detector(families=self.get_parameter('family').value,
                                  nthreads=int(self.get_parameter('nthreads').value),
                                  quad_decimate=float(self.get_parameter('quad_decimate').value),
                                  refine_edges=1)
-        self.tf_buffer = Buffer(cache_time=Duration(seconds=10.0))
-        self.tf_listener = TransformListener(self.tf_buffer, self)
         self.tf_broadcaster = TransformBroadcaster(self)
         self.camera_pose_publisher = self.create_publisher(PoseArray, 'apriltags/poses_camera', 10)
         self.pose_publisher = self.create_publisher(PoseArray, 'apriltags/poses', 10)
         self.camera_detection_publisher = self.create_publisher(AprilTagDetectionArray, 'apriltags/detections_camera', 10)
         self.detection_publisher = self.create_publisher(AprilTagDetectionArray, 'apriltags/detections', 10)
-        self.create_subscription(CameraInfo, self.get_parameter('camera_info_topic').value,
-                                 self.camera_info_callback, qos_profile_sensor_data)
+        self.capture_condition = threading.Condition(threading.RLock())
+        self.capture_state: bool | None = None
+        self.capture_future = None
+        self.capture_target: bool | None = None
+        self.next_capture_attempt = 0.0
+        self.capture_client = None
+        self.camera_idle_timer = None
+        if self.manage_camera_capture:
+            self.camera_capture_service = str(
+                self.get_parameter('camera_capture_service').value)
+            self.capture_client = self.create_client(
+                SetBool,
+                self.camera_capture_service,
+            )
+            self.camera_idle_timer = self.create_timer(
+                0.25, self._stop_camera_if_idle)
         self.action_server = ActionServer(self, AnalyzeAprilTags, 'apriltags/analyze',
                                           goal_callback=self.goal_callback,
                                           cancel_callback=self.cancel_callback,
@@ -172,6 +218,9 @@ class AprilTagDetector(Node):
         self.get_logger().info('AprilTag detector idle; waiting for /apriltags/analyze goals.')
 
     def destroy_node(self):
+        with self.sessions_lock:
+            self.sessions.clear()
+            self._deactivate_inputs_locked()
         if self.warning_filter is not None:
             self.warning_filter.close()
             self.warning_filter = None
@@ -192,20 +241,105 @@ class AprilTagDetector(Node):
         threading.Thread(target=self.execute_callback, args=(goal_handle,),
                          name='apriltag-action-goal', daemon=True).start()
 
-    def _ensure_image_subscription(self) -> None:
+    def _activate_inputs_locked(self) -> None:
         if self.latest_image_subscription is not None:
             return
+        self.camera_info = None
+        self.tf_buffer = Buffer(cache_time=Duration(seconds=10.0))
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.camera_info_subscription = self.create_subscription(
+            CameraInfo,
+            self.get_parameter('camera_info_topic').value,
+            self.camera_info_callback,
+            qos_profile_sensor_data,
+        )
         qos = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1,
                          reliability=ReliabilityPolicy.BEST_EFFORT,
                          durability=DurabilityPolicy.VOLATILE)
         self.latest_image_subscription = self.create_subscription(
             Image, self.get_parameter('image_topic').value, self.image_callback, qos)
 
-    def _remove_image_subscription_if_idle(self) -> None:
-        if self.sessions or self.latest_image_subscription is None:
+    def _deactivate_inputs_locked(self) -> None:
+        if self.sessions:
             return
-        self.destroy_subscription(self.latest_image_subscription)
-        self.latest_image_subscription = None
+        if self.latest_image_subscription is not None:
+            self.destroy_subscription(self.latest_image_subscription)
+            self.latest_image_subscription = None
+        if self.camera_info_subscription is not None:
+            self.destroy_subscription(self.camera_info_subscription)
+            self.camera_info_subscription = None
+        if self.tf_listener is not None:
+            self.tf_listener.unregister()
+            self.tf_listener = None
+        self.tf_buffer = None
+        self.camera_info = None
+
+    def _begin_capture_request(self, enabled: bool) -> bool:
+        if not self.manage_camera_capture or self.capture_client is None:
+            return True
+        with self.capture_condition:
+            if self.capture_future is not None:
+                return False
+            if self.capture_state is enabled:
+                return True
+            if time.monotonic() < self.next_capture_attempt:
+                return False
+            if not self.capture_client.service_is_ready():
+                return False
+            request = SetBool.Request()
+            request.data = enabled
+            self.capture_target = enabled
+            self.capture_future = self.capture_client.call_async(request)
+            self.capture_future.add_done_callback(self._capture_response)
+            return False
+
+    def _capture_response(self, future) -> None:
+        with self.capture_condition:
+            target = self.capture_target
+            try:
+                response = future.result()
+                if target is not None and _capture_request_succeeded(response, target):
+                    self.capture_state = target
+                    self.next_capture_attempt = 0.0
+                else:
+                    self.next_capture_attempt = (
+                        time.monotonic() + self.camera_capture_retry)
+                    message = response.message if response is not None else 'sem resposta'
+                    self.get_logger().warning(
+                        f'Não foi possível alterar a captura da câmera: {message}',
+                        throttle_duration_sec=5.0)
+            except Exception as error:
+                self.next_capture_attempt = (
+                    time.monotonic() + self.camera_capture_retry)
+                self.get_logger().warning(
+                    f'Falha no serviço de captura da câmera: {error}',
+                    throttle_duration_sec=5.0)
+            finally:
+                self.capture_future = None
+                self.capture_target = None
+                self.capture_condition.notify_all()
+
+    def _wait_for_camera_capture(self) -> bool:
+        if not self.manage_camera_capture:
+            return True
+        deadline = time.monotonic() + self.camera_capture_timeout
+        while rclpy.ok() and time.monotonic() < deadline:
+            if self._begin_capture_request(True):
+                return True
+            with self.capture_condition:
+                self.capture_condition.wait(timeout=0.05)
+        self.get_logger().error(
+            f'A câmera não respondeu pelo serviço '
+            f'{self.camera_capture_service} em '
+            f'{self.camera_capture_timeout:.1f} s.')
+        return False
+
+    def _stop_camera_if_idle(self) -> None:
+        with self.sessions_lock:
+            idle = not self.sessions
+            idle_for = time.monotonic() - self.last_session_end
+        if idle and idle_for >= self.camera_idle_timeout:
+            self._begin_capture_request(False)
 
     def execute_callback(self, goal_handle):
         if not goal_handle.is_cancel_requested:
@@ -214,9 +348,16 @@ class AprilTagDetector(Node):
         session = Session(goal_handle=goal_handle, duration=duration)
         key = bytes(goal_handle.goal_id.uuid)
         with self.sessions_lock:
+            first_session = not self.sessions
             self.sessions[key] = session
-            self._ensure_image_subscription()
+            if first_session:
+                self._activate_inputs_locked()
         try:
+            if not self._wait_for_camera_capture():
+                result = self._result(
+                    session, 'A câmera não iniciou dentro do tempo limite.')
+                goal_handle.abort(result)
+                return result
             while rclpy.ok() and goal_handle.is_active:
                 time.sleep(0.02)
                 elapsed = time.monotonic() - session.started
@@ -239,8 +380,9 @@ class AprilTagDetector(Node):
         finally:
             with self.sessions_lock:
                 self.sessions.pop(key, None)
-                self._remove_image_subscription_if_idle()
                 if not self.sessions:
+                    self.last_session_end = time.monotonic()
+                    self._deactivate_inputs_locked()
                     self.get_logger().info('AprilTag detector idle.')
 
     def _feedback(self, session: Session):
@@ -267,15 +409,17 @@ class AprilTagDetector(Node):
 
     def camera_info_callback(self, message: CameraInfo) -> None:
         if message.k[0] > 0.0 and message.k[4] > 0.0:
-            self.camera_info = message
+            with self.sessions_lock:
+                self.camera_info = message
 
     def image_callback(self, message: Image) -> None:
         with self.sessions_lock:
             sessions = list(self.sessions.values())
-        if not sessions or self.camera_info is None:
+            info = self.camera_info
+            tf_buffer = self.tf_buffer
+        if not sessions or info is None:
             return
-        camera_frame = message.header.frame_id or self.camera_info.header.frame_id
-        info = self.camera_info
+        camera_frame = message.header.frame_id or info.header.frame_id
         if not camera_frame or info.p[0] <= 0.0 or info.p[5] <= 0.0:
             return
         try:
@@ -317,10 +461,11 @@ class AprilTagDetector(Node):
         base_items: list[AprilTagStampedDetection] = []
         base_poses: list[PoseStamped] = []
         base_transform = None
-        if camera_poses:
+        if camera_poses and tf_buffer is not None:
             try:
-                base_transform = self.tf_buffer.lookup_transform(self.base_frame, camera_frame,
-                                                                  message.header.stamp, timeout=Duration(seconds=0.05))
+                base_transform = tf_buffer.lookup_transform(
+                    self.base_frame, camera_frame, message.header.stamp,
+                    timeout=Duration())
             except TransformException:
                 pass
         if base_transform is not None:
@@ -445,7 +590,7 @@ class AprilTagDetector(Node):
 def main(args: Iterable[str] | None = None) -> None:
     rclpy.init(args=args)
     node = AprilTagDetector()
-    executor = MultiThreadedExecutor(num_threads=3)
+    executor = SingleThreadedExecutor()
     executor.add_node(node)
     try:
         executor.spin()

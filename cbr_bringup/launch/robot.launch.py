@@ -34,6 +34,9 @@ def generate_launch_description():
     base_driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('cbr_base_hardware'), 'launch', 'driver.launch.py'])))
+    lidar = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('cbr_lidar'), 'launch', 'lidar.launch.py'])))
     camera = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('cbr_camera'), 'launch', 'camera.launch.py'])),
@@ -104,7 +107,7 @@ def generate_launch_description():
         DeclareLaunchArgument('image_topic', default_value='/camera/image_rect'),
         DeclareLaunchArgument('camera_info_topic', default_value='/camera/camera_info'),
         DeclareLaunchArgument('base_frame', default_value='base_link'),
-        arm_driver, base_driver, camera, apriltag, rsp, readiness,
+        arm_driver, base_driver, lidar, camera, apriltag, rsp, readiness,
         RegisterEventHandler(OnProcessExit(target_action=readiness, on_exit=start_control)),
         chain(joint, arm, 'joint_state_broadcaster'),
         chain(arm, gripper, 'arm_controller'),

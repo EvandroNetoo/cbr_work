@@ -42,11 +42,13 @@ ros2 launch cbr_apriltag apriltag.launch.py \
 
 The tag side is 32 mm by default. The preferred published interfaces are:
 
-Detection is on-demand. The node stays alive with the camera and TF listener,
-but it does not subscribe to images until a goal is sent to
-`/apriltags/analyze` (`cbr_interfaces/action/AnalyzeAprilTags`). A finite goal
-processes for the requested duration; a zero duration runs continuously until
-cancelled. Multiple goals share one detector pass per image.
+Detection is on-demand. While idle, the process and the initialized detector
+stay in memory, but the image, `CameraInfo` and TF subscriptions are removed.
+The node also calls `/camera/set_capture` to stop USB acquisition. A
+goal sent to `/apriltags/analyze` re-enables capture and all required inputs;
+the last completed goal returns them to the idle state after 0.5 s. A finite
+goal processes for the requested duration; a zero duration runs continuously
+until cancelled. Multiple goals share one detector pass per image.
 
 ```bash
 ros2 action send_goal /apriltags/analyze \

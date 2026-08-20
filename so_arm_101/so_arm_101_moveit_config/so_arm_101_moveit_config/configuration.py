@@ -6,6 +6,13 @@ def get_moveit_config():
     return (
         MoveItConfigsBuilder(
             'so_101', package_name='so_arm_101_moveit_config')
+        .robot_description_semantic(
+            file_path='config/so_arm_101.srdf',
+            mappings={
+                'robot_name': 'so_101',
+                'arm_base_link_name': 'base_link',
+            },
+        )
         .planning_pipelines(
             default_planning_pipeline='ompl',
             pipelines=['ompl'],

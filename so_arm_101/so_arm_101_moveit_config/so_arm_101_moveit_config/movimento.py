@@ -113,7 +113,15 @@ class ExecutorDoMoveIt:
                 if resultado_da_acao is not None
                 else "sem resultado"
             )
-            raise RuntimeError(f"A análise de AprilTags falhou (estado {estado}).")
+            detalhe = (
+                resultado_da_acao.result.message
+                if resultado_da_acao is not None
+                and resultado_da_acao.result is not None
+                else "sem detalhes"
+            )
+            raise RuntimeError(
+                f"A análise de AprilTags falhou (estado {estado}): {detalhe}"
+            )
 
         deteccao = self._selecionar_april_tag(
             resultado_da_acao.result.best_detections_base, tag_id

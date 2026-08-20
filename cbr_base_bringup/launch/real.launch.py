@@ -20,6 +20,8 @@ def generate_launch_description():
         FindPackageShare('cbr_base_bringup'), 'config', 'controllers.yaml'])
     driver = IncludeLaunchDescription(PythonLaunchDescriptionSource(PathJoinSubstitution([
         FindPackageShare('cbr_base_hardware'), 'launch', 'driver.launch.py'])))
+    lidar = IncludeLaunchDescription(PythonLaunchDescriptionSource(PathJoinSubstitution([
+        FindPackageShare('cbr_lidar'), 'launch', 'lidar.launch.py'])))
     readiness = Node(
         package='cbr_base_bringup', executable='wait_for_wheel_states', output='screen')
     rsp = Node(
@@ -53,7 +55,7 @@ def generate_launch_description():
         return [base]
 
     return LaunchDescription([
-        driver, readiness, rsp,
+        driver, lidar, readiness, rsp,
         RegisterEventHandler(OnProcessExit(target_action=readiness, on_exit=after_readiness)),
         RegisterEventHandler(OnProcessExit(target_action=joint, on_exit=after_joint)),
         RegisterEventHandler(OnProcessExit(

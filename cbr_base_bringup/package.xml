@@ -9,6 +9,7 @@
   <exec_depend>cbr_base_description</exec_depend>
   <exec_depend>cbr_base_hardware</exec_depend>
   <exec_depend>cbr_base_hardware_interface</exec_depend>
+  <exec_depend>cbr_lidar</exec_depend>
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>joint_state_broadcaster</exec_depend>
   <exec_depend>mecanum_drive_controller</exec_depend>

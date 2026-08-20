@@ -18,7 +18,7 @@ def generate_launch_description():
         launch_arguments={'use_sim_time': 'true'}.items())
     rviz = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
-            moveit_share, 'launch', 'moveit_rviz.launch.py'])),
+            moveit_share, 'launch', 'arm_moveit_rviz.launch.py'])),
         launch_arguments={'use_sim_time': 'true'}.items())
 
     return LaunchDescription([

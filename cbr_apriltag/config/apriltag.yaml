@@ -12,3 +12,10 @@ apriltag_detector:
     max_hamming: 0
     feedback_rate_hz: 5.0
     suppress_native_pose_warning: true
+
+    # Mantém o processo carregado, mas para a captura USB quando não há ação.
+    manage_camera_capture: true
+    camera_capture_service: /camera/set_capture
+    camera_capture_timeout_sec: 5.0
+    camera_idle_timeout_sec: 0.5
+    camera_capture_retry_sec: 1.0

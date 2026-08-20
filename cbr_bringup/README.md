@@ -11,6 +11,18 @@ A futura lógica autônoma deve ser incluída neste perfil depois que os
 controllers e o `/move_action` estiverem prontos; o notebook não é requisito
 para essa inicialização.
 
+No notebook, o painel principal de telemetria consome os tópicos publicados
+pelo robô sem iniciar drivers, controllers ou outro `robot_state_publisher`:
+
+```bash
+ros2 launch cbr_bringup telemetry.launch.py
+```
+
+O painel usa `odom` como frame fixo e deixa habilitados o modelo do robô,
+`/scan_front` e `/odom`. A árvore TF e `/camera/image_rect` ficam configuradas,
+mas desligadas por padrão para serem ativadas durante diagnósticos. A interface
+MotionPlanning continua separada no pacote do MoveIt.
+
 Os drivers físicos podem levar cerca de 20 segundos para conectar na Banana
 Pi. O launch aguarda até 45 segundos pelos estados completos das seis juntas
 comandadas do braço e das quatro rodas antes de iniciar os controllers. A saída

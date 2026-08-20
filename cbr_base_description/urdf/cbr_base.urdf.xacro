@@ -247,7 +247,7 @@
   <joint name="lidar_front_joint" type="fixed">
     <parent link="base_link"/><child link="lidar_front_link"/>
     <origin xyz="${lidar_center_x} ${lidar_center_y} ${lidar_center_height_above_ground - wheel_radius}"
-      rpy="${pi} 0 0"/>
+      rpy="0 0 0"/>
   </joint>
 
   <!-- Separate component link prevents RViz from reusing the orange material
@@ -273,7 +273,10 @@
       <plugin>cbr_base_hardware_interface/MariolaSystem</plugin>
       <param name="state_topic">/cbr_base_hardware/raw_joint_states</param>
       <param name="command_topic">/cbr_base_hardware/command_velocities</param>
-      <param name="state_timeout_sec">0.25</param>
+      <!-- At 30 Hz, 0.50 s tolerates a short scheduling stall on the SBC.
+           Command freshness is guarded separately by the 0.30 s watchdog in
+           cbr_base_hardware, so this does not prolong a stale wheel command. -->
+      <param name="state_timeout_sec">0.50</param>
     </hardware>
     <xacro:macro name="wheel_control" params="name">
       <joint name="${name}_wheel_joint">
