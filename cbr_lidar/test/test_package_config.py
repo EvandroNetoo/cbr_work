@@ -10,6 +10,7 @@ def test_real_yaml_matches_robot_description_and_wiring():
     config = yaml.safe_load(
         (PACKAGE / 'config' / 'lidar.yaml').read_text(encoding='utf-8'))
     parameters = config['cbr_lidar_node']['ros__parameters']
+    assert parameters['poll_rate_hz'] == 20.0
     assert parameters['scan.topic'] == '/scan_front'
     assert parameters['scan.frame_id'] == 'lidar_front_link'
     assert parameters['scan.angle_start_deg'] == 307

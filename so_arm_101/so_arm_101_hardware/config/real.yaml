@@ -7,5 +7,9 @@ so101_hardware_node:
     # ROS uses radians; the adapter converts to/from LeRobot degrees.
     use_degrees: true
     read_rate_hz: 30.0
+    # O callback mantém apenas o alvo mais recente; um único ciclo possui a serial.
+    buffer_commands: true
+    deduplicate_commands: true
+    command_heartbeat_hz: 5.0
     state_topic: /so101_hardware/raw_joint_states
     command_topic: /so101_hardware/command_positions

@@ -147,8 +147,9 @@ class AprilTagDetector(Node):
         self.declare_parameter('tag_frame_prefix', 'apriltag')
         self.declare_parameter('family', 'tag36h11')
         self.declare_parameter('tag_size_m', 0.032)
-        self.declare_parameter('nthreads', 2)
+        self.declare_parameter('nthreads', 1)
         self.declare_parameter('quad_decimate', 1.0)
+        self.declare_parameter('max_detection_rate_hz', 10.0)
         self.declare_parameter('min_decision_margin', 30.0)
         self.declare_parameter('max_hamming', 0)
         self.declare_parameter('feedback_rate_hz', 5.0)
@@ -169,6 +170,13 @@ class AprilTagDetector(Node):
         self.tag_size_m = float(self.get_parameter('tag_size_m').value)
         self.min_decision_margin = float(self.get_parameter('min_decision_margin').value)
         self.max_hamming = int(self.get_parameter('max_hamming').value)
+        detection_rate = float(
+            self.get_parameter('max_detection_rate_hz').value)
+        if not math.isfinite(detection_rate) or detection_rate <= 0.0:
+            raise ValueError(
+                'max_detection_rate_hz must be positive and finite.')
+        self.detection_period = 1.0 / detection_rate
+        self.last_detection_time = float('-inf')
         self.feedback_period = 1.0 / max(0.1, float(self.get_parameter('feedback_rate_hz').value))
         self.manage_camera_capture = bool(
             self.get_parameter('manage_camera_capture').value)
@@ -186,15 +194,29 @@ class AprilTagDetector(Node):
         self.sessions: dict[bytes, Session] = {}
         self.sessions_lock = threading.RLock()
         self.last_session_end = time.monotonic() - self.camera_idle_timeout
+        # Keep ROS entities alive for the node lifetime. Destroying subscriptions
+        # from an action worker while the executor is rebuilding its wait set can
+        # make rclpy access an already-destroyed QoS event (InvalidHandle).
+        self._create_inputs()
         self.detector = Detector(families=self.get_parameter('family').value,
                                  nthreads=int(self.get_parameter('nthreads').value),
                                  quad_decimate=float(self.get_parameter('quad_decimate').value),
                                  refine_edges=1)
         self.tf_broadcaster = TransformBroadcaster(self)
-        self.camera_pose_publisher = self.create_publisher(PoseArray, 'apriltags/poses_camera', 10)
-        self.pose_publisher = self.create_publisher(PoseArray, 'apriltags/poses', 10)
-        self.camera_detection_publisher = self.create_publisher(AprilTagDetectionArray, 'apriltags/detections_camera', 10)
-        self.detection_publisher = self.create_publisher(AprilTagDetectionArray, 'apriltags/detections', 10)
+        output_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+        self.camera_pose_publisher = self.create_publisher(
+            PoseArray, 'apriltags/poses_camera', output_qos)
+        self.pose_publisher = self.create_publisher(
+            PoseArray, 'apriltags/poses', output_qos)
+        self.camera_detection_publisher = self.create_publisher(
+            AprilTagDetectionArray, 'apriltags/detections_camera', output_qos)
+        self.detection_publisher = self.create_publisher(
+            AprilTagDetectionArray, 'apriltags/detections', output_qos)
         self.capture_condition = threading.Condition(threading.RLock())
         self.capture_state: bool | None = None
         self.capture_future = None
@@ -220,7 +242,7 @@ class AprilTagDetector(Node):
     def destroy_node(self):
         with self.sessions_lock:
             self.sessions.clear()
-            self._deactivate_inputs_locked()
+            self._destroy_inputs_locked()
         if self.warning_filter is not None:
             self.warning_filter.close()
             self.warning_filter = None
@@ -241,10 +263,9 @@ class AprilTagDetector(Node):
         threading.Thread(target=self.execute_callback, args=(goal_handle,),
                          name='apriltag-action-goal', daemon=True).start()
 
-    def _activate_inputs_locked(self) -> None:
+    def _create_inputs(self) -> None:
         if self.latest_image_subscription is not None:
             return
-        self.camera_info = None
         self.tf_buffer = Buffer(cache_time=Duration(seconds=10.0))
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.camera_info_subscription = self.create_subscription(
@@ -259,9 +280,12 @@ class AprilTagDetector(Node):
         self.latest_image_subscription = self.create_subscription(
             Image, self.get_parameter('image_topic').value, self.image_callback, qos)
 
-    def _deactivate_inputs_locked(self) -> None:
-        if self.sessions:
-            return
+    def _destroy_inputs_locked(self) -> None:
+        """Destroy input entities only during final node teardown.
+
+        ``main`` calls this through ``destroy_node`` after executor.shutdown(),
+        so no executor wait set can still contain their event handlers.
+        """
         if self.latest_image_subscription is not None:
             self.destroy_subscription(self.latest_image_subscription)
             self.latest_image_subscription = None
@@ -351,7 +375,7 @@ class AprilTagDetector(Node):
             first_session = not self.sessions
             self.sessions[key] = session
             if first_session:
-                self._activate_inputs_locked()
+                self.last_detection_time = float('-inf')
         try:
             if not self._wait_for_camera_capture():
                 result = self._result(
@@ -382,7 +406,6 @@ class AprilTagDetector(Node):
                 self.sessions.pop(key, None)
                 if not self.sessions:
                     self.last_session_end = time.monotonic()
-                    self._deactivate_inputs_locked()
                     self.get_logger().info('AprilTag detector idle.')
 
     def _feedback(self, session: Session):
@@ -419,6 +442,11 @@ class AprilTagDetector(Node):
             tf_buffer = self.tf_buffer
         if not sessions or info is None:
             return
+        now = time.monotonic()
+        with self.sessions_lock:
+            if now - self.last_detection_time < self.detection_period:
+                return
+            self.last_detection_time = now
         camera_frame = message.header.frame_id or info.header.frame_id
         if not camera_frame or info.p[0] <= 0.0 or info.p[5] <= 0.0:
             return
@@ -479,7 +507,6 @@ class AprilTagDetector(Node):
             self.tf_broadcaster.sendTransform(transforms)
         self.pose_publisher.publish(self.pose_array(self.base_frame, message, base_poses))
         self.detection_publisher.publish(self.detection_array(self.base_frame, message, base_items))
-        now = time.monotonic()
         with self.sessions_lock:
             for session in sessions:
                 if session.goal_handle.is_cancel_requested:

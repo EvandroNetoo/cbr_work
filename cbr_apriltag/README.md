@@ -48,7 +48,11 @@ The node also calls `/camera/set_capture` to stop USB acquisition. A
 goal sent to `/apriltags/analyze` re-enables capture and all required inputs;
 the last completed goal returns them to the idle state after 0.5 s. A finite
 goal processes for the requested duration; a zero duration runs continuously
-until cancelled. Multiple goals share one detector pass per image.
+until cancelled. Multiple goals share one detector pass per image. The
+production camera acquires at 15 FPS, while `max_detection_rate_hz` limits the
+expensive OpenCV/pupil_apriltags path to 10 Hz by default; skipped frames are
+discarded before conversion. `quad_decimate=1.0` preserves the calibrated
+full-resolution detection path.
 
 ```bash
 ros2 action send_goal /apriltags/analyze \

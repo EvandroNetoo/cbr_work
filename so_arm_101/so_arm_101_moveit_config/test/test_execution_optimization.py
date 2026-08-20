@@ -33,6 +33,7 @@ def test_sequencia_nao_contem_esperas_fixas():
         PACKAGE_DIR / "so_arm_101_moveit_config" / "movimento.py"
     ).read_text()
     assert "time.sleep" not in sequencia
+    assert "sleep(" not in sequencia
     assert "time.sleep" not in movimento
     assert "_aguardar_assentamento" in movimento
 

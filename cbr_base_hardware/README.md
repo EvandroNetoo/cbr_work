@@ -10,13 +10,20 @@ todos em `config/hardware.yaml`. O brick permanece na SERIAL0, como no exemplo
 validado. Com os valores atuais, `100 = 7 rad/s`; com raio de 0,034 m, isso
 corresponde a 0,238 m/s na borda da roda.
 
-O launch não possui argumentos:
+As leituras de encoder permanecem a 30 Hz. Alvos que resultam no mesmo comando
+físico `-100..100` não são reenviados em todo ciclo; um heartbeat de 5 Hz mantém
+o controlador atualizado. Mudanças e transições para zero são imediatas.
+
+O launch expõe rollback para esse comportamento:
 
 ```bash
-ros2 launch cbr_base_hardware driver.launch.py
+ros2 launch cbr_base_hardware driver.launch.py \
+  deduplicate_commands:=true command_heartbeat_hz:=5.0
 ```
 
-Ele usa somente `config/hardware.yaml`. Execute o primeiro teste físico com o
+Os argumentos sobrescrevem os defaults de `config/hardware.yaml`. Use
+`deduplicate_commands:=false` para reproduzir uma escrita a cada ciclo. Execute
+o primeiro teste físico com o
 robô suspenso. Quando uma virtualenv está ativa, o launch executa o driver com
 `$VIRTUAL_ENV/bin/python`, permitindo usar as bibliotecas instaladas nela sem
 configuração adicional.

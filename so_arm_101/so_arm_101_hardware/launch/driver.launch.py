@@ -16,6 +16,7 @@ from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -65,6 +66,12 @@ def generate_launch_description() -> LaunchDescription:
                 'port': LaunchConfiguration('port'),
                 'robot_id': LaunchConfiguration('robot_id'),
                 'calibration_file': LaunchConfiguration('calibration_file'),
+                'buffer_commands': ParameterValue(
+                    LaunchConfiguration('buffer_commands'), value_type=bool),
+                'deduplicate_commands': ParameterValue(
+                    LaunchConfiguration('deduplicate_commands'), value_type=bool),
+                'command_heartbeat_hz': ParameterValue(
+                    LaunchConfiguration('command_heartbeat_hz'), value_type=float),
             },
         ],
     )
@@ -72,6 +79,11 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('port', default_value=''),
         DeclareLaunchArgument('robot_id', default_value='so101_follower'),
+        DeclareLaunchArgument(
+            'buffer_commands', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument(
+            'deduplicate_commands', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('command_heartbeat_hz', default_value='5.0'),
         DeclareLaunchArgument(
             'python_executable',
             default_value=_default_python_executable(),

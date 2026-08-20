@@ -16,6 +16,9 @@ inválidas permanecem como `NaN`, sem deslocar as demais medições. O relé do
 motor é desligado quando o nó encerra. A serial é processada em blocos de 64
 bytes para reduzir polling e chamadas ao kernel. O timestamp parte do fim da
 aquisição e do RPM, garantindo que o último raio nunca seja datado no futuro.
+O executor consulta a varredura concluída a 20 Hz; para um sensor próximo de
+5 rotações/s, isso mantém a latência adicional abaixo de 50 ms sem callbacks
+vazios a 100 Hz.
 
 Diagnóstico:
 

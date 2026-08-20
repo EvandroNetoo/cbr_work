@@ -2,6 +2,9 @@ cbr_base_hardware_node:
   ros__parameters:
     io_rate_hz: 30.0
     command_timeout_sec: 0.30
+    # Leituras continuam a 30 Hz; alvos idênticos usam heartbeat de 5 Hz.
+    deduplicate_commands: true
+    command_heartbeat_hz: 5.0
     max_consecutive_io_failures: 3
     state_topic: /cbr_base_hardware/raw_joint_states
     command_topic: /cbr_base_hardware/command_velocities

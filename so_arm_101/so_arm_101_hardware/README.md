@@ -64,3 +64,21 @@ ros2 service call /so101_hardware/calibrate std_srvs/srv/Trigger '{}'
 O nó Python não publica actions nem recebe trajetórias. O plugin
 `so_arm_101_hardware_interface/SO101System` faz a ponte para o
 `ros2_control`; os controllers ficam entre o MoveIt e este driver.
+
+## Ciclo de I/O e rollback
+
+No perfil padrão, a callback ROS apenas mantém o alvo mais recente. Um único
+ciclo a 30 Hz executa `sync_write` quando necessário e depois `sync_read`, sem
+duas callbacks competindo pela serial. Durante movimento o alvo pode ser enviado
+a 30 Hz; quando permanece idêntico, o heartbeat é de 5 Hz.
+
+Para comparar com o caminho antigo sem recompilar:
+
+```bash
+ros2 launch so_arm_101_hardware driver.launch.py \
+  port:=/dev/ttyUSB0 \
+  buffer_commands:=false deduplicate_commands:=false
+```
+
+`buffer_commands:=true deduplicate_commands:=false` mantém a serial em um único
+ciclo, mas escreve o último alvo em todos os ciclos de 30 Hz.

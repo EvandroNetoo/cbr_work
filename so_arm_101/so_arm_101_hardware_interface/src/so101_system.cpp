@@ -105,9 +105,10 @@ hardware_interface::CallbackReturn SO101System::on_activate(
     std::fill(received_joints_.begin(), received_joints_.end(), false);
   }
   node_ = std::make_shared<rclcpp::Node>("so101_system_io");
-  command_publisher_ = node_->create_publisher<std_msgs::msg::Float64MultiArray>(command_topic_, 10);
+  const auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
+  command_publisher_ = node_->create_publisher<std_msgs::msg::Float64MultiArray>(command_topic_, qos);
   state_subscription_ = node_->create_subscription<sensor_msgs::msg::JointState>(
-    state_topic_, rclcpp::QoS(10),
+    state_topic_, qos,
     std::bind(&SO101System::state_callback, this, std::placeholders::_1));
 
   executor_->add_node(node_);

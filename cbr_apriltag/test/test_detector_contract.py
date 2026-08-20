@@ -33,17 +33,22 @@ def _item(tag_id, error, margin, hamming=0, stamp=0):
     return item
 
 
-def test_action_and_idle_subscription_contract():
+def test_action_and_lifetime_subscription_contract():
     source = (PACKAGE / 'cbr_apriltag' / 'apriltag_detector.py').read_text()
     assert 'ActionServer' in source
     assert "'apriltags/analyze'" in source
     assert 'handle_accepted_callback=self.handle_accepted_callback' in source
     assert "name='apriltag-action-goal'" in source
-    assert 'self.latest_image_subscription = None' in source
-    assert 'self.camera_info_subscription = None' in source
-    assert 'self.tf_listener = None' in source
-    assert 'self._activate_inputs_locked()' in source
-    assert 'self._deactivate_inputs_locked()' in source
+    assert 'self._create_inputs()' in source
+    assert 'self._destroy_inputs_locked()' in source
+    execute_callback = source.split('    def execute_callback', 1)[1].split(
+        '    def _feedback', 1)[0]
+    execute_finally = execute_callback.split('        finally:', 1)[1]
+    assert 'destroy_subscription' not in execute_finally
+    assert '.unregister()' not in execute_finally
+    main_finally = source.rsplit('    finally:', 1)[1]
+    assert main_finally.index('executor.shutdown()') < main_finally.index(
+        'node.destroy_node()')
     assert 'estimate_tag_pose=True' in source
     assert 'camera_params=parameters' in source
     assert 'tag_size=self.tag_size_m' in source
@@ -66,11 +71,19 @@ def test_real_profile_stops_camera_while_idle():
     assert parameters['camera_capture_timeout_sec'] == 5.0
     assert parameters['camera_idle_timeout_sec'] == 0.5
     assert parameters['camera_capture_retry_sec'] == 1.0
+    assert parameters['max_detection_rate_hz'] == 10.0
 
     source = (PACKAGE / 'cbr_apriltag' / 'apriltag_detector.py').read_text()
     assert 'SetBool' in source
     assert 'self._stop_camera_if_idle' in source
     assert 'self._wait_for_camera_capture()' in source
+    assert 'now - self.last_detection_time < self.detection_period' in source
+
+
+def test_continuous_apriltag_outputs_keep_only_latest_sample():
+    source = (PACKAGE / 'cbr_apriltag' / 'apriltag_detector.py').read_text()
+    assert 'output_qos = QoSProfile(' in source
+    assert 'depth=1' in source
 
 
 def test_usb_cam_start_and_stop_responses_are_treated_as_success():

@@ -42,7 +42,8 @@ v4l2-ctl -d /dev/video0 --list-formats-ext
 v4l2-ctl -d /dev/video1 --list-formats-ext
 ```
 
-Neste hardware, `/dev/video1` foi validado com MJPG em 320 x 240 a 30 Hz:
+Neste hardware, `/dev/video1` foi validado com MJPG em 320 x 240 a 30 Hz. O
+perfil embarcado usa 15 Hz para reduzir decode, retificação e cópias de memória:
 
 ```bash
 v4l2-ctl -d /dev/video1 \
@@ -59,8 +60,8 @@ fuser -v /dev/video0 /dev/video1
 ```
 
 Depois registre o dispositivo, a resolução e o formato escolhidos em
-`config/camera.yaml`. Esse arquivo é a única fonte de parâmetros do launch;
-não existem valores escondidos sobrescrevendo-o.
+`config/camera.yaml`. O YAML define o default de 15 Hz e o argumento explícito
+`framerate` permite teste A/B sem criar outro arquivo de configuração.
 
 ## Etapa 2: publicar apenas a imagem bruta
 
@@ -70,7 +71,7 @@ Na raiz do workspace:
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install --packages-select cbr_camera
 source install/setup.bash
-ros2 launch cbr_camera camera.launch.py
+ros2 launch cbr_camera camera.launch.py framerate:=15.0
 ```
 
 Se a câmera oferecer somente YUYV, use `pixel_format: yuyv` no YAML. Use
@@ -158,7 +159,7 @@ Somente depois da calibração:
 
 ```bash
 ros2 launch cbr_camera camera.launch.py \
-  rectify:=true
+  rectify:=true framerate:=15.0
 ```
 
 Visualize `/camera/image_rect`. Linhas retas próximas às bordas devem parecer

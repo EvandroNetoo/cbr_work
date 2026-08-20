@@ -1,7 +1,7 @@
 controller_manager:
   ros__parameters:
     use_sim_time: false
-    update_rate: 50
+    update_rate: 30
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
     arm_controller:
@@ -30,7 +30,7 @@ arm_controller:
   ros__parameters:
     command_interfaces: [position]
     state_interfaces: [position, velocity]
-    state_publish_rate: 50.0
+    state_publish_rate: 30.0
     joints:
       - base_link_to_link1
       - link1_to_link2
@@ -42,7 +42,7 @@ gripper_controller:
   ros__parameters:
     command_interfaces: [position]
     state_interfaces: [position, velocity]
-    state_publish_rate: 50.0
+    state_publish_rate: 30.0
     joints: [right_clamp]
 
 base_controller:

@@ -15,6 +15,7 @@ def test_camera_configuration_is_explicit_and_uses_matching_calibration():
     assert parameters['video_device'].startswith('/dev/video')
     assert parameters['image_width'] > 0
     assert parameters['image_height'] > 0
+    assert parameters['framerate'] == 15.0
     assert parameters['frame_id'] == 'camera_optical_frame'
     assert parameters['camera_info_url'] == (
         'package://cbr_camera/config/camera_info.yaml')
@@ -30,6 +31,8 @@ def test_camera_launch_does_not_start_apriltag_or_robot():
     assert "package='usb_cam'" in source
     assert "executable='rectify_node'" in source
     assert "default_value='false'" in source
+    assert "'framerate', default_value='15.0'" in source
+    assert "LaunchConfiguration('framerate')" in source
     assert 'apriltag' not in source.lower()
     assert 'moveit' not in source.lower()
 

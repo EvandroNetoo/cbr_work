@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import sys
-from time import sleep
 
 import rclpy
 
@@ -74,7 +73,6 @@ class PegarEColocar:
                     velocidade=VELOCIDADE_MAXIMA,
                     aceleracao=ACELERACAO_MAXIMA,
                 )
-                sleep(1)
                 (
                     objeto_x,
                     objeto_y,
@@ -111,13 +109,13 @@ class PegarEColocar:
                 objeto_x,
                 objeto_y,
                 objeto_z,
-                angulo_da_pegada,
+                angulo_da_pegada + 90,
             )
             pose_acima_do_objeto = criar_pose(
                 objeto_x,
                 objeto_y,
                 objeto_z + ALTURA_DE_APROXIMACAO,
-                angulo_da_pegada,
+                angulo_da_pegada + 90,
             )
 
             self.executor.no.get_logger().info("Indo para cima do objeto")

@@ -6,8 +6,12 @@ apriltag_detector:
     tag_frame_prefix: apriltag
     family: tag36h11
     tag_size_m: 0.032
-    nthreads: 2
+    nthreads: 1
     quad_decimate: 1.0
+    # A câmera pode entregar 30 FPS, mas a manipulação não precisa detectar
+    # tags em todos eles. Frames intermediários são descartados antes de
+    # conversão OpenCV e pupil_apriltags.
+    max_detection_rate_hz: 10.0
     min_decision_margin: 30.0
     max_hamming: 0
     feedback_rate_hz: 5.0

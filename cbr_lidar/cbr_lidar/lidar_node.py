@@ -43,7 +43,7 @@ class LidarNode(Node):
         self.declare_parameter('hardware.relay_gpio_chip', '/dev/gpiochip1')
         self.declare_parameter('hardware.relay_pin', 266)
         self.declare_parameter('hardware.relay_active_low', True)
-        self.declare_parameter('poll_rate_hz', 100.0)
+        self.declare_parameter('poll_rate_hz', 20.0)
 
         self._topic = str(self.get_parameter('scan.topic').value)
         self._frame_id = str(self.get_parameter('scan.frame_id').value)

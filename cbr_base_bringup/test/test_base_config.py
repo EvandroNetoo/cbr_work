@@ -11,6 +11,8 @@ def controllers():
 
 
 def test_mecanum_geometry_frames_and_timeout(controllers):
+    assert controllers['controller_manager']['ros__parameters'][
+        'update_rate'] == 30
     parameters = controllers['base_controller']['ros__parameters']
     assert parameters['kinematics']['wheels_radius'] == pytest.approx(0.034)
     assert parameters['kinematics'][
@@ -35,13 +37,15 @@ def test_controller_uses_exact_four_wheel_joints(controllers):
         'rear_left_wheel_joint', 'rear_right_wheel_joint']
 
 
-def test_base_launches_have_no_cli_arguments():
+def test_base_stack_keeps_physical_config_in_yaml_and_driver_exposes_rollback():
     package = Path(__file__).parents[1]
     launch_source = (package / 'launch' / 'real.launch.py').read_text()
     driver_source = (
         package.parent / 'cbr_base_hardware' / 'launch' / 'driver.launch.py'
     ).read_text()
     assert 'DeclareLaunchArgument' not in launch_source
-    assert 'DeclareLaunchArgument' not in driver_source
+    assert "'deduplicate_commands', default_value='true'" in driver_source
+    assert "'command_heartbeat_hz', default_value='5.0'" in driver_source
+    assert "'hardware.expansion_serial_port'" not in driver_source
     assert "os.environ.get('VIRTUAL_ENV')" in driver_source
     assert "FindPackageShare('cbr_lidar')" in launch_source

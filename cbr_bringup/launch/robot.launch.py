@@ -30,17 +30,27 @@ def generate_launch_description():
             'port': LaunchConfiguration('port'),
             'robot_id': LaunchConfiguration('robot_id'),
             'calibration_file': LaunchConfiguration('calibration_file'),
+            'buffer_commands': LaunchConfiguration('arm_buffer_commands'),
+            'deduplicate_commands': LaunchConfiguration('arm_deduplicate_commands'),
+            'command_heartbeat_hz': LaunchConfiguration('arm_command_heartbeat_hz'),
         }.items())
     base_driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
-            FindPackageShare('cbr_base_hardware'), 'launch', 'driver.launch.py'])))
+            FindPackageShare('cbr_base_hardware'), 'launch', 'driver.launch.py'])),
+        launch_arguments={
+            'deduplicate_commands': LaunchConfiguration('base_deduplicate_commands'),
+            'command_heartbeat_hz': LaunchConfiguration('base_command_heartbeat_hz'),
+        }.items())
     lidar = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('cbr_lidar'), 'launch', 'lidar.launch.py'])))
     camera = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('cbr_camera'), 'launch', 'camera.launch.py'])),
-        launch_arguments={'rectify': 'true'}.items())
+        launch_arguments={
+            'rectify': 'true',
+            'framerate': LaunchConfiguration('camera_framerate'),
+        }.items())
     apriltag = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('cbr_apriltag'), 'launch', 'apriltag.launch.py'])),
@@ -58,7 +68,12 @@ def generate_launch_description():
         output='screen')
     control = Node(
         package='controller_manager', executable='ros2_control_node',
-        parameters=[{'robot_description': robot_description}, controllers], output='screen')
+        parameters=[
+            {'robot_description': robot_description},
+            controllers,
+            {'update_rate': ParameterValue(
+                LaunchConfiguration('controller_update_rate'), value_type=int)},
+        ], output='screen')
     joint = Node(
         package='controller_manager', executable='spawner',
         arguments=['joint_state_broadcaster', '-c', '/controller_manager'], output='screen')
@@ -102,6 +117,16 @@ def generate_launch_description():
         DeclareLaunchArgument('port', default_value=''),
         DeclareLaunchArgument('robot_id', default_value='so101_follower'),
         DeclareLaunchArgument('hardware_state_timeout', default_value='45.0'),
+        DeclareLaunchArgument('camera_framerate', default_value='15.0'),
+        DeclareLaunchArgument('controller_update_rate', default_value='30'),
+        DeclareLaunchArgument(
+            'arm_buffer_commands', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument(
+            'arm_deduplicate_commands', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('arm_command_heartbeat_hz', default_value='5.0'),
+        DeclareLaunchArgument(
+            'base_deduplicate_commands', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('base_command_heartbeat_hz', default_value='5.0'),
         DeclareLaunchArgument('calibration_file', default_value=PathJoinSubstitution([
             FindPackageShare('so_arm_101_hardware'), 'config', 'so101_follower.json'])),
         DeclareLaunchArgument('image_topic', default_value='/camera/image_rect'),

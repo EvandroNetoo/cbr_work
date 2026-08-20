@@ -1,6 +1,8 @@
 cbr_lidar_node:
   ros__parameters:
-    poll_rate_hz: 100.0
+    # O XV-11 conclui aproximadamente 5 scans/s. 20 Hz limita a latência de
+    # entrega a 50 ms sem acordar o executor 100 vezes por segundo.
+    poll_rate_hz: 20.0
 
     scan.topic: /scan_front
     scan.frame_id: lidar_front_link

@@ -18,6 +18,7 @@ from .mariola_adapter import (
     MariolaBase,
     MariolaConfig,
     WHEEL_NAMES,
+    radians_per_second_to_command,
     validate_complete_command,
 )
 
@@ -27,6 +28,8 @@ class BaseHardwareNode(Node):
         super().__init__('cbr_base_hardware_node')
         self.declare_parameter('io_rate_hz', 30.0)
         self.declare_parameter('command_timeout_sec', 0.30)
+        self.declare_parameter('deduplicate_commands', True)
+        self.declare_parameter('command_heartbeat_hz', 5.0)
         self.declare_parameter('max_consecutive_io_failures', 3)
         self.declare_parameter('state_topic', '/cbr_base_hardware/raw_joint_states')
         self.declare_parameter('command_topic', '/cbr_base_hardware/command_velocities')
@@ -45,17 +48,27 @@ class BaseHardwareNode(Node):
 
         rate = float(self.get_parameter('io_rate_hz').value)
         timeout = float(self.get_parameter('command_timeout_sec').value)
+        heartbeat_rate = float(
+            self.get_parameter('command_heartbeat_hz').value)
         if not math.isfinite(rate) or rate <= 0.0:
             raise ValueError('io_rate_hz deve ser positivo e finito.')
         if not math.isfinite(timeout) or timeout <= 0.0:
             raise ValueError('command_timeout_sec deve ser positivo e finito.')
+        if not math.isfinite(heartbeat_rate) or heartbeat_rate <= 0.0:
+            raise ValueError(
+                'command_heartbeat_hz deve ser positivo e finito.')
         self._command_timeout = timeout
+        self._deduplicate_commands = bool(
+            self.get_parameter('deduplicate_commands').value)
+        self._command_heartbeat_period = 1.0 / heartbeat_rate
         self._failure_limit = max(
             1, int(self.get_parameter('max_consecutive_io_failures').value))
         self._failures = 0
         self._last_command_time = None
         self._latest_command = {name: 0.0 for name in WHEEL_NAMES}
         self._lock = threading.Lock()
+        self._last_written_signature = None
+        self._last_command_write_time = float('-inf')
         hardware_config = MariolaConfig(
             expansion_serial_port=int(
                 self.get_parameter('hardware.expansion_serial_port').value),
@@ -119,10 +132,39 @@ class BaseHardwareNode(Node):
                 self._backend.stop()
             except Exception as stop_error:
                 self.get_logger().error(f'Falha ao parar após comando inválido: {stop_error}')
+            finally:
+                self._invalidate_write_cache()
             return
         with self._lock:
             self._latest_command = values
             self._last_command_time = time.monotonic()
+
+    def _command_signature(self, command):
+        return tuple(
+            radians_per_second_to_command(
+                command[name], self._max_wheel_velocity)
+            for name in WHEEL_NAMES
+        )
+
+    def _should_write_command(self, signature, now):
+        if not self._deduplicate_commands:
+            return True
+        with self._lock:
+            return (
+                signature != self._last_written_signature
+                or now - self._last_command_write_time
+                >= self._command_heartbeat_period
+            )
+
+    def _record_command_write(self, signature, now):
+        with self._lock:
+            self._last_written_signature = signature
+            self._last_command_write_time = now
+
+    def _invalidate_write_cache(self):
+        with self._lock:
+            self._last_written_signature = None
+            self._last_command_write_time = float('-inf')
 
     def _io_cycle(self):
         try:
@@ -135,7 +177,10 @@ class BaseHardwareNode(Node):
                 )
                 command = dict(self._latest_command) if command_is_fresh else {
                     name: 0.0 for name in WHEEL_NAMES}
-            self._backend.write(command)
+            signature = self._command_signature(command)
+            if self._should_write_command(signature, now):
+                self._backend.write(command)
+                self._record_command_write(signature, now)
             message = JointState()
             message.header.stamp = self.get_clock().now().to_msg()
             message.name = list(WHEEL_NAMES)
@@ -149,6 +194,8 @@ class BaseHardwareNode(Node):
                 self._backend.stop()
             except Exception:
                 pass
+            finally:
+                self._invalidate_write_cache()
             detail = f'Falha de I/O da base ({self._failures}/{self._failure_limit}): {error}'
             if self._failures >= self._failure_limit:
                 self.get_logger().fatal(detail)
