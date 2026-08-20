@@ -16,6 +16,9 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
+CONFIG_DEFAULT = '__from_config__'
+
+
 def generate_launch_description() -> LaunchDescription:
     hardware_share = FindPackageShare('so_arm_101_hardware')
     description_share = FindPackageShare('so_arm_101_description')
@@ -101,8 +104,8 @@ def generate_launch_description() -> LaunchDescription:
         return [control_node, spawn_joint]
 
     return LaunchDescription([
-        DeclareLaunchArgument('port', default_value=''),
-        DeclareLaunchArgument('robot_id', default_value='so101_follower'),
+        DeclareLaunchArgument('port', default_value=CONFIG_DEFAULT),
+        DeclareLaunchArgument('robot_id', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument(
             'hardware_state_timeout',
             default_value='45.0',
@@ -112,8 +115,7 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument(
             'calibration_file',
-            default_value=PathJoinSubstitution([
-                hardware_share, 'config', 'so101_follower.json'])),
+            default_value=CONFIG_DEFAULT),
         driver,
         robot_state_publisher,
         readiness,

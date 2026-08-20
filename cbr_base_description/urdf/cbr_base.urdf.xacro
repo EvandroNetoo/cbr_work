@@ -32,7 +32,8 @@
   <xacro:property name="imu_z" value="0.068"/>
   <xacro:property name="imu_roll" value="0.0"/>
   <xacro:property name="imu_pitch" value="0.0"/>
-  <xacro:property name="imu_yaw" value="-1.5708"/>
+  <!-- O firmware já entrega X para frente, Y para esquerda e Z para cima. -->
+  <xacro:property name="imu_yaw" value="0.0"/>
 
   <!-- The single central orange/black LiDAR. -->
   <xacro:property name="lidar_body_length" value="0.078"/>

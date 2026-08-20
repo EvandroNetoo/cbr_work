@@ -47,3 +47,10 @@ def test_physical_plugins_and_ten_commanded_joints(robot):
         'front_left_wheel_joint', 'front_right_wheel_joint',
         'rear_left_wheel_joint', 'rear_right_wheel_joint',
     }.issubset(controlled)
+
+
+def test_imu_data_frame_is_aligned_with_robot_axes(robot):
+    imu_joint = robot.find("joint[@name='imu_joint']")
+    assert imu_joint.find('parent').attrib['link'] == 'base_link'
+    assert imu_joint.find('child').attrib['link'] == 'imu_link'
+    assert imu_joint.find('origin').attrib['rpy'] == '0.0 0.0 0.0'

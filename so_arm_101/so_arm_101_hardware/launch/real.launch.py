@@ -11,15 +11,17 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 
 
+CONFIG_DEFAULT = '__from_config__'
+
+
 def generate_launch_description():
     hardware_share = FindPackageShare('so_arm_101_hardware')
     return LaunchDescription([
-        DeclareLaunchArgument('port', default_value=''),
-        DeclareLaunchArgument('robot_id', default_value='so101_follower'),
+        DeclareLaunchArgument('port', default_value=CONFIG_DEFAULT),
+        DeclareLaunchArgument('robot_id', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument(
             'calibration_file',
-            default_value=PathJoinSubstitution([
-                hardware_share, 'config', 'so101_follower.json'])),
+            default_value=CONFIG_DEFAULT),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([
                 hardware_share,

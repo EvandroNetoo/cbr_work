@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import threading
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
@@ -23,6 +24,17 @@ from cbr_apriltag.apriltag_detector import (
 PACKAGE = Path(__file__).parents[1]
 
 
+class _Logger:
+    def info(self, *_args, **_kwargs):
+        pass
+
+    def warning(self, *_args, **_kwargs):
+        pass
+
+    def error(self, *_args, **_kwargs):
+        pass
+
+
 def _item(tag_id, error, margin, hamming=0, stamp=0):
     item = AprilTagStampedDetection()
     item.id = tag_id
@@ -33,19 +45,19 @@ def _item(tag_id, error, margin, hamming=0, stamp=0):
     return item
 
 
-def test_action_and_lifetime_subscription_contract():
+def test_action_activates_inputs_on_demand_and_tears_them_down_on_executor():
     source = (PACKAGE / 'cbr_apriltag' / 'apriltag_detector.py').read_text()
     assert 'ActionServer' in source
     assert "'apriltags/analyze'" in source
     assert 'handle_accepted_callback=self.handle_accepted_callback' in source
     assert "name='apriltag-action-goal'" in source
-    assert 'self._create_inputs()' in source
+    assert 'self._create_inputs_locked()' in source
     assert 'self._destroy_inputs_locked()' in source
+    assert 'self.input_lifecycle_guard.trigger()' in source
+    assert 'def _deactivate_inputs_from_executor' in source
     execute_callback = source.split('    def execute_callback', 1)[1].split(
         '    def _feedback', 1)[0]
-    execute_finally = execute_callback.split('        finally:', 1)[1]
-    assert 'destroy_subscription' not in execute_finally
-    assert '.unregister()' not in execute_finally
+    assert "self.state = 'deactivating'" in execute_callback
     main_finally = source.rsplit('    finally:', 1)[1]
     assert main_finally.index('executor.shutdown()') < main_finally.index(
         'node.destroy_node()')
@@ -54,12 +66,38 @@ def test_action_and_lifetime_subscription_contract():
     assert 'tag_size=self.tag_size_m' in source
 
 
-def test_one_detection_pass_is_shared_by_all_sessions():
+def test_one_detection_pass_is_used_by_the_single_active_session():
     source = (PACKAGE / 'cbr_apriltag' / 'apriltag_detector.py').read_text()
     assert source.count('self.detector.detect(') == 1
-    assert 'for session in sessions:' in source
+    assert 'self.session is not session' in source
+    assert "self.state != 'idle'" in source
     assert 'SingleThreadedExecutor()' in source
     assert 'MultiThreadedExecutor' not in source
+
+
+def test_goal_lifecycle_rejects_concurrency_and_deactivates_inputs():
+    detector = object.__new__(AprilTagDetector)
+    detector.sessions_lock = threading.RLock()
+    detector.state = 'idle'
+    detector.get_logger = lambda: _Logger()
+    created = []
+    destroyed = []
+    stopped = []
+    detector._create_inputs_locked = lambda: created.append(True)
+    detector._destroy_inputs_locked = lambda: destroyed.append(True)
+    detector._schedule_camera_stop = lambda: stopped.append(True)
+    request = SimpleNamespace(duration=SimpleNamespace(sec=1, nanosec=0))
+
+    assert detector.goal_callback(request).name == 'ACCEPT'
+    assert detector.state == 'activating'
+    assert created == [True]
+    assert detector.goal_callback(request).name == 'REJECT'
+
+    detector.state = 'deactivating'
+    detector._deactivate_inputs_from_executor()
+    assert detector.state == 'idle'
+    assert destroyed == [True]
+    assert stopped == [True]
 
 
 def test_real_profile_stops_camera_while_idle():
@@ -69,13 +107,14 @@ def test_real_profile_stops_camera_while_idle():
     assert parameters['manage_camera_capture'] is True
     assert parameters['camera_capture_service'] == '/camera/set_capture'
     assert parameters['camera_capture_timeout_sec'] == 5.0
-    assert parameters['camera_idle_timeout_sec'] == 0.5
+    assert parameters['camera_idle_timeout_sec'] == 0.0
     assert parameters['camera_capture_retry_sec'] == 1.0
     assert parameters['max_detection_rate_hz'] == 10.0
 
     source = (PACKAGE / 'cbr_apriltag' / 'apriltag_detector.py').read_text()
     assert 'SetBool' in source
-    assert 'self._stop_camera_if_idle' in source
+    assert 'self._schedule_camera_stop()' in source
+    assert 'def _stop_camera_when_idle' in source
     assert 'self._wait_for_camera_capture()' in source
     assert 'now - self.last_detection_time < self.detection_period' in source
 

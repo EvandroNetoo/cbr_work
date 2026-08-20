@@ -25,7 +25,7 @@ class Portas:
             try:
                 result = subprocess.check_output(['ls', '-l', '/dev/serial/by-path/'], text=True)
                 for line in result.splitlines():
-                    if 'usb-0:1.1:1.0-port0' in line:
+                    if 'platform-5310000.usb-usb-0:1.1' in line:
                         caminho = line.split('->')[-1].strip()
                         caminho = '/dev/' + caminho.split('/')[-1]
                         return caminho
@@ -35,7 +35,7 @@ class Portas:
             try:
                 result = subprocess.check_output(['ls', '-l', '/dev/serial/by-path/'], text=True)
                 for line in result.splitlines():
-                    if 'usb-0:1.4:1.0-port0' in line:
+                    if 'platform-5310000.usb-usb-0:1.4' in line:
                         caminho = line.split('->')[-1].strip()
                         caminho = '/dev/' + caminho.split('/')[-1]
                         return caminho
@@ -45,7 +45,7 @@ class Portas:
             try:
                 result = subprocess.check_output(['ls', '-l', '/dev/serial/by-path/'], text=True)
                 for line in result.splitlines():
-                    if 'usb-0:1.3:1.0-port0' in line:
+                    if 'platform-5310000.usb-usb-0:1.3' in line:
                         caminho = line.split('->')[-1].strip()
                         caminho = '/dev/' + caminho.split('/')[-1]
                         return caminho
@@ -55,7 +55,7 @@ class Portas:
             try:
                 result = subprocess.check_output(['ls', '-l', '/dev/serial/by-path/'], text=True)
                 for line in result.splitlines():
-                    if 'usb-0:1.2:1.0-port0' in line:
+                    if 'platform-5310000.usb-usb-0:1.2' in line:
                         caminho = line.split('->')[-1].strip()
                         caminho = '/dev/' + caminho.split('/')[-1]
                         return caminho

@@ -3,7 +3,9 @@ from glob import glob
 
 from setuptools import setup
 
-package_name = 'cbr_base_bringup'
+
+package_name = 'cbr_imu'
+
 setup(
     name=package_name,
     version='0.1.0',
@@ -17,9 +19,11 @@ setup(
     install_requires=['setuptools'],
     tests_require=['pytest'],
     zip_safe=True,
-    maintainer='author', maintainer_email='todo@todo.com',
-    description='Bringup for the CBR mecanum base', license='GPL-3.0-only',
+    maintainer='author',
+    maintainer_email='todo@todo.com',
+    description='Driver ROS 2 leve da IMU da Mariola',
+    license='GPL-3.0-only',
     entry_points={'console_scripts': [
-        'wait_for_wheel_states = cbr_base_bringup.wait_for_wheel_states:main',
+        'cbr_imu_node = cbr_imu.imu_node:main',
     ]},
 )

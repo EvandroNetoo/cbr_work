@@ -52,6 +52,11 @@ ros2 launch so_arm_101_bringup real.launch.py \
   port:=/dev/ttyUSB0 robot_id:=meu_so101
 ```
 
+Sem esses argumentos, `config/real.yaml` é a fonte dos parâmetros físicos.
+Os argumentos `port`, `robot_id`, `calibration_file`, `buffer_commands`,
+`deduplicate_commands` e `command_heartbeat_hz` só sobrescrevem o YAML quando
+são informados explicitamente na linha de comando.
+
 Os arquivos `config/so101_follower.json` e
 `config/gripper_calibration.yaml` são calibrações de referência. Confirme IDs,
 offsets, faixas e endpoints no hardware antes de comandar. A calibração manual,

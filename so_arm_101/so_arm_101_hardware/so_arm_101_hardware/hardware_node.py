@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 import threading
 import time
 
+from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -22,6 +24,18 @@ from .lerobot_adapter import (
 
 
 ROS_JOINT_ORDER = tuple(LEROBOT_TO_ROS.values())
+
+
+def resolve_calibration_file(value: str) -> str:
+    """Resolve nomes relativos da configuração sem fixar o workspace."""
+    if not value:
+        return ''
+    path = Path(value)
+    if path.is_absolute():
+        return str(path)
+    return str(
+        Path(get_package_share_directory('so_arm_101_hardware'))
+        / 'config' / path)
 
 
 class SO101HardwareNode(Node):
@@ -89,7 +103,8 @@ class SO101HardwareNode(Node):
                 self.get_parameter('port').value,
                 self.get_parameter('robot_id').value,
                 use_degrees=self._use_degrees,
-                calibration_file=self.get_parameter('calibration_file').value,
+                calibration_file=resolve_calibration_file(
+                    self.get_parameter('calibration_file').value),
             )
             self.follower.connect(calibrate=False)
             self._connected = True

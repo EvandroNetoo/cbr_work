@@ -5,7 +5,8 @@ import math
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import Imu, JointState
 
 
 ARM_JOINTS = {
@@ -24,6 +25,7 @@ class HardwareReadiness(Node):
         self.declare_parameter('timeout_sec', 45.0)
         self._arm_ready = False
         self._base_ready = False
+        self._imu_ready = False
         self._exit_code = 1
         self._deadline = self.get_clock().now().nanoseconds + int(
             float(self.get_parameter('timeout_sec').value) * 1e9)
@@ -33,6 +35,8 @@ class HardwareReadiness(Node):
         self.create_subscription(
             JointState, '/cbr_base_hardware/raw_joint_states',
             lambda message: self._check(message, WHEEL_JOINTS, 'base'), 1)
+        self.create_subscription(
+            Imu, '/imu/data', self._check_imu, qos_profile_sensor_data)
         self.create_timer(0.1, self._timeout)
 
     def _check(self, message, expected, source):
@@ -44,14 +48,28 @@ class HardwareReadiness(Node):
                 self._arm_ready = True
             else:
                 self._base_ready = True
-        if self._arm_ready and self._base_ready:
+        self._finish_if_ready()
+
+    def _check_imu(self, message):
+        values = (
+            message.orientation.x, message.orientation.y,
+            message.orientation.z, message.orientation.w,
+            message.angular_velocity.x, message.angular_velocity.y,
+            message.angular_velocity.z,
+        )
+        if message.header.frame_id == 'imu_link' and all(map(math.isfinite, values)):
+            self._imu_ready = True
+        self._finish_if_ready()
+
+    def _finish_if_ready(self):
+        if self._arm_ready and self._base_ready and self._imu_ready:
             self._exit_code = 0
-            self.get_logger().info('Braço e base forneceram estados completos.')
+            self.get_logger().info('Braço, base e IMU forneceram estados completos.')
             rclpy.shutdown()
 
     def _timeout(self):
         if self.get_clock().now().nanoseconds >= self._deadline:
-            self.get_logger().fatal('Timeout aguardando braço e base móvel.')
+            self.get_logger().fatal('Timeout aguardando braço, base móvel e IMU.')
             rclpy.shutdown()
 
 

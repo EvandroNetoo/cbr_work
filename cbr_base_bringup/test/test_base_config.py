@@ -20,7 +20,7 @@ def test_mecanum_geometry_frames_and_timeout(controllers):
     assert parameters['reference_timeout'] == pytest.approx(0.25)
     assert parameters['odom_frame_id'] == 'odom'
     assert parameters['base_frame_id'] == 'base_footprint'
-    assert parameters['enable_odom_tf'] is True
+    assert parameters['enable_odom_tf'] is False
 
 
 def test_controller_uses_exact_four_wheel_joints(controllers):
@@ -49,3 +49,14 @@ def test_base_stack_keeps_physical_config_in_yaml_and_driver_exposes_rollback():
     assert "'hardware.expansion_serial_port'" not in driver_source
     assert "os.environ.get('VIRTUAL_ENV')" in driver_source
     assert "FindPackageShare('cbr_lidar')" in launch_source
+    assert "FindPackageShare('cbr_imu')" in launch_source
+    assert '--remap ~/odometry:=/wheel/odom' in launch_source
+
+
+def test_readiness_waits_for_calibrated_imu():
+    source = (
+        Path(__file__).parents[1] / 'cbr_base_bringup' /
+        'wait_for_wheel_states.py').read_text()
+    assert "Imu, '/imu/data'" in source
+    assert 'qos_profile_sensor_data' in source
+    assert 'self._wheels_ready and self._imu_ready' in source

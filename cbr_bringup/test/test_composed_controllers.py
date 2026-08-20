@@ -31,4 +31,4 @@ def test_composed_mecanum_publishes_expected_frames():
     base = controllers['base_controller']['ros__parameters']
     assert base['base_frame_id'] == 'base_footprint'
     assert base['odom_frame_id'] == 'odom'
-    assert base['enable_odom_tf'] is True
+    assert base['enable_odom_tf'] is False

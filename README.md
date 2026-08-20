@@ -16,6 +16,7 @@ O notebook não é necessário para o controle ou planejamento do robô.
 
 - `cbr_bringup`: perfil embarcado completo do robô.
 - `cbr_lidar`: aquisição do LiDAR XV-11 e publicação de `/scan_front`.
+- `cbr_imu`: aquisição da IMU a 50 Hz e fusão leve com a odometria das rodas.
 - `cbr_camera`: aquisição e retificação da câmera, independentes do robô.
 - `so_arm_101`: descrição, hardware, controllers, teleop e MoveIt do braço.
 - `cbr_apriltag`: detector AprilTag, usando tópicos de câmera externos.
@@ -48,7 +49,9 @@ AprilTags `tag36h11` de IDs 0 a 14. O LiDAR XV-11 é ligado pelo relé e publica
 o setor frontal em `/scan_front`, no frame `lidar_front_link`.
 
 O sistema aguarda um estado completo das seis juntas antes de iniciar os
-controllers. Falha inicial de conexão ou cinco falhas consecutivas de
+controllers. A IMU calibra o offset angular com o robô parado, publica
+`/imu/data`, e o EKF combina seu giro Z com `/wheel/odom` para manter a saída
+pública `/odom`. Falha inicial de conexão ou cinco falhas consecutivas de
 comunicação encerram o processo para reinício por um supervisor externo,
 como `systemd`.
 
@@ -99,6 +102,8 @@ ros2 control list_controllers
 ros2 control list_hardware_interfaces
 ros2 action info /arm_controller/follow_joint_trajectory
 ros2 topic echo /tf --once
+ros2 topic hz /imu/data
+ros2 topic echo /wheel/odom --once
 ```
 
 Os tópicos internos do hardware são `/so101_hardware/raw_joint_states` e

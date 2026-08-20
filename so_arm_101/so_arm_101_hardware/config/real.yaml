@@ -1,9 +1,10 @@
 so101_hardware_node:
   ros__parameters:
-    # Set this through the launch argument; the empty default avoids assuming
-    # a particular USB device name on the host.
-    port: ''
+    # Fonte padrão; use port:=... na CLI somente para uma substituição pontual.
+    port: '/dev/serial/by-path/platform-5200000.usb-usb-0:1.1.1:1.0-port0'
     robot_id: so101_follower
+    # Nomes relativos são resolvidos dentro de share/so_arm_101_hardware/config.
+    calibration_file: so101_follower.json
     # ROS uses radians; the adapter converts to/from LeRobot degrees.
     use_degrees: true
     read_rate_hz: 30.0

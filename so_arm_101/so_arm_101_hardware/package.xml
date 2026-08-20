@@ -8,6 +8,7 @@
   <license>GPL-3.0-only</license>
 
   <depend>rclpy</depend>
+  <depend>ament_index_python</depend>
   <depend>so_arm_101_description</depend>
   <depend>python3-yaml</depend>
   <depend>sensor_msgs</depend>

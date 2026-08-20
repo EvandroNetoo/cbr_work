@@ -1,7 +1,12 @@
 """Start the physical stack and MoveIt planning on the robot computer."""
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, RegisterEventHandler
+from launch.actions import (
+    DeclareLaunchArgument,
+    EmitEvent,
+    IncludeLaunchDescription,
+    RegisterEventHandler,
+)
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -12,6 +17,9 @@ from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils.launches import generate_move_group_launch
 
 from so_arm_101_moveit_config.configuration import get_moveit_config
+
+
+CONFIG_DEFAULT = '__from_config__'
 
 
 def generate_launch_description():
@@ -52,15 +60,13 @@ def generate_launch_description():
             f'move_group encerrou com código {event.returncode}.')))]
 
     return LaunchDescription([
-        DeclareLaunchArgument('port', default_value=''),
-        DeclareLaunchArgument('robot_id', default_value='so101_follower'),
+        DeclareLaunchArgument('port', default_value=CONFIG_DEFAULT),
+        DeclareLaunchArgument('robot_id', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument(
             'hardware_state_timeout', default_value='45.0'),
         DeclareLaunchArgument(
             'calibration_file',
-            default_value=PathJoinSubstitution([
-                FindPackageShare('so_arm_101_hardware'),
-                'config', 'so101_follower.json'])),
+            default_value=CONFIG_DEFAULT),
         hardware,
         controller_ready,
         RegisterEventHandler(OnProcessExit(

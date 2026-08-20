@@ -61,5 +61,6 @@ base_controller:
       sum_of_robot_center_projection_on_X_Y_axis: 0.2225
     base_frame_id: base_footprint
     odom_frame_id: odom
-    enable_odom_tf: true
+    # O EKF é o único publicador de odom -> base_footprint.
+    enable_odom_tf: false
     tf_frame_prefix_enable: false

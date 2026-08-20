@@ -22,6 +22,9 @@ def generate_launch_description():
         FindPackageShare('cbr_base_hardware'), 'launch', 'driver.launch.py'])))
     lidar = IncludeLaunchDescription(PythonLaunchDescriptionSource(PathJoinSubstitution([
         FindPackageShare('cbr_lidar'), 'launch', 'lidar.launch.py'])))
+    localization = IncludeLaunchDescription(PythonLaunchDescriptionSource(
+        PathJoinSubstitution([
+            FindPackageShare('cbr_imu'), 'launch', 'imu_localization.launch.py'])))
     readiness = Node(
         package='cbr_base_bringup', executable='wait_for_wheel_states', output='screen')
     rsp = Node(
@@ -38,8 +41,7 @@ def generate_launch_description():
         arguments=[
             'base_controller', '-c', '/controller_manager',
             '--controller-ros-args', '--remap ~/reference:=/cmd_vel',
-            '--controller-ros-args', '--remap ~/odometry:=/odom',
-            '--controller-ros-args', '--remap ~/tf_odometry:=/tf',
+            '--controller-ros-args', '--remap ~/odometry:=/wheel/odom',
         ], output='screen')
 
     def after_readiness(event, context):
@@ -55,7 +57,7 @@ def generate_launch_description():
         return [base]
 
     return LaunchDescription([
-        driver, lidar, readiness, rsp,
+        driver, lidar, localization, readiness, rsp,
         RegisterEventHandler(OnProcessExit(target_action=readiness, on_exit=after_readiness)),
         RegisterEventHandler(OnProcessExit(target_action=joint, on_exit=after_joint)),
         RegisterEventHandler(OnProcessExit(

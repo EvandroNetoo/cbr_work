@@ -158,7 +158,7 @@ class AprilTagDetector(Node):
         self.declare_parameter(
             'camera_capture_service', '/camera/set_capture')
         self.declare_parameter('camera_capture_timeout_sec', 5.0)
-        self.declare_parameter('camera_idle_timeout_sec', 0.5)
+        self.declare_parameter('camera_idle_timeout_sec', 0.0)
         self.declare_parameter('camera_capture_retry_sec', 1.0)
 
         self.warning_filter = (NativeWarningFilter()
@@ -182,8 +182,6 @@ class AprilTagDetector(Node):
             self.get_parameter('manage_camera_capture').value)
         self.camera_capture_timeout = max(
             0.1, float(self.get_parameter('camera_capture_timeout_sec').value))
-        self.camera_idle_timeout = max(
-            0.0, float(self.get_parameter('camera_idle_timeout_sec').value))
         self.camera_capture_retry = max(
             0.1, float(self.get_parameter('camera_capture_retry_sec').value))
         self.camera_info: CameraInfo | None = None
@@ -191,13 +189,14 @@ class AprilTagDetector(Node):
         self.latest_image_subscription = None
         self.tf_buffer = None
         self.tf_listener = None
-        self.sessions: dict[bytes, Session] = {}
         self.sessions_lock = threading.RLock()
-        self.last_session_end = time.monotonic() - self.camera_idle_timeout
-        # Keep ROS entities alive for the node lifetime. Destroying subscriptions
-        # from an action worker while the executor is rebuilding its wait set can
-        # make rclpy access an already-destroyed QoS event (InvalidHandle).
-        self._create_inputs()
+        self.session: Session | None = None
+        self.state = 'idle'
+        # Entity creation/destruction must run in an executor callback.  Action
+        # workers only request teardown through this guard condition, avoiding
+        # rclpy wait-set races with destroyed subscriptions.
+        self.input_lifecycle_guard = self.create_guard_condition(
+            self._deactivate_inputs_from_executor)
         self.detector = Detector(families=self.get_parameter('family').value,
                                  nthreads=int(self.get_parameter('nthreads').value),
                                  quad_decimate=float(self.get_parameter('quad_decimate').value),
@@ -231,8 +230,7 @@ class AprilTagDetector(Node):
                 SetBool,
                 self.camera_capture_service,
             )
-            self.camera_idle_timer = self.create_timer(
-                0.25, self._stop_camera_if_idle)
+            self._schedule_camera_stop()
         self.action_server = ActionServer(self, AnalyzeAprilTags, 'apriltags/analyze',
                                           goal_callback=self.goal_callback,
                                           cancel_callback=self.cancel_callback,
@@ -241,7 +239,7 @@ class AprilTagDetector(Node):
 
     def destroy_node(self):
         with self.sessions_lock:
-            self.sessions.clear()
+            self.session = None
             self._destroy_inputs_locked()
         if self.warning_filter is not None:
             self.warning_filter.close()
@@ -253,6 +251,19 @@ class AprilTagDetector(Node):
         if seconds < 0.0:
             self.get_logger().warning('Rejecting AprilTag goal with negative duration.')
             return GoalResponse.REJECT
+        with self.sessions_lock:
+            if self.state != 'idle':
+                self.get_logger().warning(
+                    'Rejecting AprilTag goal: another analysis is active.')
+                return GoalResponse.REJECT
+            try:
+                self._create_inputs_locked()
+            except Exception as error:
+                self.get_logger().error(
+                    f'Could not activate AprilTag inputs: {error}')
+                self._destroy_inputs_locked()
+                return GoalResponse.REJECT
+            self.state = 'activating'
         return GoalResponse.ACCEPT
 
     def cancel_callback(self, _goal_handle) -> CancelResponse:
@@ -263,7 +274,8 @@ class AprilTagDetector(Node):
         threading.Thread(target=self.execute_callback, args=(goal_handle,),
                          name='apriltag-action-goal', daemon=True).start()
 
-    def _create_inputs(self) -> None:
+    def _create_inputs_locked(self) -> None:
+        """Create camera/TF inputs from an executor callback before a goal runs."""
         if self.latest_image_subscription is not None:
             return
         self.tf_buffer = Buffer(cache_time=Duration(seconds=10.0))
@@ -281,11 +293,7 @@ class AprilTagDetector(Node):
             Image, self.get_parameter('image_topic').value, self.image_callback, qos)
 
     def _destroy_inputs_locked(self) -> None:
-        """Destroy input entities only during final node teardown.
-
-        ``main`` calls this through ``destroy_node`` after executor.shutdown(),
-        so no executor wait set can still contain their event handlers.
-        """
+        """Destroy input entities from the executor or final node teardown."""
         if self.latest_image_subscription is not None:
             self.destroy_subscription(self.latest_image_subscription)
             self.latest_image_subscription = None
@@ -297,6 +305,16 @@ class AprilTagDetector(Node):
             self.tf_listener = None
         self.tf_buffer = None
         self.camera_info = None
+
+    def _deactivate_inputs_from_executor(self) -> None:
+        """Finish an action's teardown on the executor thread."""
+        with self.sessions_lock:
+            if self.state != 'deactivating':
+                return
+            self._destroy_inputs_locked()
+            self.state = 'idle'
+        self._schedule_camera_stop()
+        self.get_logger().info('AprilTag detector idle.')
 
     def _begin_capture_request(self, enabled: bool) -> bool:
         if not self.manage_camera_capture or self.capture_client is None:
@@ -358,24 +376,37 @@ class AprilTagDetector(Node):
             f'{self.camera_capture_timeout:.1f} s.')
         return False
 
-    def _stop_camera_if_idle(self) -> None:
+    def _schedule_camera_stop(self) -> None:
+        """Stop USB capture without leaving an idle timer behind."""
+        if not self.manage_camera_capture:
+            return
+        if self.camera_idle_timer is None:
+            self.camera_idle_timer = self.create_timer(
+                0.25, self._stop_camera_when_idle)
+
+    def _stop_camera_when_idle(self) -> None:
         with self.sessions_lock:
-            idle = not self.sessions
-            idle_for = time.monotonic() - self.last_session_end
-        if idle and idle_for >= self.camera_idle_timeout:
-            self._begin_capture_request(False)
+            idle = self.state == 'idle'
+        if not idle:
+            return
+        stopped = self._begin_capture_request(False)
+        with self.capture_condition:
+            stop_confirmed = self.capture_state is False
+        if stopped or stop_confirmed:
+            timer = self.camera_idle_timer
+            self.camera_idle_timer = None
+            if timer is not None:
+                self.destroy_timer(timer)
 
     def execute_callback(self, goal_handle):
         if not goal_handle.is_cancel_requested:
             goal_handle.executing()
         duration = _duration_seconds(goal_handle.request.duration)
         session = Session(goal_handle=goal_handle, duration=duration)
-        key = bytes(goal_handle.goal_id.uuid)
         with self.sessions_lock:
-            first_session = not self.sessions
-            self.sessions[key] = session
-            if first_session:
-                self.last_detection_time = float('-inf')
+            self.session = session
+            self.state = 'analyzing'
+            self.last_detection_time = float('-inf')
         try:
             if not self._wait_for_camera_capture():
                 result = self._result(
@@ -403,10 +434,9 @@ class AprilTagDetector(Node):
                     goal_handle.publish_feedback(self._feedback(session))
         finally:
             with self.sessions_lock:
-                self.sessions.pop(key, None)
-                if not self.sessions:
-                    self.last_session_end = time.monotonic()
-                    self.get_logger().info('AprilTag detector idle.')
+                self.session = None
+                self.state = 'deactivating'
+            self.input_lifecycle_guard.trigger()
 
     def _feedback(self, session: Session):
         feedback = AnalyzeAprilTags.Feedback()
@@ -433,14 +463,15 @@ class AprilTagDetector(Node):
     def camera_info_callback(self, message: CameraInfo) -> None:
         if message.k[0] > 0.0 and message.k[4] > 0.0:
             with self.sessions_lock:
-                self.camera_info = message
+                if self.state == 'analyzing':
+                    self.camera_info = message
 
     def image_callback(self, message: Image) -> None:
         with self.sessions_lock:
-            sessions = list(self.sessions.values())
+            session = self.session
             info = self.camera_info
             tf_buffer = self.tf_buffer
-        if not sessions or info is None:
+        if session is None or info is None:
             return
         now = time.monotonic()
         with self.sessions_lock:
@@ -508,18 +539,17 @@ class AprilTagDetector(Node):
         self.pose_publisher.publish(self.pose_array(self.base_frame, message, base_poses))
         self.detection_publisher.publish(self.detection_array(self.base_frame, message, base_items))
         with self.sessions_lock:
-            for session in sessions:
-                if session.goal_handle.is_cancel_requested:
-                    continue
-                session.frames_processed += 1
-                if base_transform is not None:
-                    session.frames_with_base_transform += 1
-                session.latest_camera = [self.copy_stamped(x) for x in camera_items]
-                session.latest_base = [self.copy_stamped(x) for x in base_items]
-                for item in camera_items:
-                    self._update_best(session.best_camera, item)
-                for item in base_items:
-                    self._update_best(session.best_base, item)
+            if self.session is not session or session.goal_handle.is_cancel_requested:
+                return
+            session.frames_processed += 1
+            if base_transform is not None:
+                session.frames_with_base_transform += 1
+            session.latest_camera = [self.copy_stamped(x) for x in camera_items]
+            session.latest_base = [self.copy_stamped(x) for x in base_items]
+            for item in camera_items:
+                self._update_best(session.best_camera, item)
+            for item in base_items:
+                self._update_best(session.best_base, item)
 
     @staticmethod
     def to_pose(translation: np.ndarray, rotation: np.ndarray) -> Pose:

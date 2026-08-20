@@ -20,6 +20,7 @@ setup(
         (os.path.join('share', package_name, 'worlds'), glob('worlds/*')),
     ],
     install_requires=['setuptools'],
+    tests_require=['pytest'],
     zip_safe=True,
     entry_points={
         'console_scripts': [

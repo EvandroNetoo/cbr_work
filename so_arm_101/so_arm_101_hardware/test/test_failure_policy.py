@@ -7,7 +7,11 @@ import pytest
 from std_msgs.msg import Float64MultiArray
 import yaml
 
-from so_arm_101_hardware.hardware_node import ROS_JOINT_ORDER, SO101HardwareNode
+from so_arm_101_hardware.hardware_node import (
+    ROS_JOINT_ORDER,
+    SO101HardwareNode,
+    resolve_calibration_file,
+)
 
 
 PACKAGE_ROOT = Path(__file__).parents[1]
@@ -113,9 +117,20 @@ def test_buffering_performance_defaults_are_explicit():
     assert parameters['command_heartbeat_hz'] == 5.0
 
     launch_source = (PACKAGE_ROOT / 'launch' / 'driver.launch.py').read_text()
-    assert "'buffer_commands', default_value='true'" in launch_source
-    assert "'deduplicate_commands', default_value='true'" in launch_source
-    assert "'command_heartbeat_hz', default_value='5.0'" in launch_source
+    assert "'buffer_commands', default_value=CONFIG_DEFAULT" in launch_source
+    assert "'deduplicate_commands', default_value=CONFIG_DEFAULT" in launch_source
+    assert "'command_heartbeat_hz', default_value=CONFIG_DEFAULT" in launch_source
+    assert 'OpaqueFunction' in launch_source
+
+
+def test_relative_calibration_file_is_resolved_from_package_config(monkeypatch):
+    monkeypatch.setattr(
+        'so_arm_101_hardware.hardware_node.get_package_share_directory',
+        lambda _package: '/tmp/so_arm_share')
+    assert resolve_calibration_file('so101_follower.json') == (
+        '/tmp/so_arm_share/config/so101_follower.json')
+    assert resolve_calibration_file('/dados/calibracao.json') == (
+        '/dados/calibracao.json')
 
 
 def test_buffered_callback_does_not_touch_serial_and_keeps_latest():

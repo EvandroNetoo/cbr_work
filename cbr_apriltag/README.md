@@ -42,17 +42,18 @@ ros2 launch cbr_apriltag apriltag.launch.py \
 
 The tag side is 32 mm by default. The preferred published interfaces are:
 
-Detection is on-demand. While idle, the process and the initialized detector
-stay in memory, but the image, `CameraInfo` and TF subscriptions are removed.
-The node also calls `/camera/set_capture` to stop USB acquisition. A
-goal sent to `/apriltags/analyze` re-enables capture and all required inputs;
-the last completed goal returns them to the idle state after 0.5 s. A finite
-goal processes for the requested duration; a zero duration runs continuously
-until cancelled. Multiple goals share one detector pass per image. The
-production camera acquires at 15 FPS, while `max_detection_rate_hz` limits the
-expensive OpenCV/pupil_apriltags path to 10 Hz by default; skipped frames are
-discarded before conversion. `quad_decimate=1.0` preserves the calibrated
-full-resolution detection path.
+Detection is on-demand. While idle, the process and initialized detector stay
+in memory, but it has no image, `CameraInfo`, or TF subscriptions, so ROS does
+not deserialize camera frames for this node. The node also calls
+`/camera/set_capture` to stop USB acquisition immediately after an action.
+A goal sent to `/apriltags/analyze` creates the required inputs and re-enables
+capture; the first image can therefore take up to the camera startup time. A
+finite goal processes for the requested duration; a zero duration runs
+continuously until cancelled. Only one goal may run at a time; a concurrent
+goal is rejected. The production camera acquires at 15 FPS, while
+`max_detection_rate_hz` limits the expensive OpenCV/pupil_apriltags path to
+10 Hz by default; skipped frames are discarded before conversion.
+`quad_decimate=1.0` preserves the calibrated full-resolution detection path.
 
 ```bash
 ros2 action send_goal /apriltags/analyze \

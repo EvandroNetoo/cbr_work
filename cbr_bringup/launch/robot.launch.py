@@ -1,7 +1,12 @@
 """Run the complete physical CBR robot with one controller manager."""
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, RegisterEventHandler
+from launch.actions import (
+    DeclareLaunchArgument,
+    EmitEvent,
+    IncludeLaunchDescription,
+    RegisterEventHandler,
+)
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -12,6 +17,9 @@ from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils.launches import generate_move_group_launch
 
 from so_arm_101_moveit_config.configuration import get_combined_moveit_config
+
+
+CONFIG_DEFAULT = '__from_config__'
 
 
 def generate_launch_description():
@@ -44,6 +52,9 @@ def generate_launch_description():
     lidar = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('cbr_lidar'), 'launch', 'lidar.launch.py'])))
+    localization = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('cbr_imu'), 'launch', 'imu_localization.launch.py'])))
     camera = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('cbr_camera'), 'launch', 'camera.launch.py'])),
@@ -88,8 +99,7 @@ def generate_launch_description():
         arguments=[
             'base_controller', '-c', '/controller_manager',
             '--controller-ros-args', '--remap ~/reference:=/cmd_vel',
-            '--controller-ros-args', '--remap ~/odometry:=/odom',
-            '--controller-ros-args', '--remap ~/tf_odometry:=/tf',
+            '--controller-ros-args', '--remap ~/odometry:=/wheel/odom',
         ], output='screen')
     move_group_entities = generate_move_group_launch(get_combined_moveit_config()).entities
 
@@ -114,25 +124,26 @@ def generate_launch_description():
             'Falha ao ativar base_controller.')
 
     return LaunchDescription([
-        DeclareLaunchArgument('port', default_value=''),
-        DeclareLaunchArgument('robot_id', default_value='so101_follower'),
+        DeclareLaunchArgument('port', default_value=CONFIG_DEFAULT),
+        DeclareLaunchArgument('robot_id', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument('hardware_state_timeout', default_value='45.0'),
         DeclareLaunchArgument('camera_framerate', default_value='15.0'),
         DeclareLaunchArgument('controller_update_rate', default_value='30'),
         DeclareLaunchArgument(
-            'arm_buffer_commands', default_value='true', choices=['true', 'false']),
+            'arm_buffer_commands', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument(
-            'arm_deduplicate_commands', default_value='true', choices=['true', 'false']),
-        DeclareLaunchArgument('arm_command_heartbeat_hz', default_value='5.0'),
+            'arm_deduplicate_commands', default_value=CONFIG_DEFAULT),
+        DeclareLaunchArgument(
+            'arm_command_heartbeat_hz', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument(
             'base_deduplicate_commands', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('base_command_heartbeat_hz', default_value='5.0'),
-        DeclareLaunchArgument('calibration_file', default_value=PathJoinSubstitution([
-            FindPackageShare('so_arm_101_hardware'), 'config', 'so101_follower.json'])),
+        DeclareLaunchArgument(
+            'calibration_file', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument('image_topic', default_value='/camera/image_rect'),
         DeclareLaunchArgument('camera_info_topic', default_value='/camera/camera_info'),
         DeclareLaunchArgument('base_frame', default_value='base_link'),
-        arm_driver, base_driver, lidar, camera, apriltag, rsp, readiness,
+        arm_driver, base_driver, lidar, localization, camera, apriltag, rsp, readiness,
         RegisterEventHandler(OnProcessExit(target_action=readiness, on_exit=start_control)),
         chain(joint, arm, 'joint_state_broadcaster'),
         chain(arm, gripper, 'arm_controller'),

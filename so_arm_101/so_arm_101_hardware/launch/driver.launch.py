@@ -7,17 +7,24 @@ time, while still allowing an override for unusual installations.
 """
 
 import os
-import sys
 from pathlib import Path
+import sys
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler
+from launch.actions import (
+    DeclareLaunchArgument,
+    EmitEvent,
+    OpaqueFunction,
+    RegisterEventHandler,
+)
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
+
+
+CONFIG_DEFAULT = '__from_config__'
 
 
 def _default_python_executable() -> str:
@@ -52,38 +59,72 @@ def _default_python_executable() -> str:
     return sys.executable
 
 
-def generate_launch_description() -> LaunchDescription:
-    hardware_share = FindPackageShare('so_arm_101_hardware')
+def _optional_parameter_overrides(context) -> dict:
+    """Retorna somente valores fornecidos explicitamente pelo usuário."""
+    overrides = {}
+    for argument in ('port', 'robot_id'):
+        value = LaunchConfiguration(argument).perform(context)
+        if value != CONFIG_DEFAULT:
+            overrides[argument] = value
+
+    for argument in ('buffer_commands', 'deduplicate_commands'):
+        value = LaunchConfiguration(argument).perform(context)
+        if value == CONFIG_DEFAULT:
+            continue
+        normalized = value.lower()
+        if normalized not in {'true', 'false'}:
+            raise ValueError(f'{argument} deve ser true ou false.')
+        overrides[argument] = normalized == 'true'
+
+    heartbeat = LaunchConfiguration('command_heartbeat_hz').perform(context)
+    if heartbeat != CONFIG_DEFAULT:
+        overrides['command_heartbeat_hz'] = float(heartbeat)
+    return overrides
+
+
+def _create_driver_actions(context, hardware_share):
+    parameters = [PathJoinSubstitution([
+        hardware_share, 'config', 'real.yaml'])]
+    overrides = _optional_parameter_overrides(context)
+    calibration_file = LaunchConfiguration('calibration_file').perform(context)
+    if calibration_file != CONFIG_DEFAULT:
+        overrides['calibration_file'] = calibration_file
+    if overrides:
+        # Fontes posteriores têm precedência; este dicionário contém somente
+        # valores realmente fornecidos pela CLI.
+        parameters.append(overrides)
+
     driver_node = Node(
         package='so_arm_101_hardware',
         executable='so101_hardware_node',
         name='so101_hardware_node',
         output='screen',
         prefix=LaunchConfiguration('python_executable'),
-        parameters=[
-            PathJoinSubstitution([hardware_share, 'config', 'real.yaml']),
-            {
-                'port': LaunchConfiguration('port'),
-                'robot_id': LaunchConfiguration('robot_id'),
-                'calibration_file': LaunchConfiguration('calibration_file'),
-                'buffer_commands': ParameterValue(
-                    LaunchConfiguration('buffer_commands'), value_type=bool),
-                'deduplicate_commands': ParameterValue(
-                    LaunchConfiguration('deduplicate_commands'), value_type=bool),
-                'command_heartbeat_hz': ParameterValue(
-                    LaunchConfiguration('command_heartbeat_hz'), value_type=float),
-            },
-        ],
+        parameters=parameters,
     )
 
+    return [
+        driver_node,
+        RegisterEventHandler(
+            OnProcessExit(
+                target_action=driver_node,
+                on_exit=[EmitEvent(event=Shutdown(reason=(
+                    'O driver físico do SO-101 encerrou inesperadamente.')))],
+            )
+        ),
+    ]
+
+
+def generate_launch_description() -> LaunchDescription:
+    hardware_share = FindPackageShare('so_arm_101_hardware')
+
     return LaunchDescription([
-        DeclareLaunchArgument('port', default_value=''),
-        DeclareLaunchArgument('robot_id', default_value='so101_follower'),
+        DeclareLaunchArgument('port', default_value=CONFIG_DEFAULT),
+        DeclareLaunchArgument('robot_id', default_value=CONFIG_DEFAULT),
+        DeclareLaunchArgument('buffer_commands', default_value=CONFIG_DEFAULT),
+        DeclareLaunchArgument('deduplicate_commands', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument(
-            'buffer_commands', default_value='true', choices=['true', 'false']),
-        DeclareLaunchArgument(
-            'deduplicate_commands', default_value='true', choices=['true', 'false']),
-        DeclareLaunchArgument('command_heartbeat_hz', default_value='5.0'),
+            'command_heartbeat_hz', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument(
             'python_executable',
             default_value=_default_python_executable(),
@@ -93,15 +134,9 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument(
             'calibration_file',
-            default_value=PathJoinSubstitution([
-                hardware_share, 'config', 'so101_follower.json']),
+            default_value=CONFIG_DEFAULT,
         ),
-        driver_node,
-        RegisterEventHandler(
-            OnProcessExit(
-                target_action=driver_node,
-                on_exit=[EmitEvent(event=Shutdown(reason=(
-                    'O driver físico do SO-101 encerrou inesperadamente.')))],
-            )
-        ),
+        OpaqueFunction(
+            function=_create_driver_actions,
+            kwargs={'hardware_share': hardware_share}),
     ])
