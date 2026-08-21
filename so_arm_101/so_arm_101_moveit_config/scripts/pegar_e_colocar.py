@@ -41,6 +41,86 @@ class PegarEColocar:
     def __init__(self, executor: ExecutorDoMoveIt) -> None:
         self.executor = executor
 
+    def recolher_cubo_da_esquerda(self) -> None:
+        """Prepare the gripper, pick the left cube, and return it home."""
+        self.executor.mover_para_estado(
+            GRUPO_GARRA,
+            "pre_grip",
+            "Preparando a garra para pegar o cubo à esquerda",
+            tolerancia=TOLERANCIA_DA_JUNTA_DA_GARRA,
+            velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
+            aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
+        )
+        self.executor.mover_para_estado(
+            GRUPO_BRACO,
+            "pick_cube_left",
+            "Indo pegar o cubo à esquerda",
+            tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
+            velocidade=VELOCIDADE_MAXIMA,
+            aceleracao=ACELERACAO_MAXIMA,
+        )
+        self.executor.mover_para_estado(
+            GRUPO_GARRA,
+            "grip",
+            "Fechando a garra no cubo à esquerda",
+            tolerancia=TOLERANCIA_DA_JUNTA_DA_GARRA,
+            velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
+            aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
+        )
+        self.executor.mover_para_estado(
+            GRUPO_BRACO,
+            "deposit_cube_left",
+            "Indo para o depósito do cubo à esquerda",
+            tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
+            velocidade=VELOCIDADE_MAXIMA,
+            aceleracao=ACELERACAO_MAXIMA,
+        )
+        self.executor.mover_para_estado(
+            GRUPO_BRACO,
+            "home",
+            "Levando o cubo à esquerda para a pose home",
+            tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
+            velocidade=VELOCIDADE_MAXIMA,
+            aceleracao=ACELERACAO_MAXIMA,
+        )
+
+
+    def soltar_cubo_no_centro(self) -> None:
+        """Prepare the gripper, pick the left cube, and return it home."""
+        self.executor.mover_para_estado(
+            GRUPO_BRACO,
+            "place_cube_center",
+            "Indo para o depósito do cubo no centro",
+            tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
+            velocidade=VELOCIDADE_MAXIMA,
+            aceleracao=ACELERACAO_MAXIMA,
+        )
+        self.executor.mover_para_estado(
+            GRUPO_GARRA,
+            "open",
+            "Abrindo a garra",
+            tolerancia=TOLERANCIA_DA_JUNTA_DA_GARRA,
+            velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
+            aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
+        )
+        self.executor.mover_para_estado(
+            GRUPO_BRACO,
+            "zero",
+            "Indo para o depósito do cubo no centro",
+            tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
+            velocidade=VELOCIDADE_MAXIMA,
+            aceleracao=ACELERACAO_MAXIMA,
+        )
+        self.executor.mover_para_estado(
+            GRUPO_BRACO,
+            "home",
+            "Levando o cubo à esquerda para a pose home",
+            tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
+            velocidade=VELOCIDADE_MAXIMA,
+            aceleracao=ACELERACAO_MAXIMA,
+        )
+
+
     def executar(self) -> None:
         self.executor.aguardar_o_servidor()
 
@@ -109,13 +189,13 @@ class PegarEColocar:
                 objeto_x,
                 objeto_y,
                 objeto_z,
-                angulo_da_pegada + 90,
+                angulo_da_pegada,
             )
             pose_acima_do_objeto = criar_pose(
                 objeto_x,
                 objeto_y,
                 objeto_z + ALTURA_DE_APROXIMACAO,
-                angulo_da_pegada + 90,
+                angulo_da_pegada,
             )
 
             self.executor.no.get_logger().info("Indo para cima do objeto")
@@ -147,37 +227,49 @@ class PegarEColocar:
             )
             self.executor.mover_para_estado(
                 GRUPO_BRACO,
+                "zero",
+                "Indo para a pose home",
+                tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
+                velocidade=VELOCIDADE_MAXIMA,
+                aceleracao=ACELERACAO_MAXIMA,
+            )
+            self.executor.mover_para_estado(
+                GRUPO_BRACO,
                 "home",
                 "Indo para a pose home",
                 tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
                 velocidade=VELOCIDADE_MAXIMA,
                 aceleracao=ACELERACAO_MAXIMA,
             )
-            # self.executor.mover_para_estado(
-            #     GRUPO_BRACO,
-            #     "deposit_cube_left",
-            #     "Indo para o depósito do cubo à esquerda",
-            #     tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-            #     velocidade=VELOCIDADE_MAXIMA,
-            #     aceleracao=ACELERACAO_MAXIMA,
-            # )
-            # self.executor.mover_para_estado(
-            #     GRUPO_GARRA,
-            #     "open",
-            #     "Abrindo a garra",
-            #     tolerancia=TOLERANCIA_DA_JUNTA_DA_GARRA,
-            #     velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
-            #     aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
-            # )
-            # self.executor.mover_para_estado(
-            #     GRUPO_BRACO,
-            #     "home",
-            #     "Indo para a pose home",
-            #     tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-            #     velocidade=VELOCIDADE_MAXIMA,
-            #     aceleracao=ACELERACAO_MAXIMA,
-            # )
+            self.executor.mover_para_estado(
+                GRUPO_BRACO,
+                "deposit_cube_left",
+                "Indo para o depósito do cubo à esquerda",
+                tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
+                velocidade=VELOCIDADE_MAXIMA,
+                aceleracao=ACELERACAO_MAXIMA,
+            )
+            self.executor.mover_para_estado(
+                GRUPO_GARRA,
+                "open",
+                "Abrindo a garra",
+                tolerancia=TOLERANCIA_DA_JUNTA_DA_GARRA,
+                velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
+                aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
+            )
+            self.executor.mover_para_estado(
+                GRUPO_BRACO,
+                "home",
+                "Indo pegar o cubo à esquerda",
+                tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
+                velocidade=VELOCIDADE_MAXIMA,
+                aceleracao=ACELERACAO_MAXIMA,
+            )
+            input("Pressione Enter para depositar o cubo ou Ctrl+C para sair...")
+            self.recolher_cubo_da_esquerda()
+            self.soltar_cubo_no_centro()
             self.executor.no.get_logger().info("Sequência concluída")
+            input("Pressione Enter para repetir a sequência ou Ctrl+C para sair...")
 
 
 def main() -> int:

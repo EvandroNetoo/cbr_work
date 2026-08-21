@@ -45,6 +45,9 @@
   <xacro:property name="lidar_center_x" value="0.075"/>
   <xacro:property name="lidar_center_y" value="0.0"/>
   <xacro:property name="lidar_center_height_above_ground" value="0.035"/>
+  <!-- Calibrado contra parede perpendicular: o zero físico do XV-11 estava
+       aproximadamente 11,5° à esquerda do eixo frontal da base. -->
+  <xacro:property name="lidar_yaw" value="-0.2007"/>
 
   <!-- Derived Z positions, relative to base_link at wheel-axle height. -->
   <xacro:property name="lower_bottom_z"
@@ -248,7 +251,7 @@
   <joint name="lidar_front_joint" type="fixed">
     <parent link="base_link"/><child link="lidar_front_link"/>
     <origin xyz="${lidar_center_x} ${lidar_center_y} ${lidar_center_height_above_ground - wheel_radius}"
-      rpy="0 0 0"/>
+      rpy="0 0 ${lidar_yaw}"/>
   </joint>
 
   <!-- Separate component link prevents RViz from reusing the orange material

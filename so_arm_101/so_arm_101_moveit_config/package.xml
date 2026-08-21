@@ -19,6 +19,8 @@
   <exec_depend>so_arm_101_bringup</exec_depend>
   <exec_depend>so_arm_101_description</exec_depend>
   <exec_depend>so_arm_101_hardware</exec_depend>
+  <exec_depend>cbr_camera</exec_depend>
+  <exec_depend>cbr_apriltag</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>xacro</exec_depend>
 

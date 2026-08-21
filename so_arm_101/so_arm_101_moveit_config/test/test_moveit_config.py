@@ -2,6 +2,7 @@
 import os
 import xml.etree.ElementTree as ET
 
+import pytest
 import yaml
 
 from so_arm_101_description.limits import load_joint_limits
@@ -79,7 +80,22 @@ def test_gripper_named_states_match_visual_motion():
         states[state.attrib['name']] = float(
             state.find("joint[@name='right_clamp']").attrib['value'])
     assert states['open'] == 0.037
+    assert states['pre_grip'] == 0.037
     assert states['closed'] == 0.0
+
+
+def test_pick_cube_left_named_state_uses_requested_joint_values():
+    root = ET.parse(os.path.join(CONFIG_DIR, 'so_arm_101.srdf')).getroot()
+    state = root.find("group_state[@name='pick_cube_left'][@group='arm']")
+    assert state is not None
+    values = [float(joint.attrib['value']) for joint in state.findall('joint')]
+    assert values == pytest.approx([
+        1.7976891296,
+        0.7504915784,
+        -0.9250245036,
+        -1.5184364492,
+        1.3788101091,
+    ])
 
 
 def test_gripper_group_contains_actuated_and_mimic_joints():
