@@ -1,0 +1,17 @@
+imu_node:
+  ros__parameters:
+    topic: /imu/data
+    frame_id: imu_link
+    publish_rate_hz: 50.0
+
+    # SERIAL5 da Mariola corresponde a /dev/ttyS2.
+    hardware.serial_port: 5
+    hardware.serial_baud_rate: 115200
+    hardware.serial_timeout_sec: 0.015
+    max_consecutive_read_failures: 5
+
+    calibration.warmup_sec: 0.5
+    # Mantém dois segundos de média angular a 50 Hz.
+    calibration.sample_count: 100
+    calibration.stationary_max_rad_s: 0.05
+    calibration.timeout_sec: 15.0

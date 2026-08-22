@@ -9,18 +9,18 @@
   <buildtool_depend>ament_python</buildtool_depend>
 
   <exec_depend>moveit_configs_utils</exec_depend>
-  <exec_depend>cbr_interfaces</exec_depend>
+  <exec_depend>interfaces</exec_depend>
   <exec_depend>moveit_kinematics</exec_depend>
   <exec_depend>moveit_planners_ompl</exec_depend>
   <exec_depend>moveit_ros_move_group</exec_depend>
   <exec_depend>moveit_ros_visualization</exec_depend>
   <exec_depend>moveit_simple_controller_manager</exec_depend>
-  <exec_depend>cbr_robot_description</exec_depend>
+  <exec_depend>robot_description</exec_depend>
   <exec_depend>so_arm_101_bringup</exec_depend>
   <exec_depend>so_arm_101_description</exec_depend>
   <exec_depend>so_arm_101_hardware</exec_depend>
-  <exec_depend>cbr_camera</exec_depend>
-  <exec_depend>cbr_apriltag</exec_depend>
+  <exec_depend>camera</exec_depend>
+  <exec_depend>apriltag</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>xacro</exec_depend>
 

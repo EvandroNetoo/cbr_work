@@ -17,7 +17,7 @@ def _driver_launch_module():
 
 
 def _context(module, **values):
-    os.environ['ROS_LOG_DIR'] = '/tmp/cbr_launch_parameter_tests'
+    os.environ['ROS_LOG_DIR'] = '/tmp/launch_parameter_tests'
     context = LaunchContext()
     defaults = {
         'port': module.CONFIG_DEFAULT,
@@ -61,7 +61,7 @@ def test_all_arm_wrappers_propagate_config_default_sentinel():
         PACKAGE_ROOT.parent / 'so_arm_101_bringup' / 'launch' / 'real.launch.py',
         PACKAGE_ROOT.parent / 'so_arm_101_moveit_config' / 'launch'
         / 'real_planning.launch.py',
-        PACKAGE_ROOT.parents[1] / 'cbr_bringup' / 'launch' / 'robot.launch.py',
+        PACKAGE_ROOT.parents[1] / 'bringup' / 'launch' / 'robot.launch.py',
     ]
     for path in paths:
         source = path.read_text()

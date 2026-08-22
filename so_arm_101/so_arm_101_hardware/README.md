@@ -18,7 +18,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install 'lerobot[feetech]' PyYAML
 python -c "import rclpy, lerobot, serial, scservo_sdk"
-colcon build --symlink-install --base-paths src/cbr_work
+colcon build --symlink-install --base-paths src/work
 source install/setup.bash
 ```
 

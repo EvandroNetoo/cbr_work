@@ -2,7 +2,7 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <!-- Camera rigidly mounted under link4_1. Measurements are lens-centered. -->
-  <xacro:macro name="cbr_camera_mount" params="parent_link">
+  <xacro:macro name="camera_mount" params="parent_link">
     <link name="camera_link">
       <visual>
         <geometry>

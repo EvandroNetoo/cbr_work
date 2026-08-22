@@ -15,7 +15,7 @@ from so_arm_101_moveit_config.configuracao import (
     TEMPO_DE_PLANEJAMENTO_ARTICULAR,
 )
 from so_arm_101_moveit_config.movimento import ExecutorDoMoveIt
-from cbr_interfaces.msg import AprilTagStampedDetection
+from interfaces.msg import AprilTagStampedDetection
 
 
 PACKAGE_DIR = Path(__file__).parents[1]

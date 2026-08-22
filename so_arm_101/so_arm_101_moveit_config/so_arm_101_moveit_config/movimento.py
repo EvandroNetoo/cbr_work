@@ -8,8 +8,8 @@ from collections.abc import Sequence
 
 import rclpy
 from action_msgs.msg import GoalStatus
-from cbr_interfaces.action import AnalyzeAprilTags
-from cbr_interfaces.msg import AprilTagStampedDetection
+from interfaces.action import AnalyzeAprilTags
+from interfaces.msg import AprilTagStampedDetection
 from moveit_msgs.action import MoveGroup
 from rclpy.action import ActionClient
 from sensor_msgs.msg import JointState

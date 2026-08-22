@@ -1,0 +1,28 @@
+/**:
+  ros__parameters:
+    # These values describe image acquisition only. They are not calibration.
+    video_device: /dev/video1
+    framerate: 15.0
+    io_method: mmap
+    frame_id: camera_optical_frame
+    pixel_format: mjpeg2rgb
+    av_device_format: YUV422P
+    image_width: 320
+    image_height: 240
+    camera_name: camera
+    # Intrinsics measured at 320x240, focus_absolute=30, using a 9x6
+    # internal-corner board with 24 mm squares.
+    camera_info_url: package://camera/config/camera_info.yaml
+
+    # The driver default (50) overexposes this sensor; its V4L2 default is 0.
+    brightness: 0
+    contrast: -1
+    saturation: -1
+    sharpness: -1
+    gain: -1
+    auto_white_balance: true
+    white_balance: 4000
+    autoexposure: true
+    exposure: 100
+    autofocus: false
+    focus: 30

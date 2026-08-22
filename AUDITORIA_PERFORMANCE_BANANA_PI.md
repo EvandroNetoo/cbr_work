@@ -1,7 +1,7 @@
 # Auditoria de produção ROS 2 — CBR na Banana Pi
 
 Data: 2026-08-20
-Escopo: todo o código-fonte em `src/cbr_work`, launch/configuração de produção, interfaces com hardware e os serviços/plataforma em `MariolaZero`. Artefatos gerados em `build/`, `install/` e `log/` foram inspecionados apenas para detectar resíduos; não foram tratados como fonte.
+Escopo: todo o código-fonte em `src/work`, launch/configuração de produção, interfaces com hardware e os serviços/plataforma em `MariolaZero`. Artefatos gerados em `build/`, `install/` e `log/` foram inspecionados apenas para detectar resíduos; não foram tratados como fonte.
 
 ## Como ler os resultados
 
@@ -34,7 +34,7 @@ O sistema de produção sobe nove processos persistentes e quatro spawners trans
 
 O maior consumidor provável durante uma ação de visão era o AprilTag: a câmera entregava 30 FPS, `image_proc` copiava/retificava RGB e o detector executava pose estimation em todos os frames, com duas threads e `quad_decimate=1`. A câmera agora entrega 15 FPS e o caminho caro foi limitado a 10 detecções/s. Em repouso a câmera já é desligada pelo detector; portanto o líder provável passa a ser a dupla `controller_manager` + I/O do braço/base, seguida pelo `move_group` sempre residente e pelo LiDAR continuamente ativo sem consumidor versionado.
 
-Não existe pacote de navegação/autonomia no fonte atual. `/scan_front` não tem assinante no projeto versionado. Há resíduos instalados de `cbr_navigation` e `cbr_motor_control`, mas não fonte correspondente. Logo, manter LiDAR, `move_group` e os quatro fluxos AprilTag sempre disponíveis deve ser decisão explícita, não efeito do launch monolítico.
+Não existe pacote de navegação/autonomia no fonte atual. `/scan_front` não tem assinante no projeto versionado. Há resíduos instalados de `navigation` e `motor_control`, mas não fonte correspondente. Logo, manter LiDAR, `move_group` e os quatro fluxos AprilTag sempre disponíveis deve ser decisão explícita, não efeito do launch monolítico.
 
 Os cinco problemas de maior retorno são:
 
@@ -69,7 +69,7 @@ No repouso, o provável top 3 é: `controller_manager`, driver do braço/base e 
 
 ### G1 — redirecionamento global de `stderr`
 
-- **Arquivo/linha:** `cbr_apriltag/cbr_apriltag/apriltag_detector.py:51-96`.
+- **Arquivo/linha:** `apriltag/apriltag/apriltag_detector.py:51-96`.
 - **O que faz:** substitui o FD 2 do processo por um pipe e uma thread, filtrando uma frase emitida pelo código C.
 - **Por que é gambiarra:** altera globalmente a saída de todas as bibliotecas do processo para contornar um warning específico de dependência.
 - **Risco:** perda/atraso de logs, deadlock ou erro de teardown, mascaramento acidental e diagnóstico mais difícil.
@@ -98,7 +98,7 @@ No repouso, o provável top 3 é: `controller_manager`, driver do braço/base e 
 
 ### G4 — descoberta de serial via subprocesso `ls -l`
 
-- **Arquivo/linha:** `cbr_base_hardware/.../portas.py:23-83`.
+- **Arquivo/linha:** `base_hardware/.../portas.py:23-83`.
 - **O que faz:** executa `ls`, interpreta texto e contém um `except` duplicado.
 - **Risco:** dependência de formato/locale, topologia USB hardcoded, retorno `None` ambíguo.
 - **CPU:** apenas startup, irrelevante no steady state.
@@ -124,7 +124,7 @@ No repouso, o provável top 3 é: `controller_manager`, driver do braço/base e 
 
 ### P1 — visão faz trabalho demais por resultado útil
 
-- **Local:** câmera 15 FPS (`cbr_camera/config/camera.yaml`), retificação no launch de produção e detector limitado a 10 Hz.
+- **Local:** câmera 15 FPS (`camera/config/camera.yaml`), retificação no launch de produção e detector limitado a 10 Hz.
 - **Causa:** RGB raw → RGB rectificado → mono; detecção e pose em cada frame recebido durante a sessão.
 - **Custo atual:** ≈6,91 MB/s de payload RGB somando raw+rect, até 15 retificações e 10 detecções/s.
 - **Efeito:** alto uso de CPU, largura de memória, alocações e interferência com control loop.
@@ -162,7 +162,7 @@ No repouso, o provável top 3 é: `controller_manager`, driver do braço/base e 
 
 ### P6 — polling vazio do LiDAR
 
-- **Local:** `cbr_lidar/cbr_lidar/lidar_node.py:46,72-90`.
+- **Local:** `lidar/lidar/lidar_node.py:46,72-90`.
 - **Antes:** timer 100 Hz para um scan que aparece aproximadamente uma vez por rotação (~5 Hz).
 - **Depois:** 20 Hz.
 - **Ganho:** ~80 callbacks vazias/s removidas; impacto global pequeno, mas risco quase zero.
@@ -171,9 +171,9 @@ No repouso, o provável top 3 é: `controller_manager`, driver do braço/base e 
 
 | Item | Classificação | Evidência | Ação |
 |---|---|---|---|
-| `cbr_camera/config/camera_info.backup.yaml` | REMOVER | não referenciado e instalado pelo glob | excluir após confirmar que não é artefato de calibração necessário |
+| `camera/config/camera_info.backup.yaml` | REMOVER | não referenciado e instalado pelo glob | excluir após confirmar que não é artefato de calibração necessário |
 | `so101_follower_antigo.json` | REMOVER | configuração antiga, sem referência, instalada | arquivar fora do pacote ou excluir |
-| `build/install` de `cbr_navigation` e `cbr_motor_control` | REMOVER (gerado) | índices instalados existem, fonte atual não | reconstruir workspace limpo em diretório novo; não confiar no overlay atual |
+| `build/install` de `navigation` e `motor_control` | REMOVER (gerado) | índices instalados existem, fonte atual não | reconstruir workspace limpo em diretório novo; não confiar no overlay atual |
 | `pegar_e_colocar.py` | POSSIVELMENTE NÃO UTILIZADO | não é console script nem instalado; só testes importam módulos relacionados | instalar como executável suportado ou remover/documentar como ferramenta manual |
 | `/scan_front` | POSSIVELMENTE NÃO UTILIZADO | nenhum subscriber no fonte atual | verificar grafo real e clientes externos; então tornar LiDAR opcional |
 | quatro tópicos contínuos AprilTag | POSSIVELMENTE NÃO UTILIZADOS externamente | ação guarda resultados internamente; nenhum subscriber versionado | parâmetros para publicar apenas os produtos exigidos |
@@ -192,8 +192,8 @@ Taxas são as configuradas/deduzidas (**ESTÁTICA**); `hz`/`bw` reais devem ser 
 |---|---|---|---|---|
 | `/so101_hardware/raw_joint_states` | driver Python → `SO101System` | 30 Hz, 6 juntas | reliable, depth 1 — CORRIGIDO | adequado para latest state |
 | `/so101_hardware/command_positions` | `SO101System` → driver Python | 30 Hz máximo, 6 doubles | reliable, depth 1 | callback guarda apenas o alvo mais recente |
-| `/cbr_base_hardware/raw_joint_states` | base Python → `MariolaSystem` | 30 Hz, 4 rodas | reliable, depth 1 | adequado |
-| `/cbr_base_hardware/command_velocities` | `MariolaSystem` → base Python | até 30 Hz, 4 velocidades | reliable, depth 1 | escrita física deduplicada após quantização |
+| `/base_hardware/raw_joint_states` | base Python → `MariolaSystem` | 30 Hz, 4 rodas | reliable, depth 1 | adequado |
+| `/base_hardware/command_velocities` | `MariolaSystem` → base Python | até 30 Hz, 4 velocidades | reliable, depth 1 | escrita física deduplicada após quantização |
 | `/joint_states` | broadcaster → RSP/MoveIt/clientes | provável 30 Hz, 10 juntas | verificar em runtime | alinhado ao hardware |
 | `/arm_controller/controller_state` | JTC → observadores | provável update/control rate | verificar parâmetro real | possivelmente superpublicado |
 | `/gripper_controller/controller_state` | JTC → observadores | provável update/control rate | verificar | possivelmente superpublicado |

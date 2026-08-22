@@ -26,17 +26,17 @@ def get_moveit_config():
 def get_combined_moveit_config():
     """Use the same arm planning setup with the composed mobile robot URDF."""
     description = (
-        get_package_share_directory('cbr_robot_description')
-        + '/urdf/cbr_robot.urdf.xacro'
+        get_package_share_directory('robot_description')
+        + '/urdf/robot.urdf.xacro'
     )
     return (
         MoveItConfigsBuilder(
-            'cbr_robot', package_name='so_arm_101_moveit_config')
+            'robot', package_name='so_arm_101_moveit_config')
         .robot_description(file_path=description)
         .robot_description_semantic(
             file_path='config/so_arm_101.srdf',
             mappings={
-                'robot_name': 'cbr_robot',
+                'robot_name': 'robot',
                 'arm_base_link_name': 'arm_base_link',
             },
         )

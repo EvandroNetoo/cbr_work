@@ -14,5 +14,5 @@ rsync -av \
   --exclude .pyc \
   --exclude .pyo \
   --exclude .pyd \
-  ~/ros2_ws/src/cbr_work/ \
-  "$ROBOT":~/ros2_ws/src/cbr_work/
+  ~/ros2_ws/src/work/ \
+  "$ROBOT":~/ros2_ws/src/work/

@@ -8,7 +8,7 @@ junta passiva (`left_clamp`) que a acompanha por `mimic`.
 ## Arquitetura
 
 ```text
-cbr_bringup              -> perfil embarcado do robô (Banana Pi)
+bringup              -> perfil embarcado do robô (Banana Pi)
 so_arm_101_description  -> URDF/Xacro, ros2_control, limites e meshes
 so_arm_101_bringup      -> launch headless, controllers, RViz e Gazebo
 so_arm_101_hardware     -> nó Python LeRobot/Feetech do follower
@@ -56,7 +56,7 @@ e o build deve ser a verificação final.
 ## Verificar a descrição
 
 ```bash
-xacro src/cbr_work/so_arm_101/so_arm_101_description/urdf/so_101.urdf.xacro \
+xacro src/work/so_arm_101/so_arm_101_description/urdf/so_101.urdf.xacro \
   -o /tmp/so_arm_101.urdf
 check_urdf /tmp/so_arm_101.urdf
 ```
@@ -117,14 +117,14 @@ Para executar o perfil embarcado completo na Banana Pi, com planejamento
 MoveIt e sem telas:
 
 ```bash
-ros2 launch cbr_bringup robot.launch.py \
+ros2 launch bringup robot.launch.py \
   port:=/dev/ttyUSB0 robot_id:=meu_so101
 ```
 
 O perfil embarcado inicia também a câmera calibrada e o detector AprilTag:
 
 ```bash
-ros2 launch cbr_bringup robot.launch.py \
+ros2 launch bringup robot.launch.py \
   port:=/dev/ttyUSB0
 ```
 
@@ -240,10 +240,10 @@ controllers.
 ## Testes locais
 
 ```bash
-/usr/bin/python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_description/test -v
-/usr/bin/python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_bringup/test -v
-/usr/bin/python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_moveit_config/test -v
-/usr/bin/python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_teleop/test -v
+/usr/bin/python3 -m pytest src/work/so_arm_101/so_arm_101_description/test -v
+/usr/bin/python3 -m pytest src/work/so_arm_101/so_arm_101_bringup/test -v
+/usr/bin/python3 -m pytest src/work/so_arm_101/so_arm_101_moveit_config/test -v
+/usr/bin/python3 -m pytest src/work/so_arm_101/so_arm_101_teleop/test -v
 ```
 
 O teste do hardware real não conecta automaticamente à porta serial. Confira

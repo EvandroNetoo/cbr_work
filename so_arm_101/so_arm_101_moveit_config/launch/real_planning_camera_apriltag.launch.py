@@ -25,7 +25,7 @@ def generate_launch_description() -> LaunchDescription:
         }.items())
     camera = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
-            FindPackageShare('cbr_camera'), 'launch', 'camera.launch.py',
+            FindPackageShare('camera'), 'launch', 'camera.launch.py',
         ])),
         launch_arguments={
             'rectify': 'true',
@@ -33,7 +33,7 @@ def generate_launch_description() -> LaunchDescription:
         }.items())
     apriltag = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
-            FindPackageShare('cbr_apriltag'), 'launch', 'apriltag.launch.py',
+            FindPackageShare('apriltag'), 'launch', 'apriltag.launch.py',
         ])),
         launch_arguments={
             'image_topic': LaunchConfiguration('image_topic'),

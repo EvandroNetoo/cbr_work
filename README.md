@@ -14,12 +14,12 @@ O notebook não é necessário para o controle ou planejamento do robô.
 
 ## Pacotes principais
 
-- `cbr_bringup`: perfil embarcado completo do robô.
-- `cbr_lidar`: aquisição do LiDAR XV-11 e publicação de `/scan_front`.
-- `cbr_imu`: aquisição da IMU a 50 Hz e fusão leve com a odometria das rodas.
-- `cbr_camera`: aquisição e retificação da câmera, independentes do robô.
+- `bringup`: perfil embarcado completo do robô.
+- `lidar`: aquisição do LiDAR XV-11 e publicação de `/scan_front`.
+- `imu`: aquisição da IMU a 50 Hz e fusão leve com a odometria das rodas.
+- `camera`: aquisição e retificação da câmera, independentes do robô.
 - `so_arm_101`: descrição, hardware, controllers, teleop e MoveIt do braço.
-- `cbr_apriltag`: detector AprilTag, usando tópicos de câmera externos.
+- `apriltag`: detector AprilTag, usando tópicos de câmera externos.
 
 ## Build
 
@@ -38,7 +38,7 @@ O perfil embarcado inicia hardware, `ros2_control`, controllers e `move_group`,
 sem RViz, Gazebo ou teleop:
 
 ```bash
-ros2 launch cbr_bringup robot.launch.py \
+ros2 launch bringup robot.launch.py \
   port:=/dev/ttyUSB0 \
   robot_id:=so101_follower
 ```
@@ -66,7 +66,7 @@ export ROS_DOMAIN_ID=10
 Visualização do robô físico:
 
 ```bash
-ros2 launch cbr_bringup telemetry.launch.py
+ros2 launch bringup telemetry.launch.py
 ```
 
 Interface MotionPlanning do MoveIt:
@@ -113,10 +113,10 @@ as actions dos controllers.
 ## Testes
 
 ```bash
-/usr/bin/python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_description/test -v
-/usr/bin/python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_bringup/test -v
-/usr/bin/python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_hardware/test -v
-/usr/bin/python3 -m pytest src/cbr_work/so_arm_101/so_arm_101_moveit_config/test -v
+/usr/bin/python3 -m pytest src/work/so_arm_101/so_arm_101_description/test -v
+/usr/bin/python3 -m pytest src/work/so_arm_101/so_arm_101_bringup/test -v
+/usr/bin/python3 -m pytest src/work/so_arm_101/so_arm_101_hardware/test -v
+/usr/bin/python3 -m pytest src/work/so_arm_101/so_arm_101_moveit_config/test -v
 ```
 
 O driver real exige LeRobot/Feetech e uma porta serial conectada; os testes

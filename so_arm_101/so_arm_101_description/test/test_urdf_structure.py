@@ -106,7 +106,7 @@ def test_camera_mount_is_visual_only_and_uses_measured_pose():
 
 def test_camera_is_attached_to_link4(urdf_root):
     camera_call = urdf_root.find(
-        '{http://www.ros.org/wiki/xacro}cbr_camera_mount')
+        '{http://www.ros.org/wiki/xacro}camera_mount')
     assert camera_call is not None
     assert camera_call.attrib['parent_link'] == 'link4_1'
 

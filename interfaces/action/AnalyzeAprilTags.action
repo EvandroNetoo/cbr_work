@@ -1,0 +1,17 @@
+# Zero duration means continuous processing until cancellation.
+builtin_interfaces/Duration duration
+---
+interfaces/AprilTagStampedDetection[] best_detections_camera
+interfaces/AprilTagStampedDetection[] best_detections_base
+uint64 frames_processed
+uint64 frames_with_base_transform
+builtin_interfaces/Duration elapsed
+string message
+---
+interfaces/AprilTagStampedDetection[] detections_camera
+interfaces/AprilTagStampedDetection[] detections_base
+uint64 frames_processed
+uint64 frames_with_base_transform
+builtin_interfaces/Duration elapsed
+builtin_interfaces/Duration remaining
+bool continuous

@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<library path="mariola_system">
+  <class
+    name="base_hardware_interface/MariolaSystem"
+    type="base_hardware_interface::MariolaSystem"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>ROS 2 control bridge to the Python Mariola wheel driver.</description>
+  </class>
+</library>

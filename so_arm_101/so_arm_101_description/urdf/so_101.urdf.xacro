@@ -30,7 +30,7 @@
     </joint>
   </xacro:unless>
   <xacro:if value="${attach_to_mobile_base}">
-    <xacro:property name="arm_mount" value="${xacro.load_yaml('$(find cbr_robot_description)/config/arm_mount.yaml')['arm_mount']}"/>
+    <xacro:property name="arm_mount" value="${xacro.load_yaml('$(find robot_description)/config/arm_mount.yaml')['arm_mount']}"/>
     <joint name="mobile_base_to_arm" type="fixed">
       <parent link="upper_platform_link"/>
       <child link="${arm_base_link_name}"/>
@@ -188,7 +188,7 @@
   </joint>
 
   <!-- Camera measured and rigidly mounted to the underside of link4_1. -->
-  <xacro:cbr_camera_mount parent_link="link4_1"/>
+  <xacro:camera_mount parent_link="link4_1"/>
 
   <link name="clamp_1">
     <inertial>
