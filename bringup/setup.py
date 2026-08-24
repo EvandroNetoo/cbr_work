@@ -27,6 +27,6 @@ setup(
     description='Embedded CBR robot bringup',
     license='GPL-3.0-only',
     entry_points={'console_scripts': [
-        'wait_for_hardware_states = bringup.wait_for_hardware_states:main',
+        'hardware_readiness = bringup.hardware_readiness:main',
     ]},
 )

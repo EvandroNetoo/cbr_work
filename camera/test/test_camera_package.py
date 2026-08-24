@@ -26,14 +26,13 @@ def test_camera_configuration_is_explicit_and_uses_matching_calibration():
     assert calibration['camera_matrix']['data'][4] > 0.0
 
 
-def test_camera_launch_does_not_start_apriltag_or_robot():
-    source = (PACKAGE / 'launch' / 'camera.launch.py').read_text()
+def test_camera_is_owned_by_embedded_perception_pipeline():
+    source = (PACKAGE.parent / 'bringup' / 'launch' / 'perception.launch.py').read_text()
     assert "package='usb_cam'" in source
     assert "executable='rectify_node'" in source
-    assert "default_value='false'" in source
-    assert "'framerate', default_value='15.0'" in source
-    assert "LaunchConfiguration('framerate')" in source
-    assert 'apriltag' not in source.lower()
+    assert "'camera_framerate', default_value='15.0'" in source
+    assert "LaunchConfiguration('camera_framerate')" in source
+    assert "executable='apriltag_detector'" in source
     assert 'moveit' not in source.lower()
 
 

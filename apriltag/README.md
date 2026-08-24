@@ -35,9 +35,7 @@ Build and source the workspace, then launch:
 ```bash
 colcon build --packages-select apriltag so_arm_101_description
 source install/setup.bash
-ros2 launch apriltag apriltag.launch.py \
-  image_topic:=/camera/image_rect \
-  camera_info_topic:=/camera/camera_info
+ros2 launch bringup perception.launch.py
 ```
 
 The tag side is 32 mm by default. The preferred published interfaces are:

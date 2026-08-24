@@ -17,8 +17,8 @@ o controlador atualizado. Mudanças e transições para zero são imediatas.
 O launch expõe rollback para esse comportamento:
 
 ```bash
-ros2 launch base_hardware driver.launch.py \
-  deduplicate_commands:=true command_heartbeat_hz:=5.0
+ros2 run base_hardware base_hardware_node --ros-args \
+  --params-file $(ros2 pkg prefix base_hardware)/share/base_hardware/config/hardware.yaml
 ```
 
 Os argumentos sobrescrevem os defaults de `config/hardware.yaml`. Use

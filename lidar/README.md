@@ -8,7 +8,8 @@ Toda a configuração do robô real fica em `config/lidar.yaml`. O launch não
 possui argumentos:
 
 ```bash
-ros2 launch lidar lidar.launch.py
+ros2 run lidar lidar_node --ros-args \
+  --params-file $(ros2 pkg prefix lidar)/share/lidar/config/lidar.yaml
 ```
 
 O setor 307°→67° contém sempre 121 posições. Graus perdidos ou leituras

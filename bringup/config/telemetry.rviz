@@ -17,6 +17,8 @@ Panels:
       - /Current View1
     Name: Views
     Splitter Ratio: 0.5
+  - Class: rviz_common/Help
+    Name: Help
 Visualization Manager:
   Class: ""
   Displays:
@@ -160,6 +162,19 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /camera/image_rect
       Value: false
+    - Class: moveit_rviz_plugin/MotionPlanning
+      Name: MotionPlanning
+      Planned Path:
+        Loop Animation: true
+        State Display Time: 0.05 s
+        Trajectory Topic: display_planned_path
+      Planning Scene Topic: monitored_planning_scene
+      Robot Description: robot_description
+      Scene Geometry:
+        Scene Alpha: 0.5
+      Scene Robot:
+        Robot Alpha: 1
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 35; 35; 40

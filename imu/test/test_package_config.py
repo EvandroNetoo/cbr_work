@@ -43,6 +43,6 @@ def test_ekf_fuses_only_planar_wheel_velocity_and_imu_yaw_rate():
 
 
 def test_localization_launch_preserves_public_odom_topic():
-    source = (PACKAGE / 'launch' / 'imu_localization.launch.py').read_text()
+    source = (PACKAGE.parent / 'bringup' / 'launch' / 'localization.launch.py').read_text()
     assert "executable='ekf_node'" in source
     assert "('odometry/filtered', '/odom')" in source

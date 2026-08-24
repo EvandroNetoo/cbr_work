@@ -71,7 +71,7 @@ Na raiz do workspace:
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install --packages-select camera
 source install/setup.bash
-ros2 launch camera camera.launch.py framerate:=15.0
+ros2 launch bringup perception.launch.py camera_framerate:=15.0
 ```
 
 Se a câmera oferecer somente YUYV, use `pixel_format: yuyv` no YAML. Use
@@ -158,8 +158,7 @@ ros2 topic echo /camera/camera_info --once
 Somente depois da calibração:
 
 ```bash
-ros2 launch camera camera.launch.py \
-  rectify:=true framerate:=15.0
+ros2 launch bringup perception.launch.py camera_framerate:=15.0
 ```
 
 Visualize `/camera/image_rect`. Linhas retas próximas às bordas devem parecer

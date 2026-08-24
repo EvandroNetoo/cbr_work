@@ -66,9 +66,6 @@ def test_performance_defaults_are_explicit():
     assert parameters['deduplicate_commands'] is True
     assert parameters['command_heartbeat_hz'] == 5.0
 
-    launch_source = (PACKAGE_ROOT / 'launch' / 'driver.launch.py').read_text()
-    assert "'deduplicate_commands', default_value='true'" in launch_source
-    assert "'command_heartbeat_hz', default_value='5.0'" in launch_source
 
 
 def test_valid_command_is_written_while_fresh(node_and_backend):

@@ -116,11 +116,6 @@ def test_buffering_performance_defaults_are_explicit():
     assert parameters['deduplicate_commands'] is True
     assert parameters['command_heartbeat_hz'] == 5.0
 
-    launch_source = (PACKAGE_ROOT / 'launch' / 'driver.launch.py').read_text()
-    assert "'buffer_commands', default_value=CONFIG_DEFAULT" in launch_source
-    assert "'deduplicate_commands', default_value=CONFIG_DEFAULT" in launch_source
-    assert "'command_heartbeat_hz', default_value=CONFIG_DEFAULT" in launch_source
-    assert 'OpaqueFunction' in launch_source
 
 
 def test_relative_calibration_file_is_resolved_from_package_config(monkeypatch):

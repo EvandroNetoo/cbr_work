@@ -5,7 +5,8 @@ Bringup físico isolado da base mecanum. Inicia o driver Python, o LiDAR em
 `joint_state_broadcaster` e o `mecanum_drive_controller`.
 
 ```bash
-ros2 launch base_bringup real.launch.py
+ros2 launch bringup robot.launch.py \
+  enable_arm:=false enable_moveit:=false enable_perception:=false
 ```
 
 O launch não aceita argumentos. As configurações ficam em

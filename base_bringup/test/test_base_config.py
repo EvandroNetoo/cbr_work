@@ -37,26 +37,10 @@ def test_controller_uses_exact_four_wheel_joints(controllers):
         'rear_left_wheel_joint', 'rear_right_wheel_joint']
 
 
-def test_base_stack_keeps_physical_config_in_yaml_and_driver_exposes_rollback():
+def test_base_profile_is_owned_by_central_bringup():
     package = Path(__file__).parents[1]
-    launch_source = (package / 'launch' / 'real.launch.py').read_text()
-    driver_source = (
-        package.parent / 'base_hardware' / 'launch' / 'driver.launch.py'
-    ).read_text()
-    assert 'DeclareLaunchArgument' not in launch_source
-    assert "'deduplicate_commands', default_value='true'" in driver_source
-    assert "'command_heartbeat_hz', default_value='5.0'" in driver_source
-    assert "'hardware.expansion_serial_port'" not in driver_source
-    assert "os.environ.get('VIRTUAL_ENV')" in driver_source
-    assert "FindPackageShare('lidar')" in launch_source
-    assert "FindPackageShare('imu')" in launch_source
-    assert '--remap ~/odometry:=/wheel/odom' in launch_source
-
-
-def test_readiness_waits_for_calibrated_imu():
-    source = (
-        Path(__file__).parents[1] / 'base_bringup' /
-        'wait_for_wheel_states.py').read_text()
-    assert "Imu, '/imu/data'" in source
-    assert 'qos_profile_sensor_data' in source
-    assert 'self._wheels_ready and self._imu_ready' in source
+    bringup_launch = package.parent / 'bringup' / 'launch'
+    assert not list((package / 'launch').glob('*.launch.py'))
+    assert "FindPackageShare('lidar')" in (bringup_launch / 'sensors.launch.py').read_text()
+    assert '--remap ~/odometry:=/wheel/odom' in (
+        bringup_launch / 'hardware.launch.py').read_text()

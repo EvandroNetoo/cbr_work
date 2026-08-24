@@ -9,9 +9,13 @@
   <buildtool_depend>ament_python</buildtool_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>so_arm_101_hardware</exec_depend>
   <exec_depend>so_arm_101_bringup</exec_depend>
+  <exec_depend>so_arm_101_description</exec_depend>
   <exec_depend>so_arm_101_moveit_config</exec_depend>
+  <exec_depend>base_bringup</exec_depend>
+  <exec_depend>base_description</exec_depend>
   <exec_depend>base_hardware</exec_depend>
   <exec_depend>base_hardware_interface</exec_depend>
   <exec_depend>lidar</exec_depend>
@@ -28,6 +32,12 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>camera</exec_depend>
   <exec_depend>apriltag</exec_depend>
+  <exec_depend>usb_cam</exec_depend>
+  <exec_depend>image_proc</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>so_arm_101_teleop</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
   <test_depend>python3-pytest</test_depend>
   <test_depend>python3-yaml</test_depend>
 

@@ -24,7 +24,7 @@ posição e orientação. `imu_x`, `imu_y` e `imu_z` são relativos ao `base_lin
 Visualização:
 
 ```bash
-ros2 launch base_description display.launch.py
+ros2 launch bringup workstation.launch.py
 ```
 
 O launch carrega `rviz/base.rviz`, já configurado com frame fixo
@@ -34,5 +34,5 @@ preparado, mas desligado durante a visualização puramente estrutural.
 Sem os controles gráficos das juntas:
 
 ```bash
-ros2 launch base_description display.launch.py use_gui:=false
+ros2 launch bringup workstation.launch.py
 ```

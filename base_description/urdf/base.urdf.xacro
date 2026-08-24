@@ -256,7 +256,7 @@
 
   <!-- Separate component link prevents RViz from reusing the orange material
        on the black body. Both links still represent one physical LiDAR. -->
-  <link name="lidar_body_link">
+  <!-- <link name="lidar_body_link">
     <visual>
       <geometry><box size="${lidar_body_length} ${lidar_body_width} ${lidar_body_height}"/></geometry>
       <material name="lidar_body_black">
@@ -270,7 +270,7 @@
   <joint name="lidar_body_joint" type="fixed">
     <parent link="lidar_front_link"/><child link="lidar_body_link"/>
     <origin xyz="0 0 ${-(lidar_orange_height + lidar_body_height) / 2.0}"/>
-  </joint>
+  </joint> -->
 
   <ros2_control name="CBRMecanumSystem" type="system">
     <hardware>

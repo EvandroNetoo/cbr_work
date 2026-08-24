@@ -24,9 +24,8 @@ def test_real_yaml_matches_robot_description_and_wiring():
     assert parameters['hardware.relay_active_low'] is True
 
 
-def test_launch_is_fixed_to_package_yaml_without_cli_arguments():
-    source = (PACKAGE / 'launch' / 'lidar.launch.py').read_text(encoding='utf-8')
-    assert 'DeclareLaunchArgument' not in source
+def test_sensor_launch_is_fixed_to_package_yaml():
+    source = (PACKAGE.parent / 'bringup' / 'launch' / 'sensors.launch.py').read_text()
     assert "FindPackageShare('lidar')" in source
     assert "'config', 'lidar.yaml'" in source
     assert "prefix='/usr/bin/python3'" in source
