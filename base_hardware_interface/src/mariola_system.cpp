@@ -58,10 +58,13 @@ hardware_interface::CallbackReturn MariolaSystem::on_init(
   command_topic_ = parameter("command_topic", "/base_hardware/command_velocities");
   try {
     state_timeout_ = std::chrono::duration<double>(std::stod(parameter("state_timeout_sec", "0.25")));
+    max_wheel_velocity_rad_s_ = std::stod(parameter("max_wheel_velocity_rad_s", "7.0"));
   } catch (const std::exception &) {
     return hardware_interface::CallbackReturn::ERROR;
   }
-  if (state_timeout_.count() <= 0.0) {
+  if (state_timeout_.count() <= 0.0 ||
+    !std::isfinite(max_wheel_velocity_rad_s_) || max_wheel_velocity_rad_s_ <= 0.0)
+  {
     return hardware_interface::CallbackReturn::ERROR;
   }
   const auto size = joint_names_.size();
@@ -142,8 +145,16 @@ hardware_interface::return_type MariolaSystem::write(const rclcpp::Time &, const
   message.header.stamp = node_->now();
   message.name = joint_names_;
   message.velocity.resize(commands_.size());
+  double largest_velocity = 0.0;
   for (size_t i = 0; i < commands_.size(); ++i) {
     message.velocity[i] = std::isfinite(commands_[i]) ? commands_[i] : 0.0;
+    largest_velocity = std::max(largest_velocity, std::abs(message.velocity[i]));
+  }
+  if (largest_velocity > max_wheel_velocity_rad_s_) {
+    const double scale = max_wheel_velocity_rad_s_ / largest_velocity;
+    for (auto & velocity : message.velocity) {
+      velocity *= scale;
+    }
   }
   command_publisher_->publish(message);
   return hardware_interface::return_type::OK;

@@ -65,6 +65,7 @@ def test_workstation_has_no_autonomous_nodes():
     workstation = source('workstation.launch.py')
     assert "package='rviz2'" in workstation
     assert "executable='keyboard_teleop'" in workstation
+    assert "executable='xbox_base_teleop'" in workstation
     for forbidden in ('ros2_control_node', 'robot_state_publisher', 'move_group',
                       'apriltag_detector', 'ekf_node', 'lidar_node', 'imu_node'):
         assert forbidden not in workstation

@@ -10,6 +10,13 @@ todos em `config/hardware.yaml`. O brick permanece na SERIAL0, como no exemplo
 validado. Com os valores atuais, `100 = 7 rad/s`; com raio de 0,034 m, isso
 corresponde a 0,238 m/s na borda da roda.
 
+O limite independente calculado para a base é `vx = ±0,238 m/s`, `vy = ±0,238
+m/s` e `vw = ±1,070 rad/s`. Esses limites não podem ser atingidos
+simultaneamente: numa diagonal pura com `vx = vy`, cada componente fica em
+`±0,119 m/s`; com rotação, a roda mais exigida determina o limite. O bridge
+`base_hardware_interface` escala as quatro rodas proporcionalmente para manter
+a direção do comando dentro de `7 rad/s`.
+
 As leituras de encoder permanecem a 30 Hz. Alvos que resultam no mesmo comando
 físico `-100..100` não são reenviados em todo ciclo; um heartbeat de 5 Hz mantém
 o controlador atualizado. Mudanças e transições para zero são imediatas.

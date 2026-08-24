@@ -17,7 +17,6 @@ setup(
         (os.path.join('share', package_name, 'config'), glob('config/*')),
     ],
     install_requires=['setuptools'],
-    tests_require=['pytest'],
     zip_safe=True,
     maintainer='author',
     maintainer_email='todo@todo.com',

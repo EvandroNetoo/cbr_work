@@ -64,3 +64,35 @@ base_controller:
     # O EKF é o único publicador de odom -> base_footprint.
     enable_odom_tf: false
     tf_frame_prefix_enable: false
+
+# Optional workstation nodes. These sections are ignored by controller_manager
+# and keep upgrades from copy installs to --symlink-install migration-safe.
+joy_node:
+  ros__parameters:
+    device_id: 0
+    deadzone: 0.05
+    autorepeat_rate: 20.0
+    coalesce_interval_ms: 1
+
+xbox_base_teleop:
+  ros__parameters:
+    joy_topic: /joy
+    cmd_vel_topic: /cmd_vel
+    # Linux/Xbox default: left stick X/Y, right stick X, LB/RB.
+    axis_linear_x: 1
+    axis_linear_y: 0
+    axis_angular_z: 3
+    enable_button: 5
+    turbo_button: 4
+    deadzone: 0.10
+    max_linear_x: 0.1
+    max_linear_y: 0.1
+    max_angular_z: 0.6
+    max_linear_speed: 0.238
+    wheel_linear_speed_limit: 0.238
+    kinematic_lever: 0.2225
+    turbo_linear_x: 0.23
+    turbo_linear_y: 0.23
+    turbo_angular_z: 1.0
+    publish_rate_hz: 20.0
+    joy_timeout_sec: 0.30

@@ -53,10 +53,20 @@ Teleop do braço é opcional:
 ros2 launch bringup workstation.launch.py enable_keyboard_teleop:=true
 ```
 
+Teleop da base com controle Xbox USB/Bluetooth:
+
+```bash
+ros2 launch bringup workstation.launch.py enable_xbox_teleop:=true
+```
+
+Segure `RB` para habilitar o movimento. O stick esquerdo controla avanço e
+deslocamento lateral; o eixo horizontal do stick direito controla o giro.
+Segure também `LB` para turbo. Soltar `RB` ou perder a conexão publica parada;
+o timeout do controller fornece uma segunda camada de segurança.
+
 Esse perfil não inicia hardware, sensores, TF, controllers, percepção,
-localização ou planejamento. Não há integração de joystick no repositório;
-ela deve ser adicionada somente quando os pacotes e mapeamentos reais forem
-definidos.
+localização ou planejamento. O mapeamento e os limites do controle ficam na
+seção `xbox_base_teleop` de `bringup/config/controllers.yaml`.
 
 ## Mapeamento e navegação
 

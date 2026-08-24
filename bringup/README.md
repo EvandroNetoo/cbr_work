@@ -10,7 +10,7 @@ robot.launch.py
 ├── perception.launch.py     câmera, rectify e AprilTag
 └── manipulation.launch.py   move_group no computador embarcado
 
-workstation.launch.py        RViz principal e teclado opcional
+workstation.launch.py        RViz, teclado e controle Xbox opcionais
 ```
 
 O perfil padrão inicia tudo que está implementado para a competição:
@@ -39,7 +39,18 @@ Na workstation:
 ```bash
 ros2 launch bringup workstation.launch.py
 ros2 launch bringup workstation.launch.py enable_keyboard_teleop:=true
+ros2 launch bringup workstation.launch.py enable_xbox_teleop:=true
 ```
+
+No Xbox, `RB` é o botão obrigatório de habilitação, `LB` ativa turbo, o stick
+esquerdo comanda X/Y e o stick direito horizontal comanda yaw. Ajuste eixos,
+botões, deadzone e velocidades na seção `xbox_base_teleop` de
+`config/controllers.yaml` se o driver Linux apresentar outro mapeamento.
+
+O teleop normaliza a velocidade X/Y na diagonal, preservando sua direção. A
+proteção final fica no `base_hardware_interface`: as quatro rodas são escaladas
+juntas quando necessário, portanto comandos vindos de teleop, Nav2 ou scripts
+não são rejeitados por excesso de velocidade.
 
 O RViz usa `config/telemetry.rviz`, a única configuração principal, incluindo
 RobotModel, LiDAR, odometria, TF, câmera e o painel MotionPlanning.

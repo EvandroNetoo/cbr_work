@@ -20,7 +20,6 @@ setup(
          glob('config/*.yaml') + glob('config/*.rviz')),
     ],
     install_requires=['setuptools'],
-    tests_require=['pytest'],
     zip_safe=True,
     maintainer='author',
     maintainer_email='todo@todo.com',
@@ -28,5 +27,6 @@ setup(
     license='GPL-3.0-only',
     entry_points={'console_scripts': [
         'hardware_readiness = bringup.hardware_readiness:main',
+        'xbox_base_teleop = bringup.xbox_base_teleop:main',
     ]},
 )

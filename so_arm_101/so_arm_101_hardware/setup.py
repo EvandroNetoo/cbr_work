@@ -18,7 +18,6 @@ setup(
          glob('config/*.yaml') + glob('config/*.json')),
     ],
     install_requires=['setuptools'],
-    tests_require=['pytest'],
     zip_safe=True,
     maintainer='author',
     maintainer_email='todo@todo.com',
