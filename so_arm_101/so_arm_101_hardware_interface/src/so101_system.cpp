@@ -105,7 +105,9 @@ hardware_interface::CallbackReturn SO101System::on_activate(
     std::fill(received_joints_.begin(), received_joints_.end(), false);
   }
   node_ = std::make_shared<rclcpp::Node>("so101_system_io");
-  const auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
+  // Only the newest command/state matters.  Avoid RELIABLE backpressure in
+  // controller_manager's write loop on the resource-constrained SBC.
+  const auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort();
   command_publisher_ = node_->create_publisher<std_msgs::msg::Float64MultiArray>(command_topic_, qos);
   state_subscription_ = node_->create_subscription<sensor_msgs::msg::JointState>(
     state_topic_, qos,

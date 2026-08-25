@@ -78,12 +78,14 @@ xbox_base_teleop:
   ros__parameters:
     joy_topic: /joy
     cmd_vel_topic: /cmd_vel
-    # Linux/Xbox default: left stick X/Y, right stick X, LB/RB.
+    # Linux/Xbox default: A/B/X/Y, left stick X/Y, right stick X, LB/RB.
     axis_linear_x: 1
     axis_linear_y: 0
     axis_angular_z: 3
     enable_button: 5
     turbo_button: 4
+    # B cancela goals Nav2; RB continua sendo o deadman do movimento manual.
+    cancel_button: 1
     deadzone: 0.10
     max_linear_x: 0.1
     max_linear_y: 0.1

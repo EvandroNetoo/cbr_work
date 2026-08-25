@@ -52,6 +52,7 @@ private:
   std::vector<double> received_velocities_;
   std::mutex mutex_;
   bool state_received_{false};
+  bool state_stale_{false};
   std::chrono::steady_clock::time_point last_state_time_;
   std::chrono::duration<double> state_timeout_{0.25};
   double max_wheel_velocity_rad_s_{7.0};

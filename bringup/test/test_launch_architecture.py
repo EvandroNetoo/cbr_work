@@ -57,6 +57,7 @@ def test_readiness_gates_only_actuator_state_not_imu():
     readiness = (PACKAGE / 'bringup' / 'hardware_readiness.py').read_text()
     assert "'/so101_hardware/raw_joint_states'" in readiness
     assert "'/base_hardware/raw_joint_states'" in readiness
+    assert 'ReliabilityPolicy.BEST_EFFORT' in readiness
     assert 'Imu' not in readiness
     assert 'sleep' not in readiness
 
@@ -76,6 +77,17 @@ def test_main_rviz_observes_robot_and_moveit():
     displays = config['Visualization Manager']['Displays']
     classes = {display['Class'] for display in displays}
     assert 'rviz_default_plugins/RobotModel' in classes
+    assert 'rviz_default_plugins/Map' in classes
+    assert 'rviz_default_plugins/Path' in classes
+    assert 'rviz_default_plugins/Polygon' in classes
     assert 'rviz_default_plugins/LaserScan' in classes
     assert 'rviz_default_plugins/Odometry' in classes
     assert 'moveit_rviz_plugin/MotionPlanning' in classes
+
+    topics = {
+        display.get('Topic', {}).get('Value')
+        for display in displays if isinstance(display.get('Topic'), dict)}
+    assert '/global_costmap/costmap' in topics
+    assert '/local_costmap/costmap' in topics
+    assert '/plan' in topics
+    assert '/local_costmap/published_footprint' in topics

@@ -101,9 +101,12 @@ hardware_interface::CallbackReturn MariolaSystem::on_activate(const rclcpp_lifec
 {
   std::lock_guard<std::mutex> lock(mutex_);
   state_received_ = false;
+  state_stale_ = false;
   std::fill(commands_.begin(), commands_.end(), std::numeric_limits<double>::quiet_NaN());
   node_ = std::make_shared<rclcpp::Node>("mariola_system_io");
-  const auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
+  // These topics transport the latest physical sample/command, not a history.
+  // BEST_EFFORT prevents a slow Python subscriber from blocking write().
+  const auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort();
   command_publisher_ = node_->create_publisher<interfaces::msg::WheelCommand>(command_topic_, qos);
   state_subscription_ = node_->create_subscription<sensor_msgs::msg::JointState>(
     state_topic_, qos, std::bind(&MariolaSystem::state_callback, this, std::placeholders::_1));
@@ -124,9 +127,15 @@ hardware_interface::return_type MariolaSystem::read(const rclcpp::Time &, const 
     return hardware_interface::return_type::OK;
   }
   if (std::chrono::steady_clock::now() - last_state_time_ > state_timeout_) {
-    RCLCPP_ERROR(rclcpp::get_logger("mariola_system"), "Estado das rodas expirou.");
-    return hardware_interface::return_type::ERROR;
+    if (!state_stale_) {
+      RCLCPP_WARN(
+        rclcpp::get_logger("mariola_system"),
+        "Estado das rodas expirou; comandando zero até a telemetria retornar.");
+    }
+    state_stale_ = true;
+    return hardware_interface::return_type::OK;
   }
+  state_stale_ = false;
   positions_ = received_positions_;
   velocities_ = received_velocities_;
   return hardware_interface::return_type::OK;
@@ -147,7 +156,7 @@ hardware_interface::return_type MariolaSystem::write(const rclcpp::Time &, const
   message.velocity.resize(commands_.size());
   double largest_velocity = 0.0;
   for (size_t i = 0; i < commands_.size(); ++i) {
-    message.velocity[i] = std::isfinite(commands_[i]) ? commands_[i] : 0.0;
+    message.velocity[i] = !state_stale_ && std::isfinite(commands_[i]) ? commands_[i] : 0.0;
     largest_velocity = std::max(largest_velocity, std::abs(message.velocity[i]));
   }
   if (largest_velocity > max_wheel_velocity_rad_s_) {
@@ -191,6 +200,7 @@ void MariolaSystem::state_callback(const sensor_msgs::msg::JointState::SharedPtr
   received_velocities_ = std::move(new_velocities);
   last_state_time_ = std::chrono::steady_clock::now();
   state_received_ = true;
+  state_stale_ = false;
 }
 
 void MariolaSystem::stop_ros_io()
@@ -203,6 +213,7 @@ void MariolaSystem::stop_ros_io()
   command_publisher_.reset();
   node_.reset();
   state_received_ = false;
+  state_stale_ = false;
 }
 
 MariolaSystem::~MariolaSystem()

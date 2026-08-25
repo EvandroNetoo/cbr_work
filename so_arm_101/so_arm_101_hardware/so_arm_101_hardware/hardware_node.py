@@ -85,7 +85,9 @@ class SO101HardwareNode(Node):
         latest_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
-            reliability=ReliabilityPolicy.RELIABLE,
+            # Commands and states supersede older samples.  BEST_EFFORT keeps
+            # DDS backpressure out of the ros2_control real-time loop.
+            reliability=ReliabilityPolicy.BEST_EFFORT,
         )
         self.state_pub = self.create_publisher(
             JointState, self.get_parameter('state_topic').value, latest_qos)

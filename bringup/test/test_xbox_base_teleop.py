@@ -2,12 +2,12 @@
 
 import math
 from pathlib import Path
-
-import pytest
-import yaml
+from types import SimpleNamespace
 
 from bringup.xbox_base_teleop import (
     button_pressed, limit_mecanum_command, limit_planar_velocity, shaped_axis)
+import pytest
+import yaml
 
 
 PACKAGE = Path(__file__).parents[1]
@@ -44,6 +44,7 @@ def test_default_mapping_requires_deadman_and_has_conservative_speeds():
     params = config['xbox_base_teleop']['ros__parameters']
     assert params['enable_button'] == 5
     assert params['turbo_button'] == 4
+    assert params['cancel_button'] == 1
     assert params['cmd_vel_topic'] == '/cmd_vel'
     assert params['joy_timeout_sec'] <= 0.30
     assert params['max_linear_x'] < params['turbo_linear_x']
@@ -63,3 +64,122 @@ def test_node_publishes_controller_native_twist_stamped_and_has_watchdog():
     assert 'TwistStamped' in source
     assert "declare_parameter('joy_timeout_sec', 0.30)" in source
     assert 'self._publish_stop()' in source
+
+
+def test_cancel_button_uses_rising_edge_and_stops_before_requesting_cancel():
+    class FakeTeleop:
+        _cancel_button = 1
+        _cancel_was_pressed = False
+        _enable_button = 5
+        _enabled = True
+        _command = (0.1, 0.0, 0.0)
+
+        def __init__(self):
+            self.events = []
+
+        def get_clock(self):
+            return SimpleNamespace(
+                now=lambda: SimpleNamespace(nanoseconds=123))
+
+        def _publish_stop(self):
+            self.events.append('stop')
+
+        def _cancel_navigation(self):
+            self.events.append('cancel')
+
+    teleop = FakeTeleop()
+    message = SimpleNamespace(buttons=[0, 1, 0, 0, 0, 1], axes=[])
+
+    from bringup.xbox_base_teleop import XboxBaseTeleop
+    XboxBaseTeleop._joy_callback(teleop, message)
+    XboxBaseTeleop._joy_callback(teleop, message)
+
+    assert teleop.events == ['stop', 'cancel']
+    assert teleop._enabled is False
+    assert teleop._command == (0.0, 0.0, 0.0)
+
+
+def test_cancel_is_nonblocking_when_nav2_services_are_absent():
+    class FakeClient:
+        def __init__(self):
+            self.call_count = 0
+
+        def service_is_ready(self):
+            return False
+
+        def call_async(self, _request):
+            self.call_count += 1
+
+    class FakeLogger:
+        def __init__(self):
+            self.warnings = []
+
+        def warning(self, message):
+            self.warnings.append(message)
+
+        def info(self, _message):
+            raise AssertionError('Não deve informar solicitação sem serviço ativo')
+
+    clients = {
+        'navigate_to_pose': FakeClient(),
+        'navigate_through_poses': FakeClient(),
+    }
+    logger = FakeLogger()
+    teleop = SimpleNamespace(
+        _cancel_clients=clients,
+        get_logger=lambda: logger,
+    )
+
+    from bringup.xbox_base_teleop import XboxBaseTeleop
+    XboxBaseTeleop._cancel_navigation(teleop)
+
+    assert all(client.call_count == 0 for client in clients.values())
+    assert len(logger.warnings) == 2
+
+
+def test_cancel_request_targets_all_active_goals_for_both_nav2_actions():
+    class FakeFuture:
+        def add_done_callback(self, callback):
+            self.callback = callback
+
+    class FakeClient:
+        def __init__(self):
+            self.requests = []
+
+        def service_is_ready(self):
+            return True
+
+        def call_async(self, request):
+            self.requests.append(request)
+            return FakeFuture()
+
+    class FakeLogger:
+        def __init__(self):
+            self.infos = []
+
+        def warning(self, _message):
+            raise AssertionError('Serviços disponíveis não devem gerar aviso')
+
+        def info(self, message):
+            self.infos.append(message)
+
+    clients = {
+        'navigate_to_pose': FakeClient(),
+        'navigate_through_poses': FakeClient(),
+    }
+    logger = FakeLogger()
+    teleop = SimpleNamespace(
+        _cancel_clients=clients,
+        _cancel_done=lambda *_args: None,
+        get_logger=lambda: logger,
+    )
+
+    from bringup.xbox_base_teleop import XboxBaseTeleop
+    XboxBaseTeleop._cancel_navigation(teleop)
+
+    requests = [client.requests[0] for client in clients.values()]
+    assert len(requests) == 2
+    assert all(not any(request.goal_info.goal_id.uuid) for request in requests)
+    assert all(request.goal_info.stamp.sec == 0 for request in requests)
+    assert all(request.goal_info.stamp.nanosec == 0 for request in requests)
+    assert len(logger.infos) == 1

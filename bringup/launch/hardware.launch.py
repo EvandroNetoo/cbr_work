@@ -155,6 +155,6 @@ def generate_launch_description():
         DeclareLaunchArgument('robot_id', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument('calibration_file', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument('controller_update_rate', default_value='30'),
-        DeclareLaunchArgument('controller_manager_timeout', default_value='30.0'),
+        DeclareLaunchArgument('controller_manager_timeout', default_value='120.0'),
         DeclareLaunchArgument('hardware_state_timeout', default_value='45.0'),
         OpaqueFunction(function=_launch_hardware)])

@@ -22,8 +22,15 @@ base_hardware_node:
     # Rodas da expansão.
     hardware.front_left.motor_id: 0
     hardware.front_left.inverted: true
+    # Escalas direcionais gravadas na EEPROM das placas de expansão. Estes
+    # valores vêm do procedimento validado da Mariola; o driver só regrava
+    # quando detectar diferença.
+    hardware.front_left.calibration_clockwise: 88
+    hardware.front_left.calibration_counterclockwise: -88
     hardware.front_right.motor_id: 7
     hardware.front_right.inverted: false
+    hardware.front_right.calibration_clockwise: 88
+    hardware.front_right.calibration_counterclockwise: -88
 
     # Motores 1 e 2 do brick, nessa ordem.
     hardware.rear_left.inverted: false

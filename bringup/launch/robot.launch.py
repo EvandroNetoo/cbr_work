@@ -41,7 +41,7 @@ def generate_launch_description():
         DeclareLaunchArgument('calibration_file', default_value='__from_config__'),
         DeclareLaunchArgument('camera_framerate', default_value='15.0'),
         DeclareLaunchArgument('controller_update_rate', default_value='30'),
-        DeclareLaunchArgument('controller_manager_timeout', default_value='30.0'),
+        DeclareLaunchArgument('controller_manager_timeout', default_value='120.0'),
         DeclareLaunchArgument('hardware_state_timeout', default_value='45.0'),
         OpaqueFunction(function=_validate_profile),
         _include('hardware.launch.py', {

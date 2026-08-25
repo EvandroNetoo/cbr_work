@@ -21,6 +21,14 @@ As leituras de encoder permanecem a 30 Hz. Alvos que resultam no mesmo comando
 físico `-100..100` não são reenviados em todo ciclo; um heartbeat de 5 Hz mantém
 o controlador atualizado. Mudanças e transições para zero são imediatas.
 
+As duas placas das rodas dianteiras guardam na EEPROM uma escala diferente para
+cada sentido. Na inicialização, o driver lê e valida essas escalas e corrige
+somente valores divergentes dos parâmetros `calibration_clockwise` e
+`calibration_counterclockwise`. A configuração validada para esta base é
+`+88/-88` nos IDs 0 e 7. Isso evita que uma calibração antiga faça uma roda
+girar mais rápido apenas em avanço ou apenas em ré, sem desgastar a EEPROM com
+reescritas a cada inicialização.
+
 O launch expõe rollback para esse comportamento:
 
 ```bash

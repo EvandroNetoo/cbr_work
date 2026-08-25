@@ -5,6 +5,7 @@ import math
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
 
 
@@ -29,14 +30,19 @@ class HardwareReadiness(Node):
         self._exit_code = 1
         self._deadline = self.get_clock().now().nanoseconds + int(
             float(self.get_parameter('timeout_sec').value) * 1e9)
+        latest_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+        )
         if not self._arm_ready:
             self.create_subscription(
                 JointState, '/so101_hardware/raw_joint_states',
-                lambda message: self._check(message, ARM_JOINTS, 'arm'), 1)
+                lambda message: self._check(message, ARM_JOINTS, 'arm'), latest_qos)
         if not self._base_ready:
             self.create_subscription(
                 JointState, '/base_hardware/raw_joint_states',
-                lambda message: self._check(message, WHEEL_JOINTS, 'base'), 1)
+                lambda message: self._check(message, WHEEL_JOINTS, 'base'), latest_qos)
         self.create_timer(0.1, self._check_timeout)
 
     def _check(self, message, expected, source):

@@ -2,7 +2,7 @@
 
 set -e
 
-ROBOT="banana@192.168.1.111"
+ROBOT="banana@10.58.9.165"
 
 rsync -av \
   --delete \

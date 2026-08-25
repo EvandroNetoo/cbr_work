@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 
+from action_msgs.srv import CancelGoal
 from geometry_msgs.msg import TwistStamped
 import rclpy
 from rclpy.executors import ExternalShutdownException
@@ -62,6 +63,7 @@ class XboxBaseTeleop(Node):
         self.declare_parameter('axis_angular_z', 3)
         self.declare_parameter('enable_button', 5)
         self.declare_parameter('turbo_button', 4)
+        self.declare_parameter('cancel_button', 1)
         self.declare_parameter('deadzone', 0.10)
         self.declare_parameter('max_linear_x', 0.35)
         self.declare_parameter('max_linear_y', 0.35)
@@ -80,6 +82,7 @@ class XboxBaseTeleop(Node):
         self._axis_yaw = int(self.get_parameter('axis_angular_z').value)
         self._enable_button = int(self.get_parameter('enable_button').value)
         self._turbo_button = int(self.get_parameter('turbo_button').value)
+        self._cancel_button = int(self.get_parameter('cancel_button').value)
         self._deadzone = float(self.get_parameter('deadzone').value)
         self._max_linear_speed = float(self.get_parameter('max_linear_speed').value)
         self._wheel_linear_speed_limit = float(
@@ -109,8 +112,15 @@ class XboxBaseTeleop(Node):
 
         self._last_joy_ns: int | None = None
         self._enabled = False
+        self._cancel_was_pressed = False
         self._stop_sent = True
         self._command = (0.0, 0.0, 0.0)
+        self._cancel_clients = {
+            'navigate_to_pose': self.create_client(
+                CancelGoal, '/navigate_to_pose/_action/cancel_goal'),
+            'navigate_through_poses': self.create_client(
+                CancelGoal, '/navigate_through_poses/_action/cancel_goal'),
+        }
         self._publisher = self.create_publisher(
             TwistStamped, self.get_parameter('cmd_vel_topic').value, 1)
         self.create_subscription(
@@ -118,10 +128,24 @@ class XboxBaseTeleop(Node):
             self._joy_callback, qos_profile_sensor_data)
         self.create_timer(1.0 / rate, self._publish_cycle)
         self.get_logger().info(
-            'Xbox base teleop ready: hold RB to drive; hold LB for turbo.')
+            'Xbox base teleop ready: hold RB to drive; hold LB for turbo; '
+            'press B to cancel Nav2 goals.')
 
     def _joy_callback(self, message: Joy) -> None:
         self._last_joy_ns = self.get_clock().now().nanoseconds
+
+        cancel_pressed = button_pressed(message.buttons, self._cancel_button)
+        if cancel_pressed and not self._cancel_was_pressed:
+            # O stop é imediato; o cancelamento da action é assíncrono para o
+            # callback do joystick nunca bloquear esperando pelo Nav2.
+            self._enabled = False
+            self._command = (0.0, 0.0, 0.0)
+            self._publish_stop()
+            self._cancel_navigation()
+        self._cancel_was_pressed = cancel_pressed
+        if cancel_pressed:
+            return
+
         enabled = button_pressed(message.buttons, self._enable_button)
         if not enabled:
             if self._enabled:
@@ -147,6 +171,34 @@ class XboxBaseTeleop(Node):
         )
         self._enabled = True
         self._stop_sent = False
+
+    def _cancel_navigation(self) -> None:
+        """Cancel every active Nav2 pose goal without blocking the joystick."""
+        requested = False
+        for action_name, client in self._cancel_clients.items():
+            if not client.service_is_ready():
+                self.get_logger().warning(
+                    f'Não foi possível cancelar {action_name}: serviço indisponível.')
+                continue
+            requested = True
+            future = client.call_async(CancelGoal.Request())
+            future.add_done_callback(
+                lambda result, name=action_name: self._cancel_done(name, result))
+        if requested:
+            self.get_logger().info(
+                'Cancelamento dos goals Nav2 solicitado pelo botão B.')
+
+    def _cancel_done(self, action_name: str, future) -> None:
+        try:
+            response = future.result()
+        except Exception as error:
+            self.get_logger().error(
+                f'Falha ao cancelar {action_name}: {error}')
+            return
+        if response.return_code != CancelGoal.Response.ERROR_NONE:
+            self.get_logger().warning(
+                f'Nav2 recusou o cancelamento de {action_name} '
+                f'(código {response.return_code}).')
 
     def _publish_cycle(self) -> None:
         now_ns = self.get_clock().now().nanoseconds
