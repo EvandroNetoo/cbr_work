@@ -32,6 +32,23 @@
     <joint name="link4_to_link5" value="1.5707963267"/>
   </group_state>
 
+  <!-- The legacy pick-and-place already transported loaded cubes in home. -->
+  <group_state name="transport_empty" group="arm">
+    <joint name="base_link_to_link1" value="1.57"/>
+    <joint name="link1_to_link2" value="1.83"/>
+    <joint name="link2_to_link3" value="-1.6"/>
+    <joint name="link3_to_link4" value="1.7"/>
+    <joint name="link4_to_link5" value="1.5707963267"/>
+  </group_state>
+
+  <group_state name="transport_loaded" group="arm">
+    <joint name="base_link_to_link1" value="1.57"/>
+    <joint name="link1_to_link2" value="1.83"/>
+    <joint name="link2_to_link3" value="-1.6"/>
+    <joint name="link3_to_link4" value="1.7"/>
+    <joint name="link4_to_link5" value="1.5707963267"/>
+  </group_state>
+
   <group_state name="detect_apriltags" group="arm">
     <joint name="base_link_to_link1" value="0.0"/>
     <joint name="link1_to_link2" value="0.0"/>

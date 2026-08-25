@@ -10,7 +10,8 @@ from launch_ros.substitutions import FindPackageShare
 def _validate_profile(context):
     enabled = {name: LaunchConfiguration(name).perform(context) == 'true'
                for name in ('enable_base', 'enable_arm',
-                            'enable_perception', 'enable_moveit')}
+                            'enable_perception', 'enable_moveit',
+                            'enable_navigation', 'enable_mission')}
     if enabled['enable_moveit'] and not enabled['enable_arm']:
         raise RuntimeError('enable_moveit:=true requires enable_arm:=true')
     if enabled['enable_perception'] and not enabled['enable_arm']:
@@ -18,6 +19,14 @@ def _validate_profile(context):
             'enable_perception:=true requires enable_arm:=true because the camera TF is on the arm')
     if not enabled['enable_base'] and not enabled['enable_arm']:
         raise RuntimeError('At least one of enable_base or enable_arm must be true')
+    if enabled['enable_navigation'] and not enabled['enable_base']:
+        raise RuntimeError('enable_navigation:=true requires enable_base:=true')
+    if enabled['enable_mission'] and not all(
+            enabled[name] for name in ('enable_base', 'enable_arm',
+                                       'enable_perception', 'enable_moveit',
+                                       'enable_navigation')):
+        raise RuntimeError(
+            'enable_mission:=true requires base, arm, perception, MoveIt and navigation')
     return []
 
 
@@ -36,6 +45,8 @@ def generate_launch_description():
         DeclareLaunchArgument('enable_arm', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('enable_perception', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('enable_moveit', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('enable_navigation', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('enable_mission', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('port', default_value='__from_config__'),
         DeclareLaunchArgument('robot_id', default_value='__from_config__'),
         DeclareLaunchArgument('calibration_file', default_value='__from_config__'),
@@ -57,5 +68,9 @@ def generate_launch_description():
             'enable_perception': LaunchConfiguration('enable_perception'),
             'camera_framerate': LaunchConfiguration('camera_framerate')}),
         _include('manipulation.launch.py', {
-            **common, 'enable_moveit': LaunchConfiguration('enable_moveit')}),
+            **common, 'enable_moveit': LaunchConfiguration('enable_moveit'),
+            'enable_mission': LaunchConfiguration('enable_mission')}),
+        _include('autonomy.launch.py', {
+            'enable_navigation': LaunchConfiguration('enable_navigation'),
+            'enable_mission': LaunchConfiguration('enable_mission')}),
     ])

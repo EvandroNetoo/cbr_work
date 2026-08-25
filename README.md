@@ -70,10 +70,28 @@ seção `xbox_base_teleop` de `bringup/config/controllers.yaml`.
 
 ## Mapeamento e navegação
 
-O repositório ainda não contém SLAM Toolbox, Nav2, mapa ou parâmetros de
-localização global. Por isso não existe um `mapping.launch.py` fictício. Quando
-essa infraestrutura for implementada, mapping e localização sobre mapa devem
-executar na Banana Pi e ser integrados ao perfil embarcado.
+O perfil autônomo é opt-in e inicia AMCL, Nav2 e os dois nós de missão:
+
+```bash
+ros2 launch bringup robot.launch.py \
+  enable_navigation:=true enable_mission:=true
+```
+
+Antes do primeiro uso, configure as poses reais e `enabled: true` em
+`mission_manager/config/missions.yaml`. Cadastre também as poses articulares
+da caixa direita no SRDF e seus nomes em `bringup/config/manipulation.yaml`.
+Enquanto esses valores não forem fornecidos, a missão é rejeitada sem mover o
+robô.
+
+Para iniciar a missão de exemplo e acompanhar feedback/cancelamento:
+
+```bash
+ros2 action send_goal --feedback /mission/execute \
+  interfaces/action/ExecuteMission "{mission_name: exemplo}"
+```
+
+O mapa estático, AMCL e Nav2 são instalados pelo pacote `bringup`. SLAM continua
+sendo uma operação separada de manutenção do mapa e não roda junto com AMCL.
 
 Launchs de simulação antigos foram removidos desta arquitetura; simulação não é
 parte do escopo atual.

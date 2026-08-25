@@ -22,4 +22,7 @@ setup(
     maintainer_email='todo@todo.com',
     description='MoveIt 2 configuration for SO-ARM-101',
     license='GPL-3.0-only',
+    entry_points={'console_scripts': [
+        'manipulation_server = so_arm_101_moveit_config.manipulation_server:main',
+    ]},
 )

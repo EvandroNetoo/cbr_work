@@ -29,7 +29,7 @@ TEMPO_DE_ANALISE_DA_APRIL_TAG: Final[float] = 2.0
 # A AprilTag fica sobre o cubo, enquanto o TCP fica na ponta da garra. Portanto,
 # a altura completa do cubo deve ser descontada do Z medido para obter o Z da
 # pegada. Todas as medidas cartesianas deste arquivo estão em metros.
-TAMANHO_DO_CUBO: Final[float] = 0.042
+TAMANHO_DO_CUBO: Final[float] = 0.05
 # Usado apenas quando APRIL_TAG_ID=None. Com detecção ativa, o yaw vem da
 # pose da tag e é reduzido a uma orientação de pegada equivalente em ±45 graus.
 ANGULO_DO_OBJETO_EM_GRAUS: Final[float] = 0.0

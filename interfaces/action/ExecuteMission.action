@@ -1,0 +1,24 @@
+string mission_name
+---
+uint8 COMPLETE=0
+uint8 PARTIAL=1
+uint8 CRITICAL_FAILURE=2
+uint8 CANCELED=3
+uint8 outcome
+interfaces/MissionStepResult[] steps
+string message
+---
+uint8 IDLE=0
+uint8 VALIDATING=1
+uint8 NAVIGATING=2
+uint8 PICKING=3
+uint8 STORING=4
+uint8 RETRIEVING=5
+uint8 PLACING=6
+uint8 SAFE_CANCEL=7
+uint8 FINISHED=8
+uint8 state
+uint32 step_index
+uint32 total_steps
+int32 tag_id
+string message

@@ -8,7 +8,8 @@ robot.launch.py
 ├── sensors.launch.py        LiDAR e IMU, sempre junto da base
 ├── localization.launch.py   EKF roda/IMU, sempre junto da base
 ├── perception.launch.py     câmera, rectify e AprilTag
-└── manipulation.launch.py   move_group no computador embarcado
+├── manipulation.launch.py   move_group e servidor de manipulação
+└── autonomy.launch.py       mapa, AMCL, Nav2 e gerenciador opcionais
 
 workstation.launch.py        RViz, teclado e controle Xbox opcionais
 ```
@@ -25,6 +26,8 @@ Argumentos de subsistema:
 - `enable_arm:=true`: braço e garra;
 - `enable_perception:=true`: câmera, retificação e AprilTag;
 - `enable_moveit:=true`: `move_group` (requer braço).
+- `enable_navigation:=true`: mapa, AMCL e Nav2 (requer base);
+- `enable_mission:=true`: missão/manipulação (requer todos os subsistemas).
 
 Drivers, sensores, percepção, descrição e subsistemas independentes começam em
 paralelo. Uma única barreira orientada às mensagens físicas evita que os
@@ -55,4 +58,5 @@ não são rejeitados por excesso de velocidade.
 O RViz usa `config/telemetry.rviz`, a única configuração principal, incluindo
 RobotModel, LiDAR, odometria, TF, câmera e o painel MotionPlanning.
 
-Não há Nav2/SLAM funcional no código atual; nenhum launch de mapping foi criado.
+Nav2/AMCL são habilitados apenas no perfil autônomo. O SLAM permanece separado
+para não publicar `map → odom` simultaneamente ao AMCL.

@@ -15,7 +15,7 @@ def test_launch_set_is_small_and_explicit():
     assert {path.name for path in LAUNCH.glob('*.launch.py')} == {
         'robot.launch.py', 'hardware.launch.py', 'sensors.launch.py',
         'localization.launch.py', 'perception.launch.py',
-        'manipulation.launch.py', 'workstation.launch.py'}
+        'manipulation.launch.py', 'autonomy.launch.py', 'workstation.launch.py'}
 
 
 def test_only_central_bringup_installs_launch_files():
@@ -34,6 +34,19 @@ def test_robot_defaults_are_complete_and_subsystems_are_coarse():
         assert f"'{argument}', default_value='true'" in robot
     for child in ('hardware', 'sensors', 'localization', 'perception', 'manipulation'):
         assert f"_include('{child}.launch.py'" in robot
+    assert "_include('autonomy.launch.py'" in robot
+    assert "'enable_navigation', default_value='false'" in robot
+    assert "'enable_mission', default_value='false'" in robot
+
+
+def test_autonomous_profile_is_explicit_and_uses_two_custom_processes():
+    autonomy = source('autonomy.launch.py')
+    manipulation = source('manipulation.launch.py')
+    assert "FindPackageShare('nav2_bringup')" in autonomy
+    assert "package='mission_manager'" in autonomy
+    assert "RewrittenYaml" in autonomy
+    assert "package='so_arm_101_moveit_config'" in manipulation
+    assert "executable='manipulation_server'" in manipulation
 
 
 def test_one_control_and_state_publisher_path():

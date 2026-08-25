@@ -55,8 +55,10 @@ def test_tamanho_inicial_do_cubo_e_cinco_centimetros():
 
 
 def test_sequencia_subtrai_tamanho_do_cubo_do_z_da_apriltag():
-    sequencia = (PACKAGE_DIR / "scripts" / "pegar_e_colocar.py").read_text()
-    assert "objeto_z -= TAMANHO_DO_CUBO" in sequencia
+    sequencia = (
+        PACKAGE_DIR / "so_arm_101_moveit_config" / "manipulation_server.py"
+    ).read_text()
+    assert "z -= TAMANHO_DO_CUBO" in sequencia
 
 
 def test_seleciona_a_apriltag_pelo_id_configurado():

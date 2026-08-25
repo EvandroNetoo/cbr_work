@@ -12,8 +12,14 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AprilTagDetection.msg"
   "msg/AprilTagDetectionArray.msg"
   "msg/AprilTagStampedDetection.msg"
+  "msg/MissionStepResult.msg"
   "msg/WheelCommand.msg"
   "action/AnalyzeAprilTags.action"
+  "action/ExecuteMission.action"
+  "action/PickCube.action"
+  "action/PlaceCube.action"
+  "action/RetrieveCube.action"
+  "action/StoreCube.action"
   DEPENDENCIES action_msgs builtin_interfaces geometry_msgs std_msgs
 )
 

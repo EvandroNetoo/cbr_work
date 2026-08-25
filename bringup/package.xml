@@ -39,6 +39,10 @@
   <exec_depend>image_proc</exec_depend>
   <exec_depend>xacro</exec_depend>
   <exec_depend>so_arm_101_teleop</exec_depend>
+  <exec_depend>mission_manager</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>nav2_common</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
   <test_depend>python3-pytest</test_depend>
   <test_depend>python3-yaml</test_depend>
 

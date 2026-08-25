@@ -1,0 +1,20 @@
+# Substitua pelos valores medidos e altere para true antes da operação física.
+enabled: false
+initial_pose: {x: 0.0, y: 0.0, yaw: 0.0}
+
+stations:
+  mesa_1: {x: 0.0, y: 0.0, yaw: 0.0}
+  mesa_2: {x: 0.0, y: 0.0, yaw: 0.0}
+
+placements:
+  mesa_2_centro: place_cube_center
+
+missions:
+  exemplo:
+    steps:
+      - navigate: mesa_1
+      - pick: {tag_id: 1}
+      - pick: {tag_id: 2}
+      - navigate: mesa_2
+      - place: {tag_id: 2, placement: mesa_2_centro}
+      - place: {tag_id: 1, placement: mesa_2_centro}

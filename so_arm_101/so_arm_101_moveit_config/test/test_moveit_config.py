@@ -98,6 +98,22 @@ def test_pick_cube_left_named_state_uses_requested_joint_values():
     ])
 
 
+def test_transport_states_preserve_the_proven_home_pose():
+    root = ET.parse(os.path.join(CONFIG_DIR, 'so_arm_101.srdf')).getroot()
+    home = root.find("group_state[@name='home'][@group='arm']")
+    expected = {
+        joint.attrib['name']: float(joint.attrib['value'])
+        for joint in home.findall('joint')
+    }
+    for name in ('transport_empty', 'transport_loaded'):
+        state = root.find(f"group_state[@name='{name}'][@group='arm']")
+        assert state is not None
+        assert {
+            joint.attrib['name']: float(joint.attrib['value'])
+            for joint in state.findall('joint')
+        } == expected
+
+
 def test_gripper_group_contains_actuated_and_mimic_joints():
     root = ET.parse(os.path.join(CONFIG_DIR, 'so_arm_101.srdf')).getroot()
     joints = root.findall("group[@name='gripper']/joint")

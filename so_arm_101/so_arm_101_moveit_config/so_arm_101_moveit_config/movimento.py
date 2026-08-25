@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import math
+import threading
 import time
 from collections.abc import Sequence
+from collections.abc import Callable
 
-import rclpy
 from action_msgs.msg import GoalStatus
 from interfaces.action import AnalyzeAprilTags
 from interfaces.msg import AprilTagStampedDetection
 from moveit_msgs.action import MoveGroup
 from rclpy.action import ActionClient
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
 from .configuracao import (
@@ -36,26 +39,65 @@ from .configuracao import (
 from .restricoes import ListaDeRestricoes, restricoes_de_posicao_inicial
 
 
+class OperacaoCancelada(RuntimeError):
+    """Raised when the enclosing manipulation action requests cancellation."""
+
+
 class ExecutorDoMoveIt:
     """Encapsula a comunicação com o servidor de ação do MoveIt."""
 
-    def __init__(self) -> None:
-        self.no = rclpy.create_node("pegar_e_colocar")
-        self.cliente_do_move_group = ActionClient(self.no, MoveGroup, "/move_action")
+    def __init__(
+        self,
+        no: Node,
+        *,
+        cancelamento_solicitado: Callable[[], bool] | None = None,
+        callback_group: ReentrantCallbackGroup | None = None,
+    ) -> None:
+        self.no = no
+        self._cancelamento_solicitado = cancelamento_solicitado or (lambda: False)
+        self._objetivo_ativo = None
+        self._condicao_dos_estados = threading.Condition()
+        self.cliente_do_move_group = ActionClient(
+            self.no, MoveGroup, "/move_action", callback_group=callback_group
+        )
         self.cliente_da_april_tag = ActionClient(
-            self.no, AnalyzeAprilTags, "/apriltags/analyze"
+            self.no, AnalyzeAprilTags, "/apriltags/analyze", callback_group=callback_group
         )
         self.posicoes_juntas_atuais: dict[str, float] = {}
         self.velocidades_juntas_atuais: dict[str, float] = {}
         self.sequencia_dos_estados_das_juntas = 0
         self.inscricao_nos_estados_das_juntas = self.no.create_subscription(
-            JointState, "/joint_states", self._receber_estados_das_juntas, 10
+            JointState, "/joint_states", self._receber_estados_das_juntas, 10,
+            callback_group=callback_group,
         )
 
     def _receber_estados_das_juntas(self, mensagem: JointState) -> None:
-        self.posicoes_juntas_atuais.update(zip(mensagem.name, mensagem.position))
-        self.velocidades_juntas_atuais = dict(zip(mensagem.name, mensagem.velocity))
-        self.sequencia_dos_estados_das_juntas += 1
+        with self._condicao_dos_estados:
+            self.posicoes_juntas_atuais.update(zip(mensagem.name, mensagem.position))
+            self.velocidades_juntas_atuais = dict(zip(mensagem.name, mensagem.velocity))
+            self.sequencia_dos_estados_das_juntas += 1
+            self._condicao_dos_estados.notify_all()
+
+    def _verificar_cancelamento(self) -> None:
+        if self._cancelamento_solicitado():
+            self.cancelar_objetivo_ativo()
+            raise OperacaoCancelada("Operação de manipulação cancelada.")
+
+    def _aguardar_futuro(self, futuro, timeout_sec: float | None = None):
+        concluido = threading.Event()
+        futuro.add_done_callback(lambda _futuro: concluido.set())
+        prazo = None if timeout_sec is None else time.monotonic() + timeout_sec
+        while not futuro.done():
+            self._verificar_cancelamento()
+            restante = None if prazo is None else prazo - time.monotonic()
+            if restante is not None and restante <= 0.0:
+                raise TimeoutError("Operação ROS excedeu o tempo limite.")
+            concluido.wait(0.05 if restante is None else min(0.05, restante))
+        return futuro.result()
+
+    def cancelar_objetivo_ativo(self) -> None:
+        if self._objetivo_ativo is not None:
+            self._objetivo_ativo.cancel_goal_async()
 
     def aguardar_o_servidor(self) -> None:
         self.no.get_logger().info("Aguardando o servidor de planejamento do MoveIt...")
@@ -89,25 +131,29 @@ class ExecutorDoMoveIt:
         objetivo.duration.nanosec = nanossegundos
 
         futuro_do_envio = self.cliente_da_april_tag.send_goal_async(objetivo)
-        rclpy.spin_until_future_complete(self.no, futuro_do_envio, timeout_sec=5.0)
-        if not futuro_do_envio.done():
-            raise RuntimeError("O detector não respondeu ao pedido de análise.")
-        manipulador_do_objetivo = futuro_do_envio.result()
+        try:
+            manipulador_do_objetivo = self._aguardar_futuro(futuro_do_envio, 5.0)
+        except TimeoutError as error:
+            raise RuntimeError("O detector não respondeu ao pedido de análise.") from error
         if manipulador_do_objetivo is None or not manipulador_do_objetivo.accepted:
             raise RuntimeError("O detector rejeitou o pedido de análise de AprilTags.")
 
         futuro_do_resultado = manipulador_do_objetivo.get_result_async()
-        rclpy.spin_until_future_complete(
-            self.no, futuro_do_resultado, timeout_sec=duracao_da_analise + 5.0
-        )
-        if not futuro_do_resultado.done():
+        self._objetivo_ativo = manipulador_do_objetivo
+        try:
+            resultado_da_acao = self._aguardar_futuro(
+                futuro_do_resultado, duracao_da_analise + 5.0
+            )
+        except TimeoutError:
             manipulador_do_objetivo.cancel_goal_async()
             raise RuntimeError("O detector excedeu o tempo limite da análise.")
-        resultado_da_acao = futuro_do_resultado.result()
+        finally:
+            self._objetivo_ativo = None
         if (
             resultado_da_acao is None
             or resultado_da_acao.status != GoalStatus.STATUS_SUCCEEDED
         ):
+            self._verificar_cancelamento()
             estado = (
                 resultado_da_acao.status
                 if resultado_da_acao is not None
@@ -259,16 +305,20 @@ class ExecutorDoMoveIt:
         objetivo.planning_options.planning_scene_diff.is_diff = True
         objetivo.planning_options.planning_scene_diff.robot_state.is_diff = True
 
+        self._verificar_cancelamento()
         futuro_do_envio = self.cliente_do_move_group.send_goal_async(objetivo)
-        rclpy.spin_until_future_complete(self.no, futuro_do_envio)
-        manipulador_do_objetivo = futuro_do_envio.result()
+        manipulador_do_objetivo = self._aguardar_futuro(futuro_do_envio)
         if manipulador_do_objetivo is None or not manipulador_do_objetivo.accepted:
             raise RuntimeError(f"Objetivo rejeitado pelo MoveIt para o grupo '{grupo}'.")
 
         futuro_do_resultado = manipulador_do_objetivo.get_result_async()
-        rclpy.spin_until_future_complete(self.no, futuro_do_resultado)
-        resultado_da_acao = futuro_do_resultado.result()
+        self._objetivo_ativo = manipulador_do_objetivo
+        try:
+            resultado_da_acao = self._aguardar_futuro(futuro_do_resultado)
+        finally:
+            self._objetivo_ativo = None
         if resultado_da_acao is None or resultado_da_acao.status != GoalStatus.STATUS_SUCCEEDED:
+            self._verificar_cancelamento()
             codigo_do_erro = (
                 getattr(resultado_da_acao.result, "error_code", None)
                 if resultado_da_acao
@@ -325,10 +375,15 @@ class ExecutorDoMoveIt:
         maior_erro_no_alvo = float("inf")
 
         while time.monotonic() < prazo:
-            rclpy.spin_once(self.no, timeout_sec=0.05)
-            if self.sequencia_dos_estados_das_juntas == ultima_sequencia:
-                continue
-            ultima_sequencia = self.sequencia_dos_estados_das_juntas
+            self._verificar_cancelamento()
+            with self._condicao_dos_estados:
+                if self.sequencia_dos_estados_das_juntas == ultima_sequencia:
+                    self._condicao_dos_estados.wait(timeout=0.05)
+                if self.sequencia_dos_estados_das_juntas == ultima_sequencia:
+                    continue
+                ultima_sequencia = self.sequencia_dos_estados_das_juntas
+                posicoes_lidas = dict(self.posicoes_juntas_atuais)
+                velocidades_lidas = dict(self.velocidades_juntas_atuais)
 
             # A junta esquerda da garra é passiva (mimic) e pode não aparecer
             # em /joint_states. Todas as juntas realmente comandadas são
@@ -339,12 +394,12 @@ class ExecutorDoMoveIt:
                 if not (grupo == GRUPO_GARRA and nome == "left_clamp")
             ]
             if not juntas_exigidas or any(
-                nome not in self.posicoes_juntas_atuais for nome in juntas_exigidas
+                nome not in posicoes_lidas for nome in juntas_exigidas
             ):
                 continue
 
             posicoes_atuais = {
-                nome: self.posicoes_juntas_atuais[nome] for nome in juntas_exigidas
+                nome: posicoes_lidas[nome] for nome in juntas_exigidas
             }
             maior_erro_no_alvo = max(
                 abs(posicoes_atuais[nome] - alvos[nome]) for nome in juntas_exigidas
@@ -360,11 +415,11 @@ class ExecutorDoMoveIt:
             posicoes_estaveis = maior_variacao <= tolerancia
 
             velocidades_disponiveis = all(
-                nome in self.velocidades_juntas_atuais for nome in juntas_exigidas
+                nome in velocidades_lidas for nome in juntas_exigidas
             )
             if velocidades_disponiveis:
                 maior_velocidade = max(
-                    abs(self.velocidades_juntas_atuais[nome])
+                    abs(velocidades_lidas[nome])
                     for nome in juntas_exigidas
                 )
                 velocidades_baixas = maior_velocidade <= velocidade_maxima
@@ -399,4 +454,4 @@ class ExecutorDoMoveIt:
         )
 
     def destruir(self) -> None:
-        self.no.destroy_node()
+        self.cancelar_objetivo_ativo()

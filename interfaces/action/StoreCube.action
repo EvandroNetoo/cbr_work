@@ -1,0 +1,16 @@
+uint8 LEFT=1
+uint8 RIGHT=2
+int32 tag_id
+uint8 slot
+---
+uint16 SUCCESS=0
+uint16 MOTION_FAILED=2
+uint16 CANCELED=3
+uint16 BUSY=4
+uint16 CONFIGURATION_ERROR=5
+uint16 code
+bool cargo_state_known
+string message
+---
+string phase
+float32 progress

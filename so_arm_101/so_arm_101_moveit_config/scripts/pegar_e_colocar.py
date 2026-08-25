@@ -1,295 +1,55 @@
 #!/usr/bin/env python3
-"""Sequência de pegar e colocar um objeto usando MoveIt 2."""
+"""Cliente finito de compatibilidade para iniciar uma missão configurada."""
 
 from __future__ import annotations
 
 import sys
 
 import rclpy
-
-from so_arm_101_moveit_config.configuracao import (
-    ACELERACAO_MAXIMA,
-    ACELERACAO_MAXIMA_DA_GARRA,
-    ALTURA_DE_APROXIMACAO,
-    ANGULO_DO_OBJETO_EM_GRAUS,
-    APRIL_TAG_ID,
-    GRUPO_BRACO,
-    GRUPO_GARRA,
-    OBJETO_X,
-    OBJETO_Y,
-    OBJETO_Z,
-    TAMANHO_DO_CUBO,
-    TEMPO_DE_ANALISE_DA_APRIL_TAG,
-    TOLERANCIA_DA_JUNTA_DA_GARRA,
-    TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-    VELOCIDADE_MAXIMA,
-    VELOCIDADE_MAXIMA_DA_GARRA,
-)
-from so_arm_101_moveit_config.movimento import ExecutorDoMoveIt
-from so_arm_101_moveit_config.restricoes import (
-    criar_pose,
-    normalizar_angulo_de_pegada,
-    restricoes_de_deposito_acima,
-    restricoes_de_pegada,
-    restricoes_de_pre_pegada,
-)
-
-
-class PegarEColocar:
-    """Descreve somente a sequência operacional da tarefa."""
-
-    def __init__(self, executor: ExecutorDoMoveIt) -> None:
-        self.executor = executor
-
-    def recolher_cubo_da_esquerda(self) -> None:
-        """Prepare the gripper, pick the left cube, and return it home."""
-        self.executor.mover_para_estado(
-            GRUPO_GARRA,
-            "pre_grip",
-            "Preparando a garra para pegar o cubo à esquerda",
-            tolerancia=TOLERANCIA_DA_JUNTA_DA_GARRA,
-            velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
-            aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
-        )
-        self.executor.mover_para_estado(
-            GRUPO_BRACO,
-            "pick_cube_left",
-            "Indo pegar o cubo à esquerda",
-            tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-            velocidade=VELOCIDADE_MAXIMA,
-            aceleracao=ACELERACAO_MAXIMA,
-        )
-        self.executor.mover_para_estado(
-            GRUPO_GARRA,
-            "grip",
-            "Fechando a garra no cubo à esquerda",
-            tolerancia=TOLERANCIA_DA_JUNTA_DA_GARRA,
-            velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
-            aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
-        )
-        self.executor.mover_para_estado(
-            GRUPO_BRACO,
-            "deposit_cube_left",
-            "Indo para o depósito do cubo à esquerda",
-            tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-            velocidade=VELOCIDADE_MAXIMA,
-            aceleracao=ACELERACAO_MAXIMA,
-        )
-        self.executor.mover_para_estado(
-            GRUPO_BRACO,
-            "home",
-            "Levando o cubo à esquerda para a pose home",
-            tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-            velocidade=VELOCIDADE_MAXIMA,
-            aceleracao=ACELERACAO_MAXIMA,
-        )
-
-
-    def soltar_cubo_no_centro(self) -> None:
-        """Prepare the gripper, pick the left cube, and return it home."""
-        self.executor.mover_para_estado(
-            GRUPO_BRACO,
-            "place_cube_center",
-            "Indo para o depósito do cubo no centro",
-            tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-            velocidade=VELOCIDADE_MAXIMA,
-            aceleracao=ACELERACAO_MAXIMA,
-        )
-        self.executor.mover_para_estado(
-            GRUPO_GARRA,
-            "open",
-            "Abrindo a garra",
-            tolerancia=TOLERANCIA_DA_JUNTA_DA_GARRA,
-            velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
-            aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
-        )
-        self.executor.mover_para_estado(
-            GRUPO_BRACO,
-            "zero",
-            "Indo para o depósito do cubo no centro",
-            tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-            velocidade=VELOCIDADE_MAXIMA,
-            aceleracao=ACELERACAO_MAXIMA,
-        )
-        self.executor.mover_para_estado(
-            GRUPO_BRACO,
-            "home",
-            "Levando o cubo à esquerda para a pose home",
-            tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-            velocidade=VELOCIDADE_MAXIMA,
-            aceleracao=ACELERACAO_MAXIMA,
-        )
-
-
-    def executar(self) -> None:
-        self.executor.aguardar_o_servidor()
-
-        # self.executor.mover_para_estado(
-        #     GRUPO_BRACO,
-        #     "home",
-        #     "Indo para a pose home",
-        #     tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-        #     velocidade=VELOCIDADE_MAXIMA,
-        #     aceleracao=ACELERACAO_MAXIMA,
-        # )
-        while True:
-            self.executor.mover_para_estado(
-                GRUPO_GARRA,
-                "open",
-                "Abrindo a garra",
-                tolerancia=TOLERANCIA_DA_JUNTA_DA_GARRA,
-                velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
-                aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
-            )
-
-            objeto_x, objeto_y, objeto_z = OBJETO_X, OBJETO_Y, OBJETO_Z
-            angulo_do_objeto = ANGULO_DO_OBJETO_EM_GRAUS
-            if APRIL_TAG_ID is not None:
-                self.executor.mover_para_estado(
-                    GRUPO_BRACO,
-                    "detect_apriltags",
-                    f"Posicionando a câmera para procurar a AprilTag {APRIL_TAG_ID}",
-                    tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-                    velocidade=VELOCIDADE_MAXIMA,
-                    aceleracao=ACELERACAO_MAXIMA,
-                )
-                (
-                    objeto_x,
-                    objeto_y,
-                    objeto_z,
-                    angulo_do_objeto,
-                ) = self.executor.obter_pose_da_april_tag(
-                    APRIL_TAG_ID, TEMPO_DE_ANALISE_DA_APRIL_TAG
-                )
-                objeto_z -= TAMANHO_DO_CUBO
-                self.executor.no.get_logger().info(
-                    f"Compensando {TAMANHO_DO_CUBO:.3f} m no Z da AprilTag; "
-                    f"Z da pegada: {objeto_z:.3f} m"
-                )
-                # self.executor.mover_para_estado(
-                #     GRUPO_BRACO,
-                #     "home",
-                #     "Voltando para home após localizar a AprilTag",
-                #     tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-                #     velocidade=VELOCIDADE_MAXIMA,
-                #     aceleracao=ACELERACAO_MAXIMA,
-                # )
-            else:
-                self.executor.no.get_logger().info(
-                    "APRIL_TAG_ID=None; usando as coordenadas XYZ configuradas."
-                )
-
-            angulo_da_pegada = normalizar_angulo_de_pegada(angulo_do_objeto)
-            self.executor.no.get_logger().info(
-                f"Yaw do objeto: {angulo_do_objeto:.1f}°; "
-                f"yaw equivalente escolhido para a garra: {angulo_da_pegada:.1f}°."
-            )
-
-            pose_do_objeto = criar_pose(
-                objeto_x,
-                objeto_y,
-                objeto_z,
-                angulo_da_pegada + 90,
-            )
-            pose_acima_do_objeto = criar_pose(
-                objeto_x,
-                objeto_y,
-                objeto_z + ALTURA_DE_APROXIMACAO,
-                angulo_da_pegada + 90,
-            )
-
-            self.executor.no.get_logger().info("Indo para cima do objeto")
-            self.executor.executar_objetivo(
-                GRUPO_BRACO,
-                restricoes_de_pre_pegada(pose_acima_do_objeto),
-                VELOCIDADE_MAXIMA,
-                ACELERACAO_MAXIMA,
-            )
-            self.executor.executar_objetivo(
-                GRUPO_BRACO,
-                restricoes_de_pegada(pose_do_objeto),
-                VELOCIDADE_MAXIMA,
-                ACELERACAO_MAXIMA,
-            )
-            self.executor.mover_para_estado(
-                GRUPO_GARRA,
-                "grip",
-                "Fechando a garra",
-                tolerancia=TOLERANCIA_DA_JUNTA_DA_GARRA,
-                velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
-                aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
-            )
-            self.executor.executar_objetivo(
-                GRUPO_BRACO,
-                restricoes_de_pre_pegada(pose_acima_do_objeto),
-                VELOCIDADE_MAXIMA,
-                ACELERACAO_MAXIMA,
-            )
-            self.executor.mover_para_estado(
-                GRUPO_BRACO,
-                "zero",
-                "Indo para a pose home",
-                tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-                velocidade=VELOCIDADE_MAXIMA,
-                aceleracao=ACELERACAO_MAXIMA,
-            )
-            self.executor.mover_para_estado(
-                GRUPO_BRACO,
-                "home",
-                "Indo para a pose home",
-                tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-                velocidade=VELOCIDADE_MAXIMA,
-                aceleracao=ACELERACAO_MAXIMA,
-            )
-            self.executor.mover_para_estado(
-                GRUPO_BRACO,
-                "deposit_cube_left",
-                "Indo para o depósito do cubo à esquerda",
-                tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-                velocidade=VELOCIDADE_MAXIMA,
-                aceleracao=ACELERACAO_MAXIMA,
-            )
-            self.executor.mover_para_estado(
-                GRUPO_GARRA,
-                "open",
-                "Abrindo a garra",
-                tolerancia=TOLERANCIA_DA_JUNTA_DA_GARRA,
-                velocidade=VELOCIDADE_MAXIMA_DA_GARRA,
-                aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
-            )
-            self.executor.mover_para_estado(
-                GRUPO_BRACO,
-                "home",
-                "Indo pegar o cubo à esquerda",
-                tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
-                velocidade=VELOCIDADE_MAXIMA,
-                aceleracao=ACELERACAO_MAXIMA,
-            )
-            input("Pressione Enter para depositar o cubo ou Ctrl+C para sair...")
-            self.recolher_cubo_da_esquerda()
-            self.soltar_cubo_no_centro()
-            self.executor.no.get_logger().info("Sequência concluída")
-            input("Pressione Enter para repetir a sequência ou Ctrl+C para sair...")
+from interfaces.action import ExecuteMission
+from rclpy.action import ActionClient
 
 
 def main() -> int:
     rclpy.init(args=sys.argv)
-    executor = ExecutorDoMoveIt()
-    tarefa = PegarEColocar(executor)
-
+    node = rclpy.create_node("pegar_e_colocar_client")
+    client = ActionClient(node, ExecuteMission, "/mission/execute")
+    mission_name = sys.argv[1] if len(sys.argv) > 1 else "exemplo"
     try:
-        tarefa.executar()
-    except Exception as erro:
-        executor.no.get_logger().error(f"SEQUÊNCIA INTERROMPIDA: {erro}")
-        codigo_de_retorno = 1
-    else:
-        codigo_de_retorno = 0
-    finally:
-        executor.destruir()
-        rclpy.shutdown()
+        if not client.wait_for_server(timeout_sec=10.0):
+            node.get_logger().error(
+                "Gerenciador /mission/execute indisponível; habilite enable_mission."
+            )
+            return 2
+        goal = ExecuteMission.Goal()
+        goal.mission_name = mission_name
 
-    return codigo_de_retorno
+        def feedback(message) -> None:
+            node.get_logger().info(message.feedback.message)
+
+        sent = client.send_goal_async(goal, feedback_callback=feedback)
+        rclpy.spin_until_future_complete(node, sent)
+        handle = sent.result()
+        if handle is None or not handle.accepted:
+            node.get_logger().error(f"Missão '{mission_name}' rejeitada.")
+            return 3
+        finished = handle.get_result_async()
+        rclpy.spin_until_future_complete(node, finished)
+        wrapped = finished.result()
+        if wrapped is None:
+            node.get_logger().error("Gerenciador encerrou sem resultado.")
+            return 4
+        node.get_logger().info(wrapped.result.message)
+        return 0 if wrapped.result.outcome in (0, 1) else 1
+    except KeyboardInterrupt:
+        node.get_logger().warning("Cancelando missão...")
+        if 'handle' in locals() and handle is not None:
+            handle.cancel_goal_async()
+        return 130
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

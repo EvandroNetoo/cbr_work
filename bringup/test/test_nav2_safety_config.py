@@ -7,9 +7,9 @@ import pytest
 import yaml
 
 
-WORKSPACE = Path(__file__).resolve().parents[4]
-PARAMS_PATH = WORKSPACE / 'tools' / 'nav2_navigation.yaml'
-BT_PATH = WORKSPACE / 'tools' / 'navigate_to_pose_safe.xml'
+PACKAGE = Path(__file__).parents[1]
+PARAMS_PATH = PACKAGE / 'config' / 'nav2_navigation.yaml'
+BT_PATH = PACKAGE / 'behavior_trees' / 'navigate_to_pose_safe.xml'
 
 
 @pytest.fixture(scope='module')
@@ -28,7 +28,10 @@ def test_goal_and_planner_use_precise_safe_approximation(nav2_params):
     assert planner['expected_planner_frequency'] == 0.5
     assert planner['GridBased']['tolerance'] == 0.10
     assert planner['GridBased']['use_final_approach_orientation'] is False
-    assert Path(bt['default_nav_to_pose_bt_xml']) == BT_PATH
+    assert bt['default_nav_to_pose_bt_xml'] == 'navigate_to_pose_safe.xml'
+    autonomy = (PACKAGE / 'launch' / 'autonomy.launch.py').read_text()
+    assert "'default_nav_to_pose_bt_xml': PathJoinSubstitution" in autonomy
+    assert '/home/' not in PARAMS_PATH.read_text()
 
 
 def test_controller_uses_full_mecanum_motion_with_conservative_limits(

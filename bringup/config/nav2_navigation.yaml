@@ -1,0 +1,389 @@
+# Nav2 para a base mecanum CBR.
+#
+# Inicie somente depois de localization_launch.py estar ativo e de o AMCL ter
+# recebido uma pose inicial. Os valores de velocidade são conservadores para
+# o primeiro teste; ajuste robot_radius e os limites após medir a base.
+
+bt_navigator:
+  ros__parameters:
+    global_frame: map
+    robot_base_frame: base_footprint
+    odom_topic: /odom
+    bt_loop_duration: 10
+    default_server_timeout: 20
+    wait_for_service_timeout: 1000
+    action_server_result_timeout: 900.0
+    # autonomy.launch.py reescreve este valor para o arquivo instalado no
+    # share do pacote bringup, sem depender do caminho do workspace.
+    default_nav_to_pose_bt_xml: navigate_to_pose_safe.xml
+    navigators: ["navigate_to_pose", "navigate_through_poses"]
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
+    navigate_through_poses:
+      plugin: "nav2_bt_navigator::NavigateThroughPosesNavigator"
+    error_code_names: [compute_path_error_code, follow_path_error_code]
+
+controller_server:
+  ros__parameters:
+    # O base_controller da CBR recebe geometry_msgs/msg/TwistStamped.
+    enable_stamped_cmd_vel: true
+    controller_frequency: 20.0
+    costmap_update_timeout: 0.30
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    progress_checker_plugins: [progress_checker]
+    goal_checker_plugins: [general_goal_checker]
+    controller_plugins: [FollowPath]
+    use_realtime_priority: false
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.05
+      movement_time_allowance: 15.0
+    general_goal_checker:
+      stateful: true
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.05
+      # Aproximadamente 5,7 graus: mantém precisão sem exigir imobilidade
+      # angular abaixo do que a base física consegue repetir.
+      yaw_goal_tolerance: 0.10
+    FollowPath:
+      plugin: "nav2_mppi_controller::MPPIController"
+      time_steps: 56
+      model_dt: 0.05
+      batch_size: 2000
+      iteration_count: 1
+      # A base mecanum pode usar sua cinemática holonômica completa. Obstáculos
+      # dinâmicos laterais e traseiros permanecem fora do LiDAR frontal; as
+      # paredes conhecidas continuam protegidas pela camada estática local.
+      motion_model: "Omni"
+      # Próximo do limite físico de 0,238 m/s na borda das rodas. Em comandos
+      # compostos (diagonal + giro), o driver escala as quatro rodas em
+      # conjunto para preservar a direção sem exceder esse limite.
+      vx_max: 0.23
+      vx_min: -0.23
+      vy_max: 0.23
+      vy_min: -0.23
+      # Igual ao limite que o velocity_smoother realmente executa. Antes, o
+      # MPPI previa giros a 1 rad/s que eram limitados a 0,6 rad/s na saída.
+      wz_max: 0.60
+      # Rampa linear mais suave para evitar alternância brusca entre acelerar
+      # e frear quando o caminho é atualizado.
+      ax_max: 0.35
+      ax_min: -0.35
+      ay_max: 0.35
+      ay_min: -0.35
+      az_max: 1.20
+      # Amostragem proporcional à pequena faixa de velocidade da base. Com
+      # desvios maiores que os limites, quase todas as amostras saturavam.
+      vx_std: 0.08
+      vy_std: 0.08
+      wz_std: 0.30
+      prune_distance: 0.80
+      transform_tolerance: 0.2
+      temperature: 0.3
+      gamma: 0.015
+      visualize: false
+      # Reutilizar a distribuição reduz variações aleatórias entre ciclos.
+      regenerate_noises: false
+      TrajectoryVisualizer:
+        trajectory_step: 5
+        time_step: 3
+      # Uma base holonômica não precisa apontar a frente do chassi para cada
+      # trecho. TwirlingCritic penaliza apenas rotações desnecessárias.
+      critics: [ConstraintCritic, CostCritic, GoalCritic, GoalAngleCritic,
+                PathAlignCritic, PathFollowCritic, TwirlingCritic]
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+      CostCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.81
+        near_collision_cost: 253
+        critical_cost: 300.0
+        consider_footprint: true
+        collision_cost: 1000000.0
+        near_goal_distance: 0.30
+        trajectory_point_step: 2
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        # 56 * 0,05 s * 0,23 m/s = 0,64 m de alcance translacional máximo.
+        threshold_to_consider: 0.45
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        # Começa a preparar a orientação antes da chegada e prevalece sobre a
+        # penalização de giro, para respeitar a seta enviada pelo RViz.
+        cost_weight: 10.0
+        threshold_to_consider: 0.50
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 10.0
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 4
+        # Perto do goal, posição e orientação finais têm prioridade sobre o
+        # alinhamento com os pontos intermediários do caminho.
+        threshold_to_consider: 0.35
+        # Cerca de 1/3 dos 8,4 pontos projetáveis a 5 cm por célula.
+        offset_from_furthest: 3
+        use_path_orientations: false
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        offset_from_furthest: 5
+        threshold_to_consider: 0.45
+      TwirlingCritic:
+        enabled: true
+        cost_power: 1
+        # Ainda evita giros gratuitos, mas não impede a correção angular final.
+        cost_weight: 2.0
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base_footprint
+      rolling_window: true
+      width: 3
+      height: 3
+      resolution: 0.05
+      # Dimensões externas medidas da base; o padding acrescenta 2 cm de
+      # margem em toda a projeção 2D.
+      footprint: "[[0.119, 0.155], [0.119, -0.155], [-0.119, -0.155], [-0.119, 0.155]]"
+      footprint_padding: 0.02
+      transform_tolerance: 0.2
+      # A camada estática mantém paredes laterais e traseiras visíveis mesmo
+      # fora dos 121 graus observados pelo LiDAR frontal.
+      plugins: [static_layer, obstacle_layer, inflation_layer]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /scan_front
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.10
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.10
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 8.0
+        # Deve permanecer acima do raio circunscrito calculado (0,223486 m).
+        # 0,25 m elimina o fallback lento e ainda permite aproximação precisa.
+        inflation_radius: 0.25
+      always_send_full_costmap: true
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: base_footprint
+      # Use a mesma geometria real do controlador local. Um raio circular de
+      # 0,22 m impedia a frente curta da base de se aproximar da bancada.
+      footprint: "[[0.119, 0.155], [0.119, -0.155], [-0.119, -0.155], [-0.119, 0.155]]"
+      footprint_padding: 0.02
+      resolution: 0.05
+      track_unknown_space: true
+      transform_tolerance: 0.2
+      # Obstáculos dinâmicos ficam no costmap local. Com o sensor somente
+      # frontal, mantê-los também no global deixava marcas sem raytrace de
+      # limpeza quando o obstáculo passava para as laterais/traseira.
+      plugins: [static_layer, inflation_layer]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 8.0
+        inflation_radius: 0.25
+      always_send_full_costmap: true
+
+planner_server:
+  ros__parameters:
+    # A árvore solicita replanejamento a cada 2 s. Isso reduz mudanças de
+    # caminho provocadas por pequenas correções do AMCL na arena curta.
+    expected_planner_frequency: 0.5
+    costmap_update_timeout: 1.0
+    planner_plugins: [GridBased]
+    GridBased:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      # Só desloca um clique inválido até 5 cm; em célula livre, preserva a
+      # posição solicitada. Goals realmente sobre paredes continuam falhando
+      # quando não existir uma pose segura nesse raio.
+      tolerance: 0.10
+      use_astar: true
+      allow_unknown: false
+      # Preserva a orientação da seta 2D Goal Pose do RViz.
+      use_final_approach_orientation: false
+
+smoother_server:
+  ros__parameters:
+    smoother_plugins: [simple_smoother]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000
+      do_refinement: true
+
+behavior_server:
+  ros__parameters:
+    enable_stamped_cmd_vel: true
+    local_costmap_topic: local_costmap/costmap_raw
+    global_costmap_topic: global_costmap/costmap_raw
+    local_footprint_topic: local_costmap/published_footprint
+    global_footprint_topic: global_costmap/published_footprint
+    cycle_frequency: 10.0
+    behavior_plugins: [spin, backup, drive_on_heading, assisted_teleop, wait]
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    backup:
+      plugin: "nav2_behaviors::BackUp"
+    drive_on_heading:
+      plugin: "nav2_behaviors::DriveOnHeading"
+    assisted_teleop:
+      plugin: "nav2_behaviors::AssistedTeleop"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    local_frame: odom
+    global_frame: map
+    robot_base_frame: base_footprint
+    transform_tolerance: 0.2
+    simulate_ahead_time: 2.0
+    max_rotational_vel: 0.60
+    min_rotational_vel: 0.20
+    rotational_acc_lim: 1.20
+
+waypoint_follower:
+  ros__parameters:
+    loop_rate: 20
+    stop_on_failure: false
+    action_server_result_timeout: 900.0
+    waypoint_task_executor_plugin: wait_at_waypoint
+    wait_at_waypoint:
+      plugin: "nav2_waypoint_follower::WaitAtWaypoint"
+      enabled: true
+      waypoint_pause_duration: 0
+
+route_server:
+  ros__parameters:
+    boundary_radius_to_achieve_node: 1.0
+    radius_to_achieve_node: 2.0
+    smooth_corners: true
+    operations: [AdjustSpeedLimit, ReroutingService, CollisionMonitor]
+    ReroutingService:
+      plugin: "nav2_route::ReroutingService"
+    AdjustSpeedLimit:
+      plugin: "nav2_route::AdjustSpeedLimit"
+    CollisionMonitor:
+      plugin: "nav2_route::CollisionMonitor"
+      max_collision_dist: 3.0
+    edge_cost_functions: [DistanceScorer, CostmapScorer]
+    DistanceScorer:
+      plugin: "nav2_route::DistanceScorer"
+    CostmapScorer:
+      plugin: "nav2_route::CostmapScorer"
+
+velocity_smoother:
+  ros__parameters:
+    enable_stamped_cmd_vel: true
+    smoothing_frequency: 20.0
+    stamp_smoothed_velocity_with_smoothing_time: false
+    scale_velocities: true
+    feedback: OPEN_LOOP
+    max_velocity: [0.23, 0.23, 0.60]
+    min_velocity: [-0.23, -0.23, -0.60]
+    max_accel: [0.35, 0.35, 1.20]
+    max_decel: [-0.35, -0.35, -1.20]
+    odom_topic: /odom
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0
+
+collision_monitor:
+  ros__parameters:
+    enable_stamped_cmd_vel: true
+    base_frame_id: base_footprint
+    odom_frame_id: odom
+    cmd_vel_in_topic: cmd_vel_smoothed
+    cmd_vel_out_topic: cmd_vel
+    state_topic: collision_monitor_state
+    transform_tolerance: 0.2
+    source_timeout: 1.0
+    base_shift_correction: true
+    stop_pub_timeout: 2.0
+    polygons: [FootprintApproach]
+    FootprintApproach:
+      type: polygon
+      action_type: approach
+      footprint_topic: /local_costmap/published_footprint
+      time_before_collision: 1.2
+      simulation_time_step: 0.1
+      min_points: 6
+      visualize: false
+      enabled: true
+    observation_sources: [scan]
+    scan:
+      type: scan
+      topic: /scan_front
+      min_height: 0.0
+      max_height: 2.0
+      enabled: true
+
+docking_server:
+  ros__parameters:
+    controller_frequency: 50.0
+    initial_perception_timeout: 5.0
+    wait_charge_timeout: 5.0
+    dock_approach_timeout: 30.0
+    undock_linear_tolerance: 0.05
+    undock_angular_tolerance: 0.1
+    max_retries: 3
+    base_frame: base_footprint
+    fixed_frame: odom
+    dock_backwards: false
+    dock_prestaging_tolerance: 0.5
+    dock_plugins: [simple_charging_dock]
+    simple_charging_dock:
+      plugin: "opennav_docking::SimpleChargingDock"
+      docking_threshold: 0.05
+      staging_x_offset: -0.7
+      use_external_detection_pose: true
+      use_battery_status: false
+      use_stall_detection: false
+      external_detection_timeout: 1.0
+      external_detection_translation_x: -0.18
+      external_detection_translation_y: 0.0
+      external_detection_rotation_roll: -1.57
+      external_detection_rotation_pitch: -1.57
+      external_detection_rotation_yaw: 0.0
+      filter_coef: 0.1
+    controller:
+      k_phi: 3.0
+      k_delta: 2.0
+      v_linear_min: 0.10
+      v_linear_max: 0.15
+      use_collision_detection: true
+      costmap_topic: local_costmap/costmap_raw
+      footprint_topic: local_costmap/published_footprint
+      transform_tolerance: 0.1
+      projection_time: 5.0
+      simulation_step: 0.1
+      dock_collision_threshold: 0.3

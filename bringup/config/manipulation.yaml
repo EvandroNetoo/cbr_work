@@ -1,0 +1,10 @@
+manipulation_server:
+  ros__parameters:
+    left_store_state: deposit_cube_left
+    left_retrieve_state: pick_cube_left
+    # Preencha depois de cadastrar no SRDF os valores articulares medidos.
+    right_store_state: ""
+    right_retrieve_state: ""
+    transport_empty_state: transport_empty
+    transport_loaded_state: transport_loaded
+    pick_attempts: 2
