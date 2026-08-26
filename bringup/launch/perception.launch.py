@@ -26,10 +26,14 @@ def _apriltag_python():
     return sys.executable
 
 
-def _critical(node, label):
-    return RegisterEventHandler(OnProcessExit(
-        target_action=node,
-        on_exit=[EmitEvent(event=Shutdown(reason=f'{label} encerrou.'))]))
+def _shutdown_if_failed(node, label):
+    def callback(event, context):
+        fatal = LaunchConfiguration('perception_failure_is_fatal').perform(context) == 'true'
+        if fatal and event.returncode != 0:
+            return [EmitEvent(event=Shutdown(
+                reason=f'{label} encerrou com código {event.returncode}.'))]
+        return []
+    return RegisterEventHandler(OnProcessExit(target_action=node, on_exit=callback))
 
 
 def generate_launch_description():
@@ -54,7 +58,9 @@ def generate_launch_description():
              'camera_info_topic': '/camera/camera_info', 'base_frame': 'base_link'}])
     return LaunchDescription([
         DeclareLaunchArgument('enable_perception', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('perception_failure_is_fatal', default_value='false',
+                              choices=['true', 'false']),
         DeclareLaunchArgument('camera_framerate', default_value='15.0'),
         camera, rectify, detector,
-        _critical(camera, 'Câmera'), _critical(rectify, 'Retificação'),
-        _critical(detector, 'Detector AprilTag')])
+        _shutdown_if_failed(camera, 'Câmera'), _shutdown_if_failed(rectify, 'Retificação'),
+        _shutdown_if_failed(detector, 'Detector AprilTag')])

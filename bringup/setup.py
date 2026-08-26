@@ -27,6 +27,7 @@ setup(
     license='GPL-3.0-only',
     entry_points={'console_scripts': [
         'hardware_readiness = bringup.hardware_readiness:main',
+        'controller_readiness = bringup.controller_readiness:main',
         'xbox_base_teleop = bringup.xbox_base_teleop:main',
     ]},
 )

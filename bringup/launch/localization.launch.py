@@ -16,9 +16,18 @@ def generate_launch_description():
         output='screen', condition=IfCondition(LaunchConfiguration('enable_base')),
         parameters=[PathJoinSubstitution([FindPackageShare('imu'), 'config', 'ekf.yaml'])],
         remappings=[('odometry/filtered', '/odom')])
+    def shutdown_if_failed(event, context):
+        fatal = LaunchConfiguration('localization_failure_is_fatal').perform(context) == 'true'
+        if fatal and event.returncode != 0:
+            return [EmitEvent(event=Shutdown(
+                reason=f'EKF encerrou com código {event.returncode}.'))]
+        return []
+
     return LaunchDescription([
         DeclareLaunchArgument('enable_base', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('localization_failure_is_fatal', default_value='false',
+                              choices=['true', 'false']),
         ekf,
         RegisterEventHandler(OnProcessExit(
             target_action=ekf,
-            on_exit=[EmitEvent(event=Shutdown(reason='EKF encerrou.'))]))])
+            on_exit=shutdown_if_failed))])

@@ -23,6 +23,7 @@
   <exec_depend>imu</exec_depend>
   <exec_depend>robot_description</exec_depend>
   <exec_depend>controller_manager</exec_depend>
+  <exec_depend>controller_manager_msgs</exec_depend>
   <exec_depend>joint_state_broadcaster</exec_depend>
   <exec_depend>joint_trajectory_controller</exec_depend>
   <exec_depend>mecanum_drive_controller</exec_depend>

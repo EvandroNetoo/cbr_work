@@ -9,12 +9,13 @@ PACKAGE = Path(__file__).parents[1]
 def test_default_configuration_is_low_rate_and_uses_serial5():
     config = yaml.safe_load((PACKAGE / 'config' / 'imu.yaml').read_text())
     parameters = config['imu_node']['ros__parameters']
-    assert parameters['publish_rate_hz'] == 50.0
+    assert parameters['publish_rate_hz'] == 20.0
+    assert parameters['calibration.sample_count'] == 40
     assert parameters['topic'] == '/imu/data'
     assert parameters['frame_id'] == 'imu_link'
     assert parameters['hardware.serial_port'] == 5
     assert parameters['hardware.serial_timeout_sec'] == 0.015
-    assert parameters['calibration.sample_count'] == 100
+    assert parameters['calibration.sample_count'] == 40
 
 
 def test_node_has_one_timer_and_no_background_thread():

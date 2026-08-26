@@ -22,9 +22,13 @@ def test_goal_and_planner_use_precise_safe_approximation(nav2_params):
     planner = nav2_params['planner_server']['ros__parameters']
     bt = nav2_params['bt_navigator']['ros__parameters']
 
-    assert controller['progress_checker']['required_movement_radius'] == 0.05
-    assert controller['general_goal_checker']['xy_goal_tolerance'] == 0.05
-    assert controller['general_goal_checker']['yaw_goal_tolerance'] == 0.10
+    assert controller['progress_checker']['plugin'] == (
+        'nav2_controller::PoseProgressChecker')
+    assert controller['progress_checker']['required_movement_radius'] == 0.02
+    assert controller['progress_checker']['required_movement_angle'] == 0.05
+    assert controller['progress_checker']['movement_time_allowance'] == 10.0
+    assert controller['general_goal_checker']['xy_goal_tolerance'] == 0.07
+    assert controller['general_goal_checker']['yaw_goal_tolerance'] == 0.15
     assert planner['expected_planner_frequency'] == 0.5
     assert planner['GridBased']['tolerance'] == 0.10
     assert planner['GridBased']['use_final_approach_orientation'] is False
@@ -41,15 +45,16 @@ def test_controller_uses_full_mecanum_motion_with_conservative_limits(
     assert controller['vx_max'] == 0.23
     assert controller['vy_min'] == -0.23
     assert controller['vy_max'] == 0.23
-    assert controller['ax_min'] == -0.35
-    assert controller['ax_max'] == 0.35
-    assert controller['ay_min'] == -0.35
-    assert controller['ay_max'] == 0.35
+    assert controller['ax_min'] == -0.80
+    assert controller['ax_max'] == 0.80
+    assert controller['ay_min'] == -0.80
+    assert controller['ay_max'] == 0.80
+    assert controller['az_max'] == 2.00
     assert controller['CostCritic']['consider_footprint'] is True
     assert smoother['min_velocity'][:2] == [-0.23, -0.23]
     assert smoother['max_velocity'][:2] == [0.23, 0.23]
-    assert smoother['max_accel'][:2] == [0.35, 0.35]
-    assert smoother['max_decel'][:2] == [-0.35, -0.35]
+    assert smoother['max_accel'] == [0.80, 0.80, 2.00]
+    assert smoother['max_decel'] == [-0.80, -0.80, -2.00]
 
 
 def test_mppi_sampling_and_critics_match_slow_holonomic_base(nav2_params):
@@ -62,8 +67,12 @@ def test_mppi_sampling_and_critics_match_slow_holonomic_base(nav2_params):
     assert controller['regenerate_noises'] is False
     assert 'PathAngleCritic' not in controller['critics']
     assert 'TwirlingCritic' in controller['critics']
-    assert controller['TwirlingCritic']['cost_weight'] == 2.0
-    assert controller['GoalAngleCritic']['cost_weight'] == 10.0
+    # O deadband é por roda e aplicado depois da cinemática. O critic do MPPI
+    # penaliza os eixos do chassi separadamente e induziria vy/wz em linha reta.
+    assert 'VelocityDeadbandCritic' not in controller['critics']
+    assert controller['TwirlingCritic']['cost_weight'] == 1.0
+    assert controller['GoalCritic']['cost_weight'] == 8.0
+    assert controller['GoalAngleCritic']['cost_weight'] == 15.0
     assert controller['GoalAngleCritic']['threshold_to_consider'] == 0.50
     assert controller['PathAlignCritic']['cost_weight'] == 10.0
     assert controller['PathAlignCritic']['threshold_to_consider'] == 0.35

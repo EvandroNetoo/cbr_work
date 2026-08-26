@@ -107,7 +107,9 @@ def _launch_hardware(context):
         package='controller_manager', executable='ros2_control_node',
         parameters=[{'robot_description': description}, *map(str, controller_files),
                     {'update_rate': rate}], output='screen')
-    actions += [rsp]
+    # Sem robot_state_publisher a árvore TF estrutural desaparece; navegação e
+    # manipulação deixam de ser seguras mesmo que os drivers continuem vivos.
+    actions += [_driver_shutdown(rsp, 'robot_state_publisher'), rsp]
 
     controllers = ['joint_state_broadcaster']
     if arm_enabled:
