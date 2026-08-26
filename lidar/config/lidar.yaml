@@ -7,7 +7,9 @@ lidar_node:
     scan.topic: /scan_front
     scan.frame_id: lidar_front_link
     scan.angle_start_deg: 307
-    scan.angle_end_deg: 67
+    scan.angle_end_deg: 217
+    # Pares inclusivos de setores válidos. O primeiro setor cruza 0°.
+    scan.valid_intervals_deg: [307, 67, 167, 196]
     scan.range_min_m: 0.10
     scan.range_max_m: 3.0
 

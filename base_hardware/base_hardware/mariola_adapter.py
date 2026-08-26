@@ -25,6 +25,7 @@ WHEEL_NAMES = (
     'rear_right_wheel_joint',
 )
 MAX_WHEEL_VELOCITY = 7.0
+MIN_EFFECTIVE_WHEEL_COMMAND = 2
 BRICK_TICKS_PER_REVOLUTION = 1644
 EXPANSION_TICKS_PER_REVOLUTION = 3288
 
@@ -108,6 +109,15 @@ class MariolaConfig:
     brick_ticks_per_revolution: int = BRICK_TICKS_PER_REVOLUTION
     expansion_ticks_per_revolution: int = EXPANSION_TICKS_PER_REVOLUTION
     max_wheel_velocity_rad_s: float = MAX_WHEEL_VELOCITY
+    min_effective_wheel_command: int = MIN_EFFECTIVE_WHEEL_COMMAND
+
+    def __post_init__(self) -> None:
+        # Falha durante a inicialização, antes de abrir ou comandar seriais.
+        radians_per_second_to_command(
+            0.0,
+            self.max_wheel_velocity_rad_s,
+            self.min_effective_wheel_command,
+        )
 
 
 @dataclass(frozen=True)
@@ -125,27 +135,44 @@ def ticks_to_radians(ticks: int, ticks_per_revolution: int) -> float:
 def radians_per_second_to_command(
     value: float,
     max_velocity: float = MAX_WHEEL_VELOCITY,
+    min_effective_command: int = MIN_EFFECTIVE_WHEEL_COMMAND,
 ) -> int:
     value = float(value)
     if not math.isfinite(value):
         raise ValueError('A velocidade da roda deve ser finita.')
     if not math.isfinite(max_velocity) or max_velocity <= 0.0:
         raise ValueError('O limite de velocidade deve ser positivo e finito.')
+    if isinstance(min_effective_command, bool) or not isinstance(
+            min_effective_command, int):
+        raise ValueError('O comando mínimo efetivo deve ser um inteiro.')
+    if not 0 <= min_effective_command <= 100:
+        raise ValueError('O comando mínimo efetivo deve estar entre 0 e 100.')
     if abs(value) > max_velocity:
         raise ValueError(
             f'Velocidade {value} rad/s excede o limite de {max_velocity} rad/s.')
-    return int(round(value * 100.0 / max_velocity))
+    # Zero precisa permanecer uma parada inequívoca para os watchdogs. Para
+    # qualquer alvo realmente não nulo, compensa a zona morta do atuador: a
+    # eletrônica aceita o comando 1, mas a roda física só se move a partir de 2.
+    if value == 0.0:
+        return 0
+    magnitude = max(
+        min_effective_command,
+        int(round(abs(value) * 100.0 / max_velocity)),
+    )
+    return magnitude if value > 0.0 else -magnitude
 
 
 def validate_complete_command(
     values: Mapping[str, float],
     max_velocity: float = MAX_WHEEL_VELOCITY,
+    min_effective_command: int = MIN_EFFECTIVE_WHEEL_COMMAND,
 ) -> dict[str, float]:
     if set(values) != set(WHEEL_NAMES) or len(values) != len(WHEEL_NAMES):
         raise ValueError('O comando deve conter exatamente as quatro rodas conhecidas.')
     result = {name: float(values[name]) for name in WHEEL_NAMES}
     for value in result.values():
-        radians_per_second_to_command(value, max_velocity)
+        radians_per_second_to_command(
+            value, max_velocity, min_effective_command)
     return result
 
 
@@ -254,10 +281,14 @@ class MariolaBase:
         values = validate_complete_command(
             velocities,
             self._config.max_wheel_velocity_rad_s,
+            self._config.min_effective_wheel_command,
         )
         commands = {
             name: radians_per_second_to_command(
-                values[name], self._config.max_wheel_velocity_rad_s)
+                values[name],
+                self._config.max_wheel_velocity_rad_s,
+                self._config.min_effective_wheel_command,
+            )
             for name in WHEEL_NAMES
         }
         try:

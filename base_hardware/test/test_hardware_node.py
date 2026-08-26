@@ -65,6 +65,7 @@ def test_performance_defaults_are_explicit():
     assert parameters['io_rate_hz'] == 30.0
     assert parameters['deduplicate_commands'] is True
     assert parameters['command_heartbeat_hz'] == 5.0
+    assert parameters['hardware.min_effective_wheel_command'] == 2
     assert parameters['hardware.front_left.calibration_clockwise'] == 88
     assert parameters['hardware.front_left.calibration_counterclockwise'] == -88
     assert parameters['hardware.front_right.calibration_clockwise'] == 88

@@ -9,6 +9,8 @@ from base_hardware.controleMotores import (
 from base_hardware.mariola_adapter import (
     BRICK_TICKS_PER_REVOLUTION,
     EXPANSION_TICKS_PER_REVOLUTION,
+    MIN_EFFECTIVE_WHEEL_COMMAND,
+    MariolaConfig,
     MariolaBase,
     WHEEL_NAMES,
     ensure_expansion_motor_calibration,
@@ -130,6 +132,10 @@ def test_one_revolution_uses_backend_specific_resolution():
 
 
 def test_linear_velocity_conversion_and_bounds():
+    assert MIN_EFFECTIVE_WHEEL_COMMAND == 2
+    assert radians_per_second_to_command(0.0) == 0
+    assert radians_per_second_to_command(0.001) == 2
+    assert radians_per_second_to_command(-0.001) == -2
     assert radians_per_second_to_command(7.0) == 100
     assert radians_per_second_to_command(3.5) == 50
     assert radians_per_second_to_command(-7.0) == -100
@@ -137,6 +143,24 @@ def test_linear_velocity_conversion_and_bounds():
         radians_per_second_to_command(7.01)
     with pytest.raises(ValueError):
         radians_per_second_to_command(float('nan'))
+    with pytest.raises(ValueError):
+        radians_per_second_to_command(1.0, min_effective_command=101)
+
+
+def test_minimum_effective_command_is_configurable():
+    controle = FakeControle()
+    base = MariolaBase(
+        config=MariolaConfig(min_effective_wheel_command=3),
+        controle=controle,
+    )
+    base.write({name: 0.001 for name in WHEEL_NAMES})
+    assert controle.commands[-1] == {name: 3 for name in WHEEL_NAMES}
+
+
+@pytest.mark.parametrize('minimum', [-1, 101, 2.5, True])
+def test_config_rejects_invalid_minimum_effective_command(minimum):
+    with pytest.raises(ValueError):
+        MariolaConfig(min_effective_wheel_command=minimum)
 
 
 def test_command_must_have_all_wheels():

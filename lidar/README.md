@@ -12,8 +12,10 @@ ros2 run lidar lidar_node --ros-args \
   --params-file $(ros2 pkg prefix lidar)/share/lidar/config/lidar.yaml
 ```
 
-O setor 307°→67° contém sempre 121 posições. Graus perdidos ou leituras
-inválidas permanecem como `NaN`, sem deslocar as demais medições. O relé do
+O arco publicado 307°→217° contém sempre 271 posições. Os setores válidos são
+307°→67° (frente) e 194°→217° (traseira); o trecho intermediário bloqueado
+pelo robô permanece como `NaN`. Graus perdidos ou leituras inválidas também
+permanecem como `NaN`, sem deslocar as demais medições. O relé do
 motor é desligado quando o nó encerra. A serial é processada em blocos de 64
 bytes para reduzir polling e chamadas ao kernel. O timestamp parte do fim da
 aquisição e do RPM, garantindo que o último raio nunca seja datado no futuro.

@@ -36,7 +36,8 @@ class LidarConfig:
     relay_pin: int = 266
     relay_active_low: bool = True
     angle_start_deg: int = 307
-    angle_end_deg: int = 67
+    angle_end_deg: int = 217
+    valid_intervals_deg: tuple[int, ...] = (307, 67, 194, 217)
     range_min_m: float = 0.10
     range_max_m: float = 3.0
 
@@ -60,12 +61,40 @@ class LidarConfig:
             raise ValueError('angle_start_deg deve estar entre 0 e 359.')
         if not 0 <= self.angle_end_deg <= 359:
             raise ValueError('angle_end_deg deve estar entre 0 e 359.')
+        if not self.valid_intervals_deg or len(self.valid_intervals_deg) % 2:
+            raise ValueError(
+                'valid_intervals_deg deve conter pares de início e fim.')
+        if any(not 0 <= angle <= 359 for angle in self.valid_intervals_deg):
+            raise ValueError(
+                'Os ângulos de valid_intervals_deg devem estar entre 0 e 359.')
+
+        published_angles = {
+            (self.angle_start_deg + offset) % 360
+            for offset in range(self.sample_count)
+        }
+        valid_angles = {
+            angle
+            for angle in range(360)
+            if self.is_angle_valid(angle)
+        }
+        if not valid_angles.issubset(published_angles):
+            raise ValueError(
+                'Todos os intervalos válidos devem estar dentro do setor '
+                'publicado por angle_start_deg e angle_end_deg.')
         if not 0.0 < self.range_min_m < self.range_max_m:
             raise ValueError('Os limites de alcance são inválidos.')
 
     @property
     def sample_count(self) -> int:
         return ((self.angle_end_deg - self.angle_start_deg) % 360) + 1
+
+    def is_angle_valid(self, angle: int) -> bool:
+        """Indica se o ângulo pertence a um dos intervalos inclusivos."""
+        intervals = iter(self.valid_intervals_deg)
+        return any(
+            (angle - start) % 360 <= (end - start) % 360
+            for start, end in zip(intervals, intervals)
+        )
 
 
 @dataclass(frozen=True)
@@ -350,7 +379,8 @@ class LidarDriver:
             if self._collecting:
                 index = (angle - self.config.angle_start_deg) % 360
                 if index < self.config.sample_count:
-                    self._ranges[index] = distance_m
+                    if self.config.is_angle_valid(angle):
+                        self._ranges[index] = distance_m
                     self._rpm_sum += max(self._rpm, 0.0)
                     self._rpm_samples += 1
                     if index == self.config.sample_count - 1:

@@ -37,6 +37,7 @@ class BaseHardwareNode(Node):
         self.declare_parameter('hardware.serial_baud_rate', 250000)
         self.declare_parameter('hardware.expansion_timeout_sec', 0.005)
         self.declare_parameter('hardware.max_wheel_velocity_rad_s', 7.0)
+        self.declare_parameter('hardware.min_effective_wheel_command', 2)
         self.declare_parameter('hardware.brick_ticks_per_revolution', 1644)
         self.declare_parameter('hardware.expansion_ticks_per_revolution', 3288)
         self.declare_parameter('hardware.front_left.motor_id', 0)
@@ -110,8 +111,13 @@ class BaseHardwareNode(Node):
                 self.get_parameter('hardware.expansion_ticks_per_revolution').value),
             max_wheel_velocity_rad_s=float(
                 self.get_parameter('hardware.max_wheel_velocity_rad_s').value),
+            min_effective_wheel_command=int(
+                self.get_parameter(
+                    'hardware.min_effective_wheel_command').value),
         )
         self._max_wheel_velocity = hardware_config.max_wheel_velocity_rad_s
+        self._min_effective_command = (
+            hardware_config.min_effective_wheel_command)
         self._backend = backend or MariolaBase(config=hardware_config)
         for name, calibration in getattr(
                 self._backend, 'expansion_calibrations', {}).items():
@@ -145,6 +151,7 @@ class BaseHardwareNode(Node):
             values = validate_complete_command(
                 dict(zip(message.name, message.velocity)),
                 self._max_wheel_velocity,
+                self._min_effective_command,
             )
             if len(set(message.name)) != len(WHEEL_NAMES):
                 raise ValueError('O comando contém nomes de rodas duplicados.')
@@ -167,7 +174,10 @@ class BaseHardwareNode(Node):
     def _command_signature(self, command):
         return tuple(
             radians_per_second_to_command(
-                command[name], self._max_wheel_velocity)
+                command[name],
+                self._max_wheel_velocity,
+                self._min_effective_command,
+            )
             for name in WHEEL_NAMES
         )
 

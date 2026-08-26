@@ -16,6 +16,9 @@ base_hardware_node:
 
     # Escala comum de comando: -7..7 rad/s equivale a -100..100.
     hardware.max_wheel_velocity_rad_s: 7.0
+    # A roda física não vence a zona morta com comando 1. Zero continua sendo
+    # parada; todo alvo de roda não nulo recebe pelo menos magnitude 2.
+    hardware.min_effective_wheel_command: 2
     hardware.brick_ticks_per_revolution: 1644
     hardware.expansion_ticks_per_revolution: 3288
 

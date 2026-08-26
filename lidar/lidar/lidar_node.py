@@ -32,7 +32,9 @@ class LidarNode(Node):
         self.declare_parameter('scan.topic', '/scan_front')
         self.declare_parameter('scan.frame_id', 'lidar_front_link')
         self.declare_parameter('scan.angle_start_deg', 307)
-        self.declare_parameter('scan.angle_end_deg', 67)
+        self.declare_parameter('scan.angle_end_deg', 217)
+        self.declare_parameter(
+            'scan.valid_intervals_deg', [307, 67, 194, 217])
         self.declare_parameter('scan.range_min_m', 0.10)
         self.declare_parameter('scan.range_max_m', 3.0)
         self.declare_parameter('hardware.serial_port', 1)
@@ -65,6 +67,9 @@ class LidarNode(Node):
             angle_start_deg=int(
                 self.get_parameter('scan.angle_start_deg').value),
             angle_end_deg=int(self.get_parameter('scan.angle_end_deg').value),
+            valid_intervals_deg=tuple(
+                int(angle) for angle in
+                self.get_parameter('scan.valid_intervals_deg').value),
             range_min_m=float(self.get_parameter('scan.range_min_m').value),
             range_max_m=float(self.get_parameter('scan.range_max_m').value),
         )
@@ -83,7 +88,8 @@ class LidarNode(Node):
         self.get_logger().info(
             f'LiDAR iniciado em SERIAL{self._config.serial_port}; '
             f'publicando {self._topic} no frame {self._frame_id}, setor '
-            f'{self._config.angle_start_deg}°->{self._config.angle_end_deg}°.')
+            f'{self._config.angle_start_deg}°->{self._config.angle_end_deg}°, '
+            f'intervalos válidos {self._config.valid_intervals_deg}.')
 
     def _publish_if_ready(self) -> None:
         scan = self._driver.take_scan()

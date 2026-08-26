@@ -33,7 +33,11 @@ def make_driver():
     serial = FakeSerial()
     relay = FakeRelay()
     driver = LidarDriver(
-        LidarConfig(angle_start_deg=307, angle_end_deg=67),
+        LidarConfig(
+            angle_start_deg=307,
+            angle_end_deg=217,
+            valid_intervals_deg=(307, 67, 194, 217),
+        ),
         serial_connection=serial,
         relay=relay,
         start_thread=False,
@@ -42,10 +46,10 @@ def make_driver():
     return driver, serial, relay
 
 
-def test_sparse_sector_keeps_fixed_angular_positions():
+def test_two_valid_intervals_keep_fixed_angular_positions():
     driver, serial, relay = make_driver()
     now_ns = 1_000_000_000
-    angles = [306] + list(range(307, 360)) + list(range(0, 69))
+    angles = [306] + list(range(307, 360)) + list(range(0, 219))
     for angle in angles:
         now_ns += 608_000
         if angle in (320, 10):
@@ -54,11 +58,14 @@ def test_sparse_sector_keeps_fixed_angular_positions():
 
     scan = driver.take_scan()
     assert scan is not None
-    assert len(scan.ranges_m) == 121
+    assert len(scan.ranges_m) == 271
     assert scan.ranges_m[0] == 1.0
     assert scan.ranges_m[-1] == 1.0
     assert math.isnan(scan.ranges_m[13])  # 320 graus
     assert math.isnan(scan.ranges_m[63])  # 10 graus
+    assert math.isnan(scan.ranges_m[121])  # 68 graus: parte interna
+    assert math.isnan(scan.ranges_m[246])  # 193 graus: parte interna
+    assert scan.ranges_m[247] == 1.0  # 194 graus: setor traseiro
     assert scan.rpm == 274.0
     assert driver.take_scan() is None
 
@@ -74,13 +81,18 @@ def test_serial1_resolves_usb_physical_port_1_4(tmp_path):
     assert resolve_serial_port(1, tmp_path) == str(expected)
 
 
-def test_real_configuration_has_121_samples():
+def test_real_configuration_has_two_valid_intervals():
     config = LidarConfig()
     config.validate()
     assert config.serial_port == 1
     assert config.serial_read_chunk_size == 64
     assert config.relay_pin == 266
-    assert config.sample_count == 121
+    assert config.sample_count == 271
+    assert config.valid_intervals_deg == (307, 67, 194, 217)
+    assert config.is_angle_valid(350)
+    assert config.is_angle_valid(20)
+    assert config.is_angle_valid(200)
+    assert not config.is_angle_valid(100)
 
 
 def test_read_loop_processes_serial_in_configured_blocks():

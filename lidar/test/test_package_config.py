@@ -14,7 +14,8 @@ def test_real_yaml_matches_robot_description_and_wiring():
     assert parameters['scan.topic'] == '/scan_front'
     assert parameters['scan.frame_id'] == 'lidar_front_link'
     assert parameters['scan.angle_start_deg'] == 307
-    assert parameters['scan.angle_end_deg'] == 67
+    assert parameters['scan.angle_end_deg'] == 217
+    assert parameters['scan.valid_intervals_deg'] == [307, 67, 194, 217]
     assert parameters['hardware.serial_port'] == 1
     assert parameters['hardware.serial_baud_rate'] == 115200
     assert parameters['hardware.serial_read_chunk_size'] == 64
@@ -28,4 +29,5 @@ def test_sensor_launch_is_fixed_to_package_yaml():
     source = (PACKAGE.parent / 'bringup' / 'launch' / 'sensors.launch.py').read_text()
     assert "FindPackageShare('lidar')" in source
     assert "'config', 'lidar.yaml'" in source
-    assert "prefix='/usr/bin/python3'" in source
+    assert "CBR_SENSOR_PYTHON" in source
+    assert "prefix=python" in source
