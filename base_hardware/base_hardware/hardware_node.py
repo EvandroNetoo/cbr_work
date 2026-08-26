@@ -42,12 +42,8 @@ class BaseHardwareNode(Node):
         self.declare_parameter('hardware.expansion_ticks_per_revolution', 3288)
         self.declare_parameter('hardware.front_left.motor_id', 0)
         self.declare_parameter('hardware.front_left.inverted', True)
-        self.declare_parameter('hardware.front_left.calibration_clockwise', 88)
-        self.declare_parameter('hardware.front_left.calibration_counterclockwise', -88)
         self.declare_parameter('hardware.front_right.motor_id', 7)
         self.declare_parameter('hardware.front_right.inverted', False)
-        self.declare_parameter('hardware.front_right.calibration_clockwise', 88)
-        self.declare_parameter('hardware.front_right.calibration_counterclockwise', -88)
         self.declare_parameter('hardware.rear_left.inverted', False)
         self.declare_parameter('hardware.rear_right.inverted', True)
 
@@ -89,18 +85,6 @@ class BaseHardwareNode(Node):
                 self.get_parameter('hardware.front_left.inverted').value),
             front_right_inverted=bool(
                 self.get_parameter('hardware.front_right.inverted').value),
-            front_left_calibration_clockwise=int(
-                self.get_parameter(
-                    'hardware.front_left.calibration_clockwise').value),
-            front_left_calibration_counterclockwise=int(
-                self.get_parameter(
-                    'hardware.front_left.calibration_counterclockwise').value),
-            front_right_calibration_clockwise=int(
-                self.get_parameter(
-                    'hardware.front_right.calibration_clockwise').value),
-            front_right_calibration_counterclockwise=int(
-                self.get_parameter(
-                    'hardware.front_right.calibration_counterclockwise').value),
             rear_left_inverted=bool(
                 self.get_parameter('hardware.rear_left.inverted').value),
             rear_right_inverted=bool(
@@ -119,19 +103,13 @@ class BaseHardwareNode(Node):
         self._min_effective_command = (
             hardware_config.min_effective_wheel_command)
         self._backend = backend or MariolaBase(config=hardware_config)
-        for name, calibration in getattr(
-                self._backend, 'expansion_calibrations', {}).items():
-            action = 'corrigida' if calibration['updated'] else 'validada'
-            self.get_logger().info(
-                f'Calibração {action} para {name}: '
-                f"horário={calibration['giro_max_horario']}, "
-                f"anti-horário={calibration['giro_max_antihorario']}.")
 
+        # Estes tópicos formam uma ponte local de estado/comando em alta taxa.
+        # Uma amostra antiga não tem utilidade e não pode bloquear o loop de
+        # controle enquanto o DDS aguarda ACK de um participante congestionado.
         qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
-            # This bridge carries only the newest sample.  RELIABLE can block
-            # the ros2_control write loop when the SBC is temporarily busy.
             reliability=ReliabilityPolicy.BEST_EFFORT,
         )
         self._state_publisher = self.create_publisher(

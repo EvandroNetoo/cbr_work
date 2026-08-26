@@ -36,7 +36,7 @@ def make_driver():
         LidarConfig(
             angle_start_deg=307,
             angle_end_deg=217,
-            valid_intervals_deg=(307, 67, 194, 217),
+            valid_intervals_deg=(307, 67, 167, 196),
         ),
         serial_connection=serial,
         relay=relay,
@@ -60,12 +60,14 @@ def test_two_valid_intervals_keep_fixed_angular_positions():
     assert scan is not None
     assert len(scan.ranges_m) == 271
     assert scan.ranges_m[0] == 1.0
-    assert scan.ranges_m[-1] == 1.0
+    assert math.isnan(scan.ranges_m[-1])  # 217 graus: parte bloqueada
     assert math.isnan(scan.ranges_m[13])  # 320 graus
     assert math.isnan(scan.ranges_m[63])  # 10 graus
     assert math.isnan(scan.ranges_m[121])  # 68 graus: parte interna
-    assert math.isnan(scan.ranges_m[246])  # 193 graus: parte interna
-    assert scan.ranges_m[247] == 1.0  # 194 graus: setor traseiro
+    assert math.isnan(scan.ranges_m[219])  # 166 graus: parte interna
+    assert scan.ranges_m[220] == 1.0  # 167 graus: setor traseiro
+    assert scan.ranges_m[249] == 1.0  # 196 graus: fim do setor traseiro
+    assert math.isnan(scan.ranges_m[250])  # 197 graus: parte bloqueada
     assert scan.rpm == 274.0
     assert driver.take_scan() is None
 
@@ -88,10 +90,11 @@ def test_real_configuration_has_two_valid_intervals():
     assert config.serial_read_chunk_size == 64
     assert config.relay_pin == 266
     assert config.sample_count == 271
-    assert config.valid_intervals_deg == (307, 67, 194, 217)
+    assert config.valid_intervals_deg == (307, 67, 167, 196)
     assert config.is_angle_valid(350)
     assert config.is_angle_valid(20)
-    assert config.is_angle_valid(200)
+    assert config.is_angle_valid(180)
+    assert not config.is_angle_valid(200)
     assert not config.is_angle_valid(100)
 
 

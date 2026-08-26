@@ -14,8 +14,8 @@ de usar hardware real.
 O único LiDAR é `lidar_front_link`, mantido com esse nome por compatibilidade
 com o driver. Suas medidas e posição estão no grupo `lidar_*`; a propriedade
 `lidar_center_height_above_ground` é medida verticalmente do chão até o centro
-do cilindro laranja. O corpo quadrado preto fica acima dele, preso à base, e o
-frame possui uma rotação de 180 graus por causa da montagem invertida.
+do cilindro laranja. O frame usa correção de yaw de `-0,06 rad`. O corpo preto
+quadrado não participa atualmente da visualização nem da colisão.
 
 A IMU também é paramétrica. O grupo `imu_*` controla suas dimensões, massa,
 posição e orientação. `imu_x`, `imu_y` e `imu_z` são relativos ao `base_link`;
@@ -24,7 +24,7 @@ posição e orientação. `imu_x`, `imu_y` e `imu_z` são relativos ao `base_lin
 Visualização:
 
 ```bash
-ros2 launch bringup workstation.launch.py
+ros2 launch base_description display.launch.py
 ```
 
 O launch carrega `rviz/base.rviz`, já configurado com frame fixo
@@ -34,5 +34,5 @@ preparado, mas desligado durante a visualização puramente estrutural.
 Sem os controles gráficos das juntas:
 
 ```bash
-ros2 launch bringup workstation.launch.py
+ros2 launch base_description display.launch.py use_gui:=false
 ```

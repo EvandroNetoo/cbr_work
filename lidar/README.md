@@ -13,7 +13,7 @@ ros2 run lidar lidar_node --ros-args \
 ```
 
 O arco publicado 307°→217° contém sempre 271 posições. Os setores válidos são
-307°→67° (frente) e 194°→217° (traseira); o trecho intermediário bloqueado
+307°→67° (frente) e 167°→196° (traseira); os trechos bloqueados
 pelo robô permanece como `NaN`. Graus perdidos ou leituras inválidas também
 permanecem como `NaN`, sem deslocar as demais medições. O relé do
 motor é desligado quando o nó encerra. A serial é processada em blocos de 64

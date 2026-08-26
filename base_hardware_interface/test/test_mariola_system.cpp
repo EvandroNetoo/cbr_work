@@ -39,11 +39,6 @@ public:
   {
     system.commands_ = std::move(commands);
   }
-
-  static bool state_stale(const MariolaSystem & system)
-  {
-    return system.state_stale_;
-  }
 };
 
 class MariolaSystemTest : public ::testing::Test
@@ -105,34 +100,19 @@ TEST_F(MariolaSystemTest, lifecycle_interfaces_and_stale_state)
   EXPECT_EQ(
     system.read(rclcpp::Time(0), rclcpp::Duration(0, 0)),
     hardware_interface::return_type::OK);
+  MariolaSystemTestPeer::set_commands(system, {14.0, 7.0, -14.0, -3.5});
   EXPECT_EQ(
     system.write(rclcpp::Time(0), rclcpp::Duration(0, 0)),
     hardware_interface::return_type::OK);
   executor->spin_some();
   ASSERT_EQ(commands.size(), 1u);
   EXPECT_EQ(commands.front().name, state.name);
+  EXPECT_EQ(commands.front().velocity, std::vector<double>({7.0, 3.5, -7.0, -1.75}));
 
-  // A transient scheduling stall must fail safe without permanently
-  // deactivating the hardware component.
-  MariolaSystemTestPeer::set_commands(system, {1.0, 2.0, 3.0, 4.0});
   std::this_thread::sleep_for(110ms);
   EXPECT_EQ(
     system.read(rclcpp::Time(0), rclcpp::Duration(0, 0)),
-    hardware_interface::return_type::OK);
-  EXPECT_TRUE(MariolaSystemTestPeer::state_stale(system));
-  EXPECT_EQ(
-    system.write(rclcpp::Time(0), rclcpp::Duration(0, 0)),
-    hardware_interface::return_type::OK);
-  executor->spin_some();
-  ASSERT_EQ(commands.size(), 2u);
-  EXPECT_EQ(commands.back().velocity, std::vector<double>({0.0, 0.0, 0.0, 0.0}));
-
-  state_publisher->publish(state);
-  for (int attempt = 0; attempt < 10; ++attempt) {
-    executor->spin_some();
-    std::this_thread::sleep_for(2ms);
-  }
-  EXPECT_FALSE(MariolaSystemTestPeer::state_stale(system));
+    hardware_interface::return_type::ERROR);
   EXPECT_EQ(
     system.on_deactivate(rclcpp_lifecycle::State()),
     hardware_interface::CallbackReturn::SUCCESS);

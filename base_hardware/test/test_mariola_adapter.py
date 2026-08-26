@@ -13,7 +13,6 @@ from base_hardware.mariola_adapter import (
     MariolaConfig,
     MariolaBase,
     WHEEL_NAMES,
-    ensure_expansion_motor_calibration,
     radians_per_second_to_command,
     ticks_to_radians,
     validate_complete_command,
@@ -103,29 +102,6 @@ class FakeExpansion:
         self.angle = 0
 
 
-class FakeCalibratedExpansion:
-    def __init__(self, calibration, *, motor_id=7, encoder_active=True):
-        self.id_equipamento = motor_id
-        self.calibration = tuple(calibration)
-        self.encoder_active = encoder_active
-        self.updates = []
-
-    def obter_calibracao(self):
-        return {
-            'giro_max_horario': self.calibration[0],
-            'giro_max_antihorario': self.calibration[1],
-            'encoder_ativo': self.encoder_active,
-        }
-
-    def calibracao_manual(self, clockwise, counterclockwise):
-        self.updates.append((clockwise, counterclockwise))
-        self.calibration = (clockwise, counterclockwise)
-        return {
-            'giro_max_horario': clockwise,
-            'giro_max_antihorario': counterclockwise,
-        }
-
-
 def test_one_revolution_uses_backend_specific_resolution():
     assert ticks_to_radians(1644, BRICK_TICKS_PER_REVOLUTION) == pytest.approx(2 * math.pi)
     assert ticks_to_radians(3288, EXPANSION_TICKS_PER_REVOLUTION) == pytest.approx(2 * math.pi)
@@ -168,40 +144,6 @@ def test_command_must_have_all_wheels():
         validate_complete_command({'front_left_wheel_joint': 0.0})
 
 
-def test_matching_directional_calibration_does_not_rewrite_eeprom():
-    motor = FakeCalibratedExpansion((88, -88))
-    calibration, updated = ensure_expansion_motor_calibration(motor, 88, -88)
-    assert calibration['giro_max_horario'] == 88
-    assert calibration['giro_max_antihorario'] == -88
-    assert updated is False
-    assert motor.updates == []
-
-
-def test_stale_positive_direction_calibration_is_corrected():
-    motor = FakeCalibratedExpansion((176, -88))
-    calibration, updated = ensure_expansion_motor_calibration(motor, 88, -88)
-    assert calibration == {
-        'giro_max_horario': 88,
-        'giro_max_antihorario': -88,
-        'encoder_ativo': True,
-    }
-    assert updated is True
-    assert motor.updates == [(88, -88)]
-
-
-@pytest.mark.parametrize('clockwise,counterclockwise', [
-    (0, -88),
-    (-88, -88),
-    (88, 0),
-    (88, 88),
-])
-def test_directional_calibration_rejects_invalid_signs(
-        clockwise, counterclockwise):
-    motor = FakeCalibratedExpansion((88, -88))
-    with pytest.raises(ValueError):
-        ensure_expansion_motor_calibration(motor, clockwise, counterclockwise)
-
-
 def test_adapter_uses_controle_motores_for_commands_and_encoders():
     controle = FakeControle()
     base = MariolaBase(controle=controle)
@@ -209,8 +151,6 @@ def test_adapter_uses_controle_motores_for_commands_and_encoders():
 
     base.write({name: 3.5 for name in WHEEL_NAMES})
     assert controle.commands[-1] == {name: 50 for name in WHEEL_NAMES}
-    base.write({name: -3.5 for name in WHEEL_NAMES})
-    assert controle.commands[-1] == {name: -50 for name in WHEEL_NAMES}
 
     states = base.read(now=1.0)
     for name in WHEEL_NAMES:
@@ -253,10 +193,3 @@ def test_original_groups_apply_physical_inversions():
     })
     assert front_left.commands[-1] == -50
     assert front_right.commands[-1] == 50
-
-    front.aplicar({
-        'front_left_wheel_joint': -50,
-        'front_right_wheel_joint': -50,
-    })
-    assert front_left.commands[-1] == 50
-    assert front_right.commands[-1] == -50

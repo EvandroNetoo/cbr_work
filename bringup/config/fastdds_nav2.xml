@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <!--
+      Fast DDS tenta por padrão somente uma pequena faixa de participant IDs
+      nos peers iniciais. O robô já possui mais participantes do que isso
+      antes de o Nav2 subir, portanto uma descoberta somente por multicast
+      pode formar grafos diferentes em processos distintos.
+
+      Este perfil é aplicado apenas aos três processos do Nav2. Eles procuram
+      explicitamente os participantes locais existentes, mantendo multicast
+      habilitado para os demais hosts da SUBNET.
+    -->
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>cbr_nav2_udp</transport_id>
+        <type>UDPv4</type>
+        <maxInitialPeersRange>64</maxInitialPeersRange>
+      </transport_descriptor>
+      <transport_descriptor>
+        <transport_id>cbr_nav2_shm</transport_id>
+        <type>SHM</type>
+      </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="cbr_nav2_participant" is_default_profile="true">
+      <rtps>
+        <builtin>
+          <initialPeersList>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+              </udpv4>
+            </locator>
+          </initialPeersList>
+        </builtin>
+        <useBuiltinTransports>false</useBuiltinTransports>
+        <userTransports>
+          <transport_id>cbr_nav2_udp</transport_id>
+          <transport_id>cbr_nav2_shm</transport_id>
+        </userTransports>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

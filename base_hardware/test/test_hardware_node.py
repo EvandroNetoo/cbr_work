@@ -66,11 +66,23 @@ def test_performance_defaults_are_explicit():
     assert parameters['deduplicate_commands'] is True
     assert parameters['command_heartbeat_hz'] == 5.0
     assert parameters['hardware.min_effective_wheel_command'] == 2
-    assert parameters['hardware.front_left.calibration_clockwise'] == 88
-    assert parameters['hardware.front_left.calibration_counterclockwise'] == -88
-    assert parameters['hardware.front_right.calibration_clockwise'] == 88
-    assert parameters['hardware.front_right.calibration_counterclockwise'] == -88
 
+    launch_source = (PACKAGE_ROOT / 'launch' / 'driver.launch.py').read_text()
+    assert "'deduplicate_commands', default_value='true'" in launch_source
+    assert "'command_heartbeat_hz', default_value='5.0'" in launch_source
+
+
+def test_internal_hardware_topics_are_latest_only_best_effort():
+    source = (PACKAGE_ROOT / 'base_hardware' / 'hardware_node.py').read_text()
+    plugin = (
+        PACKAGE_ROOT.parent / 'base_hardware_interface'
+        / 'src' / 'mariola_system.cpp'
+    ).read_text()
+
+    assert 'depth=1' in source
+    assert 'ReliabilityPolicy.BEST_EFFORT' in source
+    assert 'KeepLast(1)' in plugin
+    assert 'best_effort()' in plugin
 
 
 def test_valid_command_is_written_while_fresh(node_and_backend):

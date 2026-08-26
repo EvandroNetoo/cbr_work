@@ -34,7 +34,7 @@ class LidarNode(Node):
         self.declare_parameter('scan.angle_start_deg', 307)
         self.declare_parameter('scan.angle_end_deg', 217)
         self.declare_parameter(
-            'scan.valid_intervals_deg', [307, 67, 194, 217])
+            'scan.valid_intervals_deg', [307, 67, 167, 196])
         self.declare_parameter('scan.range_min_m', 0.10)
         self.declare_parameter('scan.range_max_m', 3.0)
         self.declare_parameter('hardware.serial_port', 1)

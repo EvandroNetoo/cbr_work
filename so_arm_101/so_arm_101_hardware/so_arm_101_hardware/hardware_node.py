@@ -82,11 +82,12 @@ class SO101HardwareNode(Node):
         self._read_failures = 0
         self._write_failures = 0
 
+        # Esta ponte transporta somente o estado/alvo mais recente. BEST_EFFORT
+        # evita que congestionamento DDS bloqueie o write() em tempo real do
+        # controller_manager; o heartbeat repete comandos estacionários.
         latest_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
-            # Commands and states supersede older samples.  BEST_EFFORT keeps
-            # DDS backpressure out of the ros2_control real-time loop.
             reliability=ReliabilityPolicy.BEST_EFFORT,
         )
         self.state_pub = self.create_publisher(

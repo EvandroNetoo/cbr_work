@@ -37,7 +37,7 @@ class LidarConfig:
     relay_active_low: bool = True
     angle_start_deg: int = 307
     angle_end_deg: int = 217
-    valid_intervals_deg: tuple[int, ...] = (307, 67, 194, 217)
+    valid_intervals_deg: tuple[int, ...] = (307, 67, 167, 196)
     range_min_m: float = 0.10
     range_max_m: float = 3.0
 

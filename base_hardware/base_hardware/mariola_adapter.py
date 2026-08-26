@@ -34,63 +34,6 @@ class MotorCommunicationError(RuntimeError):
     pass
 
 
-def ensure_expansion_motor_calibration(
-    motor: PlacaControleMotor,
-    clockwise: int,
-    counterclockwise: int,
-) -> tuple[dict[str, int | bool], bool]:
-    """Ensure the directional velocity scale stored by an expansion motor.
-
-    The expansion firmware uses one measured maximum for each direction when
-    converting a signed PID target to wheel speed.  A stale value in only one
-    direction therefore makes forward and reverse commands asymmetric even
-    when ROS sends identical wheel targets.
-
-    Returns the resulting calibration and whether EEPROM had to be updated.
-    """
-    clockwise = int(clockwise)
-    counterclockwise = int(counterclockwise)
-    if clockwise <= 0:
-        raise ValueError('A calibração horária deve ser positiva.')
-    if counterclockwise >= 0:
-        raise ValueError('A calibração anti-horária deve ser negativa.')
-    if clockwise > 32767 or counterclockwise < -32768:
-        raise ValueError('A calibração deve caber em um int16.')
-
-    current = motor.obter_calibracao()
-    if current is None:
-        raise RuntimeError(
-            f'Não foi possível ler a calibração do motor ID {motor.id_equipamento}.')
-    if not current['encoder_ativo']:
-        raise RuntimeError(
-            f'O encoder do motor ID {motor.id_equipamento} está inativo.')
-
-    expected = (clockwise, counterclockwise)
-    measured = (
-        current['giro_max_horario'],
-        current['giro_max_antihorario'],
-    )
-    if measured == expected:
-        return current, False
-
-    updated = motor.calibracao_manual(clockwise, counterclockwise)
-    if updated is None:
-        raise RuntimeError(
-            f'Não foi possível corrigir a calibração do motor ID {motor.id_equipamento}.')
-    resulting = (
-        updated['giro_max_horario'],
-        updated['giro_max_antihorario'],
-    )
-    if resulting != expected:
-        raise RuntimeError(
-            f'O motor ID {motor.id_equipamento} não confirmou a calibração '
-            f'{clockwise}/{counterclockwise}; retornou {resulting[0]}/{resulting[1]}.')
-    return {
-        **updated,
-        'encoder_ativo': True,
-    }, True
-
-
 @dataclass(frozen=True)
 class MariolaConfig:
     expansion_serial_port: int = Portas.SERIAL3
@@ -100,10 +43,6 @@ class MariolaConfig:
     front_right_motor_id: int = 7
     front_left_inverted: bool = True
     front_right_inverted: bool = False
-    front_left_calibration_clockwise: int = 88
-    front_left_calibration_counterclockwise: int = -88
-    front_right_calibration_clockwise: int = 88
-    front_right_calibration_counterclockwise: int = -88
     rear_left_inverted: bool = False
     rear_right_inverted: bool = True
     brick_ticks_per_revolution: int = BRICK_TICKS_PER_REVOLUTION
@@ -112,7 +51,6 @@ class MariolaConfig:
     min_effective_wheel_command: int = MIN_EFFECTIVE_WHEEL_COMMAND
 
     def __post_init__(self) -> None:
-        # Falha durante a inicialização, antes de abrir ou comandar seriais.
         radians_per_second_to_command(
             0.0,
             self.max_wheel_velocity_rad_s,
@@ -150,9 +88,6 @@ def radians_per_second_to_command(
     if abs(value) > max_velocity:
         raise ValueError(
             f'Velocidade {value} rad/s excede o limite de {max_velocity} rad/s.')
-    # Zero precisa permanecer uma parada inequívoca para os watchdogs. Para
-    # qualquer alvo realmente não nulo, compensa a zona morta do atuador: a
-    # eletrônica aceita o comando 1, mas a roda física só se move a partir de 2.
     if value == 0.0:
         return 0
     magnitude = max(
@@ -190,15 +125,9 @@ class MariolaBase:
         self._last_positions = None
         self._last_read_time = None
         self._closed = False
-        self._expansion_calibrations = {}
 
         if self._controle is None:
-            try:
-                self._controle = self._criar_controle()
-            except Exception:
-                if self._serial_expansao is not None and self._serial_expansao.is_open:
-                    self._serial_expansao.close()
-                raise
+            self._controle = self._criar_controle()
 
         if set(self._controle.nomes) != set(WHEEL_NAMES):
             raise ValueError('ControleMotores deve conter exatamente as quatro rodas.')
@@ -228,30 +157,6 @@ class MariolaBase:
             self._serial_expansao,
             id_equipamento=self._config.front_right_motor_id,
         )
-
-        for name, motor, clockwise, counterclockwise in (
-            (
-                'front_left_wheel_joint',
-                motor_dianteiro_esquerdo,
-                self._config.front_left_calibration_clockwise,
-                self._config.front_left_calibration_counterclockwise,
-            ),
-            (
-                'front_right_wheel_joint',
-                motor_dianteiro_direito,
-                self._config.front_right_calibration_clockwise,
-                self._config.front_right_calibration_counterclockwise,
-            ),
-        ):
-            calibration, updated = ensure_expansion_motor_calibration(
-                motor,
-                clockwise,
-                counterclockwise,
-            )
-            self._expansion_calibrations[name] = {
-                **calibration,
-                'updated': updated,
-            }
 
         return ControleMotores(
             [
@@ -296,13 +201,6 @@ class MariolaBase:
             self._controle.definir_velocidades(**commands)
         except ErroControleMotores as error:
             raise MotorCommunicationError(str(error)) from error
-
-    @property
-    def expansion_calibrations(self) -> dict[str, dict[str, int | bool]]:
-        return {
-            name: dict(calibration)
-            for name, calibration in self._expansion_calibrations.items()
-        }
 
     def read(self, now: float | None = None) -> dict[str, WheelState]:
         try:

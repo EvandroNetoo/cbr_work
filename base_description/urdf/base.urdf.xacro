@@ -45,8 +45,8 @@
   <xacro:property name="lidar_center_x" value="0.075"/>
   <xacro:property name="lidar_center_y" value="0.0"/>
   <xacro:property name="lidar_center_height_above_ground" value="0.035"/>
-  <!-- Calibrado contra parede perpendicular: o zero físico do XV-11 estava
-       aproximadamente 11,5° à esquerda do eixo frontal da base. -->
+  <!-- Correção atual de montagem: aproximadamente 3,4° à esquerda do eixo
+       frontal da base. -->
   <xacro:property name="lidar_yaw" value="-0.06"/>
 
   <!-- Derived Z positions, relative to base_link at wheel-axle height. -->

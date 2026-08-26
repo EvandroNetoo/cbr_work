@@ -10,30 +10,20 @@ todos em `config/hardware.yaml`. O brick permanece na SERIAL0, como no exemplo
 validado. Com os valores atuais, `100 = 7 rad/s`; com raio de 0,034 m, isso
 corresponde a 0,238 m/s na borda da roda.
 
-O limite independente calculado para a base é `vx = ±0,238 m/s`, `vy = ±0,238
-m/s` e `vw = ±1,070 rad/s`. Esses limites não podem ser atingidos
-simultaneamente: numa diagonal pura com `vx = vy`, cada componente fica em
-`±0,119 m/s`; com rotação, a roda mais exigida determina o limite. O bridge
-`base_hardware_interface` escala as quatro rodas proporcionalmente para manter
-a direção do comando dentro de `7 rad/s`.
+O bridge limita proporcionalmente as quatro rodas a `7 rad/s`, preservando a
+direção do comando mecanum. Zero permanece uma parada inequívoca; qualquer
+alvo não nulo recebe pelo menos magnitude `2` na escala física para compensar
+a zona morta dos motores.
 
 As leituras de encoder permanecem a 30 Hz. Alvos que resultam no mesmo comando
 físico `-100..100` não são reenviados em todo ciclo; um heartbeat de 5 Hz mantém
 o controlador atualizado. Mudanças e transições para zero são imediatas.
 
-As duas placas das rodas dianteiras guardam na EEPROM uma escala diferente para
-cada sentido. Na inicialização, o driver lê e valida essas escalas e corrige
-somente valores divergentes dos parâmetros `calibration_clockwise` e
-`calibration_counterclockwise`. A configuração validada para esta base é
-`+88/-88` nos IDs 0 e 7. Isso evita que uma calibração antiga faça uma roda
-girar mais rápido apenas em avanço ou apenas em ré, sem desgastar a EEPROM com
-reescritas a cada inicialização.
-
 O launch expõe rollback para esse comportamento:
 
 ```bash
-ros2 run base_hardware base_hardware_node --ros-args \
-  --params-file $(ros2 pkg prefix base_hardware)/share/base_hardware/config/hardware.yaml
+ros2 launch base_hardware driver.launch.py \
+  deduplicate_commands:=true command_heartbeat_hz:=5.0
 ```
 
 Os argumentos sobrescrevem os defaults de `config/hardware.yaml`. Use
