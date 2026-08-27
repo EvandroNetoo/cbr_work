@@ -1,8 +1,8 @@
 # Nav2 para a base mecanum CBR.
 #
 # Inicie somente depois de localization_launch.py estar ativo e de o AMCL ter
-# recebido uma pose inicial. Os valores de velocidade são conservadores para
-# o primeiro teste; ajuste robot_radius e os limites após medir a base.
+# recebido uma pose inicial. Este perfil usa os limites máximos medidos da base;
+# mantenha a área livre e o botão de parada acessível durante os testes.
 
 bt_navigator:
   ros__parameters:
@@ -64,30 +64,27 @@ controller_server:
       # dinâmicos laterais e traseiros permanecem fora do LiDAR frontal; as
       # paredes conhecidas continuam protegidas pela camada estática local.
       motion_model: "Omni"
-      # Próximo do limite físico de 0,238 m/s na borda das rodas. Em comandos
-      # compostos (diagonal + giro), o driver escala as quatro rodas em
-      # conjunto para preservar a direção sem exceder esse limite.
-      vx_max: 0.23
-      vx_min: -0.23
-      vy_max: 0.23
-      vy_min: -0.23
-      # Igual ao limite que o velocity_smoother realmente executa. Antes, o
-      # MPPI previa giros a 1 rad/s que eram limitados a 0,6 rad/s na saída.
-      wz_max: 0.60
-      # Resposta rápida o bastante para a base sair da inércia e concluir
-      # correções curtas sem permanecer vários ciclos em velocidades mínimas.
-      # O velocity_smoother usa os mesmos limites para o modelo e a execução
-      # permanecerem coerentes.
-      ax_max: 0.80
-      ax_min: -0.80
-      ay_max: 0.80
-      ay_min: -0.80
-      az_max: 2.00
-      # Amostragem proporcional à pequena faixa de velocidade da base. Com
-      # desvios maiores que os limites, quase todas as amostras saturavam.
-      vx_std: 0.08
-      vy_std: 0.08
-      wz_std: 0.30
+      # Máximo físico: rodas a 7 rad/s com raio de 0,034 m = 0,238 m/s.
+      # O teto angular de 1 rad/s conserva uma pequena margem abaixo dos
+      # 1,069 rad/s teóricos para giro puro. Movimentos compostos não podem
+      # atingir todos os máximos ao mesmo tempo por compartilharem as rodas.
+      vx_max: 0.238
+      vx_min: -0.238
+      vy_max: 0.238
+      vy_min: -0.238
+      wz_max: 1.00
+      # Aceleração alta para alcançar os tetos rapidamente. O
+      # velocity_smoother usa os mesmos limites, mantendo modelo e execução
+      # coerentes.
+      ax_max: 2.00
+      ax_min: -2.00
+      ay_max: 2.00
+      ay_min: -2.00
+      az_max: 4.00
+      # Amostragem ampliada para o MPPI explorar todo o novo envelope.
+      vx_std: 0.12
+      vy_std: 0.12
+      wz_std: 0.50
       prune_distance: 0.80
       transform_tolerance: 0.2
       temperature: 0.3
@@ -122,7 +119,7 @@ controller_server:
         # Dá mais prioridade à convergência, evitando aproximações excessivamente
         # lentas quando o goal já está dentro do horizonte do controlador.
         cost_weight: 8.0
-        # 56 * 0,05 s * 0,23 m/s = 0,64 m de alcance translacional máximo.
+        # 56 * 0,05 s * 0,238 m/s = 0,67 m de alcance translacional máximo.
         threshold_to_consider: 0.45
       GoalAngleCritic:
         enabled: true
@@ -279,9 +276,9 @@ behavior_server:
     robot_base_frame: base_footprint
     transform_tolerance: 0.2
     simulate_ahead_time: 2.0
-    max_rotational_vel: 0.60
+    max_rotational_vel: 1.00
     min_rotational_vel: 0.20
-    rotational_acc_lim: 1.20
+    rotational_acc_lim: 4.00
 
 waypoint_follower:
   ros__parameters:
@@ -320,12 +317,12 @@ velocity_smoother:
     stamp_smoothed_velocity_with_smoothing_time: false
     scale_velocities: true
     feedback: OPEN_LOOP
-    max_velocity: [0.23, 0.23, 0.60]
-    min_velocity: [-0.23, -0.23, -0.60]
-    # Iguais aos limites previstos pelo MPPI: atinge 0,23 m/s em cerca de
-    # 0,29 s e 0,60 rad/s em cerca de 0,30 s.
-    max_accel: [0.80, 0.80, 2.00]
-    max_decel: [-0.80, -0.80, -2.00]
+    max_velocity: [0.238, 0.238, 1.00]
+    min_velocity: [-0.238, -0.238, -1.00]
+    # Iguais aos limites previstos pelo MPPI: atinge 0,238 m/s em cerca de
+    # 0,12 s e 1 rad/s em cerca de 0,25 s.
+    max_accel: [2.00, 2.00, 4.00]
+    max_decel: [-2.00, -2.00, -4.00]
     odom_topic: /odom
     odom_duration: 0.1
     # Permanece zero: este parâmetro descartaria comandos pequenos. A zona
