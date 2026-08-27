@@ -95,10 +95,11 @@ controller_server:
       TrajectoryVisualizer:
         trajectory_step: 5
         time_step: 3
-      # Uma base holonômica não precisa apontar a frente do chassi para cada
-      # trecho. TwirlingCritic penaliza apenas rotações desnecessárias.
+      # Prefere percorrer o caminho com a frente do chassi, sem remover a
+      # capacidade holonômica necessária para desvios e ajustes próximos.
       critics: [ConstraintCritic, CostCritic, GoalCritic, GoalAngleCritic,
-                PathAlignCritic, PathFollowCritic, TwirlingCritic]
+                PathAlignCritic, PathFollowCritic, PathAngleCritic,
+                PreferForwardCritic, TwirlingCritic]
       ConstraintCritic:
         enabled: true
         cost_power: 1
@@ -146,12 +147,26 @@ controller_server:
         cost_weight: 5.0
         offset_from_furthest: 5
         threshold_to_consider: 0.45
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 12.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.25
+        max_angle_to_furthest: 0.50
+        mode: 0
+
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 20.0
+        threshold_to_consider: 0.15
       TwirlingCritic:
         enabled: true
         cost_power: 1
         # Ainda evita giros gratuitos, com oposição menor à correção angular
         # solicitada pelo GoalAngleCritic perto do objetivo.
-        cost_weight: 1.0
+        cost_weight: 0.5
 
 local_costmap:
   local_costmap:
@@ -167,7 +182,7 @@ local_costmap:
       # Dimensões externas medidas da base; o padding acrescenta 2 cm de
       # margem em toda a projeção 2D.
       footprint: "[[0.119, 0.155], [0.119, -0.155], [-0.119, -0.155], [-0.119, 0.155]]"
-      footprint_padding: 0.0
+      footprint_padding: 0.02
       transform_tolerance: 0.2
       # A camada estática mantém paredes laterais e traseiras visíveis mesmo
       # fora dos 121 graus observados pelo LiDAR frontal.
@@ -191,10 +206,10 @@ local_costmap:
           obstacle_min_range: 0.10
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 30.0
+        cost_scaling_factor: 10.0
         # Deve permanecer acima do raio circunscrito calculado (0,223486 m).
         # 0,25 m elimina o fallback lento e ainda permite aproximação precisa.
-        inflation_radius: 0.21
+        inflation_radius: 0.25
       always_send_full_costmap: true
 
 global_costmap:
@@ -207,7 +222,7 @@ global_costmap:
       # Use a mesma geometria real do controlador local. Um raio circular de
       # 0,22 m impedia a frente curta da base de se aproximar da bancada.
       footprint: "[[0.119, 0.155], [0.119, -0.155], [-0.119, -0.155], [-0.119, 0.155]]"
-      footprint_padding: 0.00
+      footprint_padding: 0.02
       resolution: 0.01
       track_unknown_space: true
       transform_tolerance: 0.2
@@ -220,9 +235,9 @@ global_costmap:
         map_subscribe_transient_local: true
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 30.0
+        cost_scaling_factor: 10.0
         # Deve permanecer acima do raio circunscrito calculado (0,223486 m).
-        inflation_radius: 0.21
+        inflation_radius: 0.25
       always_send_full_costmap: true
 
 planner_server:
