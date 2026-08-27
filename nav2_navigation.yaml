@@ -107,7 +107,7 @@ controller_server:
       CostCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 0.4
+        cost_weight: 3.81
         near_collision_cost: 253
         critical_cost: 300.0
         consider_footprint: true
@@ -206,7 +206,7 @@ local_costmap:
           obstacle_min_range: 0.10
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 10.0
+        cost_scaling_factor: 6.0
         # Deve permanecer acima do raio circunscrito calculado (0,223486 m).
         # 0,25 m elimina o fallback lento e ainda permite aproximação precisa.
         inflation_radius: 0.25
@@ -215,8 +215,10 @@ local_costmap:
 global_costmap:
   global_costmap:
     ros__parameters:
-      update_frequency: 1.0
-      publish_frequency: 1.0
+      # Atualiza rápido o bastante para o planejador reagir aos obstáculos
+      # novos observados pelo LiDAR frontal.
+      update_frequency: 2.0
+      publish_frequency: 2.0
       global_frame: map
       robot_base_frame: base_footprint
       # Use a mesma geometria real do controlador local. Um raio circular de
@@ -226,25 +228,42 @@ global_costmap:
       resolution: 0.01
       track_unknown_space: true
       transform_tolerance: 0.2
-      # Obstáculos dinâmicos ficam no costmap local. Com o sensor somente
-      # frontal, mantê-los também no global deixava marcas sem raytrace de
-      # limpeza quando o obstáculo passava para as laterais/traseira.
-      plugins: [static_layer, inflation_layer]
+      # Inclui os obstáculos não presentes no mapa estático para que o Navfn
+      # recalcule a rota, em vez de delegar todo o desvio ao MPPI local.
+      plugins: [static_layer, obstacle_layer, inflation_layer]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        combination_method: 1
+        observation_sources: scan
+        scan:
+          topic: /scan_front
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          # Não conserva observações antigas no buffer. As células marcadas
+          # são removidas pelo raytrace quando o LiDAR volta a observar a área.
+          observation_persistence: 0.0
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.10
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.10
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 10.0
+        cost_scaling_factor: 6.0
         # Deve permanecer acima do raio circunscrito calculado (0,223486 m).
         inflation_radius: 0.25
       always_send_full_costmap: true
 
 planner_server:
   ros__parameters:
-    # A árvore solicita replanejamento a cada 2 s. Isso reduz mudanças de
-    # caminho provocadas por pequenas correções do AMCL na arena curta.
-    expected_planner_frequency: 0.5
+    # A árvore solicita replanejamento a cada 0,5 s para incorporar rapidamente
+    # os obstáculos recém-marcados no costmap global.
+    expected_planner_frequency: 2.0
     costmap_update_timeout: 1.0
     planner_plugins: [GridBased]
     GridBased:
@@ -362,7 +381,9 @@ collision_monitor:
       type: polygon
       action_type: approach
       footprint_topic: /local_costmap/published_footprint
-      time_before_collision: 0.0
+      # Proteção independente do planejador: reduz a velocidade quando a
+      # trajetória atual prevê colisão nos próximos 1,5 s.
+      time_before_collision: 1.5
       simulation_time_step: 0.1
       min_points: 6
       visualize: false
