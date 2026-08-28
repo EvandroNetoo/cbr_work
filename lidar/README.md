@@ -14,14 +14,15 @@ ros2 run lidar lidar_node --ros-args \
 
 O arco publicado 307°→217° contém sempre 271 posições. Os setores válidos são
 307°→67° (frente) e 167°→196° (traseira); os trechos bloqueados
-pelo robô permanece como `NaN`. Graus perdidos ou leituras inválidas também
+pelo robô permanecem como `NaN`. Graus perdidos ou leituras inválidas também
 permanecem como `NaN`, sem deslocar as demais medições. O relé do
-motor é desligado quando o nó encerra. A serial é processada em blocos de 64
-bytes para reduzir polling e chamadas ao kernel. O timestamp parte do fim da
+motor é desligado quando o nó encerra. A serial é acumulada em blocos de 128
+bytes e decodificada diretamente em pacotes de 22 bytes, com ressincronização
+após perda de dados. Máscaras angulares são pré-calculadas e o lock protege
+somente a entrega de uma varredura completa. O timestamp parte do fim da
 aquisição e do RPM, garantindo que o último raio nunca seja datado no futuro.
-O executor consulta a varredura concluída a 20 Hz; para um sensor próximo de
-5 rotações/s, isso mantém a latência adicional abaixo de 50 ms sem callbacks
-vazios a 100 Hz.
+O executor consulta a varredura concluída a 10 Hz; para um sensor próximo de
+5 rotações/s, isso limita a latência adicional de entrega a 100 ms.
 
 Diagnóstico:
 

@@ -11,6 +11,7 @@ from typing import Protocol
 
 
 PACKET_HEAD = 0xFA
+PACKET_HEAD_BYTES = bytes((PACKET_HEAD,))
 PACKET_SIZE = 22
 USB_PORT_MATCH = {
     0: 'usb-0:1.1',
@@ -29,7 +30,7 @@ UART_PORT = {
 class LidarConfig:
     serial_port: int = 1
     serial_baud_rate: int = 115200
-    serial_read_chunk_size: int = 64
+    serial_read_chunk_size: int = 128
     serial_timeout_sec: float = 0.10
     data_timeout_sec: float = 5.0
     relay_gpio_chip: str = '/dev/gpiochip1'
@@ -234,11 +235,18 @@ class LidarDriver:
         self._thread = None
         self._read_error: Exception | None = None
         self._created_monotonic = time.monotonic()
-        self._packet = bytearray(PACKET_SIZE)
-        self._packet_index = 0
-        self._waiting_head = True
+        self._input_buffer = bytearray()
         self._last_packet_monotonic = 0.0
         self._rpm = 0.0
+        self._range_min_mm = config.range_min_m * 1000.0
+        self._range_max_mm = config.range_max_m * 1000.0
+        self._valid_angle_mask = tuple(
+            config.is_angle_valid(angle) for angle in range(360))
+        self._sample_index = tuple(
+            index if index < config.sample_count else -1
+            for angle in range(360)
+            for index in ((angle - config.angle_start_deg) % 360,)
+        )
 
         self._scan_lock = threading.Lock()
         self._ranges = [math.nan] * config.sample_count
@@ -300,26 +308,37 @@ class LidarDriver:
                 if not data:
                     self._stop_event.wait(0.001)
                     continue
-                for received in data:
-                    self._process_byte(received)
+                self._process_data(data)
             except Exception as error:
                 if not self._stop_event.is_set():
                     self._read_error = error
                     self._stop_event.set()
                 return
 
-    def _process_byte(self, received: int) -> None:
-        if self._waiting_head:
-            if received != PACKET_HEAD:
+    def _process_data(self, data: bytes) -> None:
+        """Acumula blocos seriais e decodifica somente pacotes completos."""
+        self._input_buffer.extend(data)
+        while self._input_buffer:
+            head_index = self._input_buffer.find(PACKET_HEAD_BYTES)
+            if head_index < 0:
+                self._input_buffer.clear()
                 return
-            self._packet_index = 0
-            self._waiting_head = False
+            if head_index:
+                del self._input_buffer[:head_index]
+            if len(self._input_buffer) < PACKET_SIZE:
+                return
 
-        self._packet[self._packet_index] = received
-        self._packet_index += 1
-        if self._packet_index >= PACKET_SIZE:
-            self._waiting_head = True
-            self._decode_packet(self._packet)
+            packet = bytes(self._input_buffer[:PACKET_SIZE])
+            if self._decode_packet(packet):
+                del self._input_buffer[:PACKET_SIZE]
+            else:
+                # Descarta somente o cabeçalho candidato; o próximo 0xFA pode
+                # ser o início correto de um pacote após perda de bytes.
+                del self._input_buffer[0]
+
+    def _process_byte(self, received: int) -> None:
+        """Compatibilidade para injeção unitária; o loop real usa blocos."""
+        self._process_data(bytes((received,)))
 
     @staticmethod
     def checksum_valid(packet, size: int = PACKET_SIZE - 2) -> bool:
@@ -331,10 +350,14 @@ class LidarDriver:
         calculated = ((checksum & 0x7FFF) + (checksum >> 15)) & 0x7FFF
         return calculated == expected
 
-    def _decode_packet(self, packet) -> None:
+    def _decode_packet(self, packet) -> bool:
+        if len(packet) != PACKET_SIZE:
+            return False
         base_angle = (packet[1] - 0xA0) * 4
         if not 0 <= base_angle < 360 or not self.checksum_valid(packet):
-            return
+            return False
+
+        now_ns = time.monotonic_ns()
 
         measured_rpm = ((packet[3] << 8) | packet[2]) / 64.0
         if self._rpm <= 0.0 or abs(measured_rpm - self._rpm) <= 100.0:
@@ -349,47 +372,47 @@ class LidarDriver:
             distance_mm = ((high_byte & 0x3F) << 8) | packet[packet_offset]
             if invalid:
                 distance_m = math.nan
-            elif distance_mm < self.config.range_min_m * 1000.0:
+            elif distance_mm < self._range_min_mm:
                 distance_m = -math.inf
-            elif distance_mm > self.config.range_max_m * 1000.0:
+            elif distance_mm > self._range_max_mm:
                 distance_m = math.inf
             else:
                 distance_m = distance_mm / 1000.0
-            self._process_sample(angle, distance_m, time.monotonic_ns())
+            self._process_sample(angle, distance_m, now_ns)
 
-        self._last_packet_monotonic = time.monotonic()
+        self._last_packet_monotonic = now_ns / 1_000_000_000
+        return True
 
     def _process_sample(self, angle: int, distance_m: float, now_ns: int) -> None:
-        with self._scan_lock:
-            crossed_start = False
-            if self._previous_angle is not None:
-                advance = (angle - self._previous_angle) % 360
-                to_start = (
-                    self.config.angle_start_deg - self._previous_angle
-                ) % 360
-                crossed_start = 0 < to_start <= advance
-            elif angle == self.config.angle_start_deg:
-                crossed_start = True
+        crossed_start = False
+        if self._previous_angle is not None:
+            advance = (angle - self._previous_angle) % 360
+            to_start = (
+                self.config.angle_start_deg - self._previous_angle
+            ) % 360
+            crossed_start = 0 < to_start <= advance
+        elif angle == self.config.angle_start_deg:
+            crossed_start = True
 
-            if crossed_start:
-                if self._collecting:
-                    self._finish_scan(now_ns)
-                self._start_scan(angle, now_ns)
-
+        if crossed_start:
             if self._collecting:
-                index = (angle - self.config.angle_start_deg) % 360
-                if index < self.config.sample_count:
-                    if self.config.is_angle_valid(angle):
-                        self._ranges[index] = distance_m
-                    self._rpm_sum += max(self._rpm, 0.0)
-                    self._rpm_samples += 1
-                    if index == self.config.sample_count - 1:
-                        self._finish_scan(now_ns)
-                else:
-                    # O último pacote do setor pode ter sido perdido por inteiro.
-                    self._finish_scan(now_ns)
+                self._finish_scan(now_ns)
+            self._start_scan(angle, now_ns)
 
-            self._previous_angle = angle
+        if self._collecting:
+            index = self._sample_index[angle]
+            if index >= 0:
+                if self._valid_angle_mask[angle]:
+                    self._ranges[index] = distance_m
+                self._rpm_sum += max(self._rpm, 0.0)
+                self._rpm_samples += 1
+                if index == self.config.sample_count - 1:
+                    self._finish_scan(now_ns)
+            else:
+                # O último pacote do setor pode ter sido perdido por inteiro.
+                self._finish_scan(now_ns)
+
+        self._previous_angle = angle
 
     def _start_scan(self, first_received_angle: int, now_ns: int) -> None:
         self._ranges = [math.nan] * self.config.sample_count
@@ -412,13 +435,15 @@ class LidarDriver:
         average_rpm = (
             self._rpm_sum / self._rpm_samples if self._rpm_samples else 0.0)
         self._sequence += 1
-        self._latest_scan = LidarScan(
+        scan = LidarScan(
             sequence=self._sequence,
             ranges_m=tuple(self._ranges),
             rpm=average_rpm,
             start_monotonic_ns=self._scan_start_ns,
             end_monotonic_ns=now_ns,
         )
+        with self._scan_lock:
+            self._latest_scan = scan
         self._collecting = False
 
     def take_scan(self) -> LidarScan | None:

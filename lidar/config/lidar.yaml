@@ -1,8 +1,8 @@
 lidar_node:
   ros__parameters:
-    # O XV-11 conclui aproximadamente 5 scans/s. 20 Hz limita a latência de
-    # entrega a 50 ms sem acordar o executor 100 vezes por segundo.
-    poll_rate_hz: 20.0
+    # O XV-11 conclui aproximadamente 5 scans/s. 10 Hz evita polling excessivo
+    # e limita a latência adicional de entrega a 100 ms.
+    poll_rate_hz: 10.0
 
     scan.topic: /scan_front
     scan.frame_id: lidar_front_link
@@ -16,7 +16,7 @@ lidar_node:
     # SERIAL1 da Mariola: conector USB físico 1.4, protocolo XV-11.
     hardware.serial_port: 1
     hardware.serial_baud_rate: 115200
-    hardware.serial_read_chunk_size: 64
+    hardware.serial_read_chunk_size: 128
     hardware.serial_timeout_sec: 0.10
     hardware.data_timeout_sec: 5.0
 
