@@ -85,14 +85,19 @@ def radians_per_second_to_command(
         raise ValueError('O comando mínimo efetivo deve ser um inteiro.')
     if not 0 <= min_effective_command <= 100:
         raise ValueError('O comando mínimo efetivo deve estar entre 0 e 100.')
-    if abs(value) > max_velocity:
+    magnitude = abs(value)
+    # A normalização proporcional feita pela interface ros2_control pode
+    # terminar um ULP acima do limite (por exemplo, 7.000000000000001 para
+    # 7.0). Isso ainda representa o próprio limite, não um excesso físico.
+    if magnitude > math.nextafter(max_velocity, math.inf):
         raise ValueError(
             f'Velocidade {value} rad/s excede o limite de {max_velocity} rad/s.')
     if value == 0.0:
         return 0
+    magnitude = min(magnitude, max_velocity)
     magnitude = max(
         min_effective_command,
-        int(round(abs(value) * 100.0 / max_velocity)),
+        int(round(magnitude * 100.0 / max_velocity)),
     )
     return magnitude if value > 0.0 else -magnitude
 

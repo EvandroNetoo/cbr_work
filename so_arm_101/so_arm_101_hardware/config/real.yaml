@@ -12,5 +12,7 @@ so101_hardware_node:
     buffer_commands: true
     deduplicate_commands: true
     command_heartbeat_hz: 5.0
+    # Tolera aproximadamente 1 s de falhas transitórias a 30 Hz.
+    max_consecutive_io_failures: 30
     state_topic: /so101_hardware/raw_joint_states
     command_topic: /so101_hardware/command_positions

@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <thread>
@@ -108,6 +109,17 @@ TEST_F(MariolaSystemTest, lifecycle_interfaces_and_stale_state)
   ASSERT_EQ(commands.size(), 1u);
   EXPECT_EQ(commands.front().name, state.name);
   EXPECT_EQ(commands.front().velocity, std::vector<double>({7.0, 3.5, -7.0, -1.75}));
+
+  // 8.41 * (7.0 / 8.41) arredonda para 7.000000000000001 sem o clamp final.
+  MariolaSystemTestPeer::set_commands(system, {8.41, 4.205, -8.41, -4.205});
+  EXPECT_EQ(
+    system.write(rclcpp::Time(0), rclcpp::Duration(0, 0)),
+    hardware_interface::return_type::OK);
+  executor->spin_some();
+  ASSERT_EQ(commands.size(), 2u);
+  for (const double velocity : commands.back().velocity) {
+    EXPECT_LE(std::abs(velocity), 7.0);
+  }
 
   std::this_thread::sleep_for(110ms);
   EXPECT_EQ(

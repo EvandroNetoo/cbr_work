@@ -156,7 +156,8 @@ hardware_interface::return_type MariolaSystem::write(const rclcpp::Time &, const
   if (largest_velocity > max_wheel_velocity_rad_s_) {
     const double scale = max_wheel_velocity_rad_s_ / largest_velocity;
     for (auto & velocity : message.velocity) {
-      velocity *= scale;
+      velocity = std::clamp(
+        velocity * scale, -max_wheel_velocity_rad_s_, max_wheel_velocity_rad_s_);
     }
   }
   command_publisher_->publish(message);

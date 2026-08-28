@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import threading
+from types import SimpleNamespace
 
 import pytest
 from std_msgs.msg import Float64MultiArray
@@ -97,6 +98,19 @@ def test_successful_operation_resets_counter_contract():
     assert node._read_failures == 0
 
 
+def test_io_failure_releases_busy_flag_leaked_by_feetech_sdk():
+    node = _node()
+    node._serial_lock = threading.Lock()
+    port_handler = SimpleNamespace(is_using=True)
+    node.follower = SimpleNamespace(
+        bus=SimpleNamespace(port_handler=port_handler))
+
+    node._handle_io_failure(
+        'ler', OSError(5, 'Input/output error'), '_read_failures')
+
+    assert port_handler.is_using is False
+
+
 def test_internal_hardware_topics_keep_only_latest_sample():
     source = (PACKAGE_ROOT / 'so_arm_101_hardware' / 'hardware_node.py').read_text()
     plugin = (
@@ -117,6 +131,7 @@ def test_buffering_performance_defaults_are_explicit():
     assert parameters['buffer_commands'] is True
     assert parameters['deduplicate_commands'] is True
     assert parameters['command_heartbeat_hz'] == 5.0
+    assert parameters['max_consecutive_io_failures'] == 30
 
     launch_source = (PACKAGE_ROOT / 'launch' / 'driver.launch.py').read_text()
     assert "'buffer_commands', default_value=CONFIG_DEFAULT" in launch_source

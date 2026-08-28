@@ -51,7 +51,7 @@ class SO101HardwareNode(Node):
         self.declare_parameter('buffer_commands', True)
         self.declare_parameter('deduplicate_commands', True)
         self.declare_parameter('command_heartbeat_hz', 5.0)
-        self.declare_parameter('max_consecutive_io_failures', 5)
+        self.declare_parameter('max_consecutive_io_failures', 30)
         self.declare_parameter('state_topic', '/so101_hardware/raw_joint_states')
         self.declare_parameter('command_topic', '/so101_hardware/command_positions')
         rate = float(self.get_parameter('read_rate_hz').value)
@@ -215,6 +215,7 @@ class SO101HardwareNode(Node):
             self._handle_io_failure('comandar', error, '_write_failures')
 
     def _handle_io_failure(self, operation, error, counter_name):
+        self._release_stale_port_busy_flag()
         count = getattr(self, counter_name) + 1
         setattr(self, counter_name, count)
         message = (
@@ -224,6 +225,18 @@ class SO101HardwareNode(Node):
             self.get_logger().fatal(message)
             raise RuntimeError(message) from error
         self.get_logger().error(message, throttle_duration_sec=2.0)
+
+    def _release_stale_port_busy_flag(self):
+        """Undo a Feetech SDK busy flag leaked by a serial exception."""
+        serial_lock = getattr(self, '_serial_lock', None)
+        if serial_lock is None:
+            return
+        with serial_lock:
+            bus = getattr(getattr(self, 'follower', None), 'bus', None)
+            port_handler = getattr(bus, 'port_handler', None)
+            if port_handler is not None and getattr(
+                    port_handler, 'is_using', False):
+                port_handler.is_using = False
 
     def _reset_io_failure(self, counter_name):
         setattr(self, counter_name, 0)

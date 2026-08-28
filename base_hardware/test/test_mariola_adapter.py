@@ -113,8 +113,12 @@ def test_linear_velocity_conversion_and_bounds():
     assert radians_per_second_to_command(0.001) == 2
     assert radians_per_second_to_command(-0.001) == -2
     assert radians_per_second_to_command(7.0) == 100
+    assert radians_per_second_to_command(math.nextafter(7.0, math.inf)) == 100
     assert radians_per_second_to_command(3.5) == 50
     assert radians_per_second_to_command(-7.0) == -100
+    with pytest.raises(ValueError):
+        radians_per_second_to_command(
+            math.nextafter(math.nextafter(7.0, math.inf), math.inf))
     with pytest.raises(ValueError):
         radians_per_second_to_command(7.01)
     with pytest.raises(ValueError):
