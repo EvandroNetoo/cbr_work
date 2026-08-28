@@ -6,7 +6,7 @@ import yaml
 
 
 PACKAGE_ROOT = Path(__file__).parents[1]
-WORKSPACE_ROOT = PACKAGE_ROOT.parents[2]
+NAVIGATION_PARAMS = PACKAGE_ROOT.parent / 'nav2_navigation.yaml'
 
 
 def test_navigation_is_composed_and_excludes_unused_incompatible_servers():
@@ -48,9 +48,28 @@ def test_navigation_expands_local_fastdds_initial_peer_range():
 
 
 def test_navigation_profile_only_loads_the_safe_pose_navigator():
-    params = yaml.safe_load(
-        (WORKSPACE_ROOT / 'tools' / 'nav2_navigation.yaml').read_text())
+    params = yaml.safe_load(NAVIGATION_PARAMS.read_text())
     bt = params['bt_navigator']['ros__parameters']
 
     assert bt['navigators'] == ['navigate_to_pose']
     assert 'navigate_through_poses' not in bt
+
+
+def test_navigation_denoises_obstacles_before_inflation():
+    params = yaml.safe_load(NAVIGATION_PARAMS.read_text())
+
+    for costmap_name in ('local_costmap', 'global_costmap'):
+        costmap = params[costmap_name][costmap_name]['ros__parameters']
+
+        assert costmap['plugins'] == [
+            'static_layer',
+            'obstacle_layer',
+            'denoise_layer',
+            'inflation_layer',
+        ]
+        assert costmap['denoise_layer'] == {
+            'plugin': 'nav2_costmap_2d::DenoiseLayer',
+            'enabled': True,
+            'minimal_group_size': 2,
+            'group_connectivity_type': 8,
+        }

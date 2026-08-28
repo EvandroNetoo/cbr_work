@@ -185,7 +185,7 @@ local_costmap:
       transform_tolerance: 0.2
       # A camada estática mantém paredes laterais e traseiras visíveis mesmo
       # fora dos 121 graus observados pelo LiDAR frontal.
-      plugins: [static_layer, obstacle_layer, inflation_layer]
+      plugins: [static_layer, obstacle_layer, denoise_layer, inflation_layer]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
@@ -203,6 +203,13 @@ local_costmap:
           raytrace_min_range: 0.10
           obstacle_max_range: 2.5
           obstacle_min_range: 0.10
+      # Remove somente células de obstáculo totalmente isoladas. Deve executar
+      # antes da inflação, para que um ponto espúrio não seja ampliado.
+      denoise_layer:
+        plugin: "nav2_costmap_2d::DenoiseLayer"
+        enabled: true
+        minimal_group_size: 3
+        group_connectivity_type: 8
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 6.0
@@ -229,7 +236,7 @@ global_costmap:
       transform_tolerance: 0.2
       # Inclui os obstáculos não presentes no mapa estático para que o Navfn
       # recalcule a rota, em vez de delegar todo o desvio ao MPPI local.
-      plugins: [static_layer, obstacle_layer, inflation_layer]
+      plugins: [static_layer, obstacle_layer, denoise_layer, inflation_layer]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
@@ -251,6 +258,13 @@ global_costmap:
           raytrace_min_range: 0.10
           obstacle_max_range: 2.5
           obstacle_min_range: 0.10
+      # Filtra o mesmo ruído antes que ele provoque replanejamentos globais.
+      # O grupo mínimo 2 usa o caminho rápido especializado da DenoiseLayer.
+      denoise_layer:
+        plugin: "nav2_costmap_2d::DenoiseLayer"
+        enabled: true
+        minimal_group_size: 3
+        group_connectivity_type: 8
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 6.0
