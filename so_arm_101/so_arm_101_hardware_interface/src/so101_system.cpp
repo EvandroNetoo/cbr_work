@@ -71,6 +71,7 @@ hardware_interface::CallbackReturn SO101System::on_init(
   received_positions_.assign(size, nan);
   received_velocities_.assign(size, 0.0);
   received_joints_.assign(size, false);
+  last_published_command_.assign(size, nan);
   command_message_.data.assign(size, 0.0);
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -124,6 +125,10 @@ hardware_interface::CallbackReturn SO101System::on_activate(
     } else {
       hw_commands_.assign(hw_commands_.size(), std::numeric_limits<double>::quiet_NaN());
     }
+    std::fill(
+      last_published_command_.begin(), last_published_command_.end(),
+      std::numeric_limits<double>::quiet_NaN());
+    command_subscriber_connected_ = false;
   }
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -157,10 +162,23 @@ hardware_interface::return_type SO101System::write(
   if (!state_received_) {
     return hardware_interface::return_type::OK;
   }
+  const bool subscriber_connected =
+    command_publisher_->get_subscription_count() > 0;
+  if (!subscriber_connected) {
+    command_subscriber_connected_ = false;
+    return hardware_interface::return_type::OK;
+  }
   for (size_t i = 0; i < hw_commands_.size(); ++i) {
     command_message_.data[i] = std::isfinite(hw_commands_[i]) ? hw_commands_[i] : hw_positions_[i];
   }
+  if (command_subscriber_connected_ &&
+    command_message_.data == last_published_command_)
+  {
+    return hardware_interface::return_type::OK;
+  }
   command_publisher_->publish(command_message_);
+  last_published_command_ = command_message_.data;
+  command_subscriber_connected_ = true;
   return hardware_interface::return_type::OK;
 }
 

@@ -38,9 +38,6 @@ def generate_launch_description():
             'port': LaunchConfiguration('port'),
             'robot_id': LaunchConfiguration('robot_id'),
             'calibration_file': LaunchConfiguration('calibration_file'),
-            'buffer_commands': LaunchConfiguration('arm_buffer_commands'),
-            'deduplicate_commands': LaunchConfiguration('arm_deduplicate_commands'),
-            'command_heartbeat_hz': LaunchConfiguration('arm_command_heartbeat_hz'),
         }.items())
     base_driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
@@ -129,12 +126,6 @@ def generate_launch_description():
         DeclareLaunchArgument('hardware_state_timeout', default_value='45.0'),
         DeclareLaunchArgument('camera_framerate', default_value='15.0'),
         DeclareLaunchArgument('controller_update_rate', default_value='30'),
-        DeclareLaunchArgument(
-            'arm_buffer_commands', default_value=CONFIG_DEFAULT),
-        DeclareLaunchArgument(
-            'arm_deduplicate_commands', default_value=CONFIG_DEFAULT),
-        DeclareLaunchArgument(
-            'arm_command_heartbeat_hz', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument(
             'base_deduplicate_commands', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('base_command_heartbeat_hz', default_value='5.0'),

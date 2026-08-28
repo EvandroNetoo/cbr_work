@@ -52,8 +52,10 @@ private:
   std::vector<double> received_positions_;
   std::vector<double> received_velocities_;
   std::vector<bool> received_joints_;
+  std::vector<double> last_published_command_;
   std::mutex state_mutex_;
   bool state_received_{false};
+  bool command_subscriber_connected_{false};
   std_msgs::msg::Float64MultiArray command_message_;
   std::string state_topic_;
   std::string command_topic_;

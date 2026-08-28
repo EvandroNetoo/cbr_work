@@ -45,15 +45,13 @@ ros2 launch bringup robot.launch.py \
   hardware_state_timeout:=60.0
 ```
 
-Rollback completo para o comportamento anterior de aquisição/controle:
+Para comparar o perfil atual com as taxas antigas de câmera/base:
 
 ```bash
 ros2 launch bringup robot.launch.py \
   port:=/dev/ttyUSB0 \
   camera_framerate:=30.0 \
   controller_update_rate:=50 \
-  arm_buffer_commands:=false \
-  arm_deduplicate_commands:=false \
   base_deduplicate_commands:=false
 ```
 
@@ -71,10 +69,9 @@ ros2 topic hz /base_hardware/raw_joint_states
 ```
 
 Os valores esperados são 14–16 Hz para a imagem, 9–11 Hz para o detector e
-28–32 Hz para os dois estados de hardware. Compare o perfil padrão e o rollback
-sob a mesma temperatura/frequência de CPU. A meta é reduzir pelo menos 25% da
-CPU agregada com visão e 30% em repouso, sem falhas seriais ou regressão de
-trajetória/parada.
+28–32 Hz para os dois estados de hardware. Compare os dois perfis sob a mesma
+temperatura/frequência de CPU. A meta é reduzir pelo menos 25% da CPU agregada
+com visão e 30% em repouso, sem falhas seriais ou regressão de trajetória/parada.
 
 Os argumentos acima pertencem ao braço e ao gate geral. A base não possui
 configuração por CLI: hardware, geometria e controllers ficam nos YAMLs dos

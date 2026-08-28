@@ -67,15 +67,6 @@ def _optional_parameter_overrides(context) -> dict:
         if value != CONFIG_DEFAULT:
             overrides[argument] = value
 
-    for argument in ('buffer_commands', 'deduplicate_commands'):
-        value = LaunchConfiguration(argument).perform(context)
-        if value == CONFIG_DEFAULT:
-            continue
-        normalized = value.lower()
-        if normalized not in {'true', 'false'}:
-            raise ValueError(f'{argument} deve ser true ou false.')
-        overrides[argument] = normalized == 'true'
-
     return overrides
 
 
@@ -118,8 +109,6 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('port', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument('robot_id', default_value=CONFIG_DEFAULT),
-        DeclareLaunchArgument('buffer_commands', default_value=CONFIG_DEFAULT),
-        DeclareLaunchArgument('deduplicate_commands', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument(
             'python_executable',
             default_value=_default_python_executable(),

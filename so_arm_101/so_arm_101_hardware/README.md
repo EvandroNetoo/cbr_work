@@ -53,9 +53,8 @@ ros2 launch so_arm_101_bringup real.launch.py \
 ```
 
 Sem esses argumentos, `config/real.yaml` é a fonte dos parâmetros físicos.
-Os argumentos `port`, `robot_id`, `calibration_file`, `buffer_commands` e
-`deduplicate_commands` só sobrescrevem o YAML quando são informados
-explicitamente na linha de comando.
+Os argumentos `port`, `robot_id` e `calibration_file` só sobrescrevem o YAML
+quando são informados explicitamente na linha de comando.
 
 Os arquivos `config/so101_follower.json` e
 `config/gripper_calibration.yaml` são calibrações de referência. Confirme IDs,
@@ -70,19 +69,21 @@ O nó Python não publica actions nem recebe trajetórias. O plugin
 `so_arm_101_hardware_interface/SO101System` faz a ponte para o
 `ros2_control`; os controllers ficam entre o MoveIt e este driver.
 
-## Ciclo de I/O e rollback
+## Ciclo de I/O e reconexão
 
-No perfil padrão, a callback ROS apenas mantém o alvo mais recente. Um único
-ciclo a 10 Hz executa `sync_write` quando o alvo muda e depois `sync_read`, sem
-duas callbacks competindo pela serial. Alvos idênticos não são reenviados.
+No perfil padrão, a callback ROS apenas mantém o alvo mais recente. Um timer de
+escrita a 30 Hz executa `sync_write` somente quando o alvo muda. A leitura usa
+10 Hz durante movimento e cai para 2 Hz após um segundo sem mudança de alvo e
+com velocidades baixas. Um novo alvo restaura imediatamente a leitura a 10 Hz.
+Leitura e escrita compartilham o mesmo lock, portanto nunca acessam a serial ao
+mesmo tempo. Quando não há setpoint pendente, o timer de escrita fica cancelado
+e a interface `ros2_control` também deixa de publicar comandos idênticos. Um
+novo setpoint reativa o timer; ele permanece ativo por dois períodos após a
+última mudança para não perder amostras de uma trajetória a 30 Hz. Uma reconexão
+do driver força uma nova publicação.
 
-Para comparar com o caminho antigo sem recompilar:
-
-```bash
-ros2 launch so_arm_101_hardware driver.launch.py \
-  port:=/dev/ttyUSB0 \
-  buffer_commands:=false deduplicate_commands:=false
-```
-
-`buffer_commands:=true deduplicate_commands:=false` mantém a serial em um único
-ciclo, mas escreve o último alvo em todos os ciclos de 30 Hz.
+Falhas de leitura ou escrita fecham à força o descritor serial anterior e tentam
+recriar o follower a cada `reconnect_interval_sec`. Uma reconexão validada zera
+o estado de falha e agenda o reenvio do alvo mais recente. O processo encerra se
+não restabelecer a comunicação dentro de `reconnect_timeout_sec`, evitando que o
+restante do sistema opere indefinidamente com estado congelado.

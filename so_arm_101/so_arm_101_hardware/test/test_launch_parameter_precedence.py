@@ -22,8 +22,6 @@ def _context(module, **values):
     defaults = {
         'port': module.CONFIG_DEFAULT,
         'robot_id': module.CONFIG_DEFAULT,
-        'buffer_commands': module.CONFIG_DEFAULT,
-        'deduplicate_commands': module.CONFIG_DEFAULT,
     }
     defaults.update(values)
     context.launch_configurations.update(defaults)
@@ -41,14 +39,10 @@ def test_explicit_cli_values_override_real_yaml_with_native_types():
         module,
         port='/dev/ttyUSB4',
         robot_id='outro_robo',
-        buffer_commands='false',
-        deduplicate_commands='true',
     ))
     assert overrides == {
         'port': '/dev/ttyUSB4',
         'robot_id': 'outro_robo',
-        'buffer_commands': False,
-        'deduplicate_commands': True,
     }
 
 
