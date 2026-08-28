@@ -53,9 +53,9 @@ ros2 launch so_arm_101_bringup real.launch.py \
 ```
 
 Sem esses argumentos, `config/real.yaml` é a fonte dos parâmetros físicos.
-Os argumentos `port`, `robot_id`, `calibration_file`, `buffer_commands`,
-`deduplicate_commands` e `command_heartbeat_hz` só sobrescrevem o YAML quando
-são informados explicitamente na linha de comando.
+Os argumentos `port`, `robot_id`, `calibration_file`, `buffer_commands` e
+`deduplicate_commands` só sobrescrevem o YAML quando são informados
+explicitamente na linha de comando.
 
 Os arquivos `config/so101_follower.json` e
 `config/gripper_calibration.yaml` são calibrações de referência. Confirme IDs,
@@ -73,9 +73,8 @@ O nó Python não publica actions nem recebe trajetórias. O plugin
 ## Ciclo de I/O e rollback
 
 No perfil padrão, a callback ROS apenas mantém o alvo mais recente. Um único
-ciclo a 30 Hz executa `sync_write` quando necessário e depois `sync_read`, sem
-duas callbacks competindo pela serial. Durante movimento o alvo pode ser enviado
-a 30 Hz; quando permanece idêntico, o heartbeat é de 5 Hz.
+ciclo a 10 Hz executa `sync_write` quando o alvo muda e depois `sync_read`, sem
+duas callbacks competindo pela serial. Alvos idênticos não são reenviados.
 
 Para comparar com o caminho antigo sem recompilar:
 

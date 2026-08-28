@@ -7,12 +7,11 @@ so101_hardware_node:
     calibration_file: so101_follower.json
     # ROS uses radians; the adapter converts to/from LeRobot degrees.
     use_degrees: true
-    read_rate_hz: 30.0
+    read_rate_hz: 10.0
     # O callback mantém apenas o alvo mais recente; um único ciclo possui a serial.
     buffer_commands: true
     deduplicate_commands: true
-    command_heartbeat_hz: 5.0
-    # Tolera aproximadamente 1 s de falhas transitórias a 30 Hz.
-    max_consecutive_io_failures: 30
+    # Tolera aproximadamente 3 s de falhas transitórias a 10 Hz.
+    max_consecutive_io_failures: 1000
     state_topic: /so101_hardware/raw_joint_states
     command_topic: /so101_hardware/command_positions

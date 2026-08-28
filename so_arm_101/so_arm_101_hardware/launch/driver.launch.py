@@ -76,9 +76,6 @@ def _optional_parameter_overrides(context) -> dict:
             raise ValueError(f'{argument} deve ser true ou false.')
         overrides[argument] = normalized == 'true'
 
-    heartbeat = LaunchConfiguration('command_heartbeat_hz').perform(context)
-    if heartbeat != CONFIG_DEFAULT:
-        overrides['command_heartbeat_hz'] = float(heartbeat)
     return overrides
 
 
@@ -123,8 +120,6 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('robot_id', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument('buffer_commands', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument('deduplicate_commands', default_value=CONFIG_DEFAULT),
-        DeclareLaunchArgument(
-            'command_heartbeat_hz', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument(
             'python_executable',
             default_value=_default_python_executable(),

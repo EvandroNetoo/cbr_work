@@ -50,18 +50,12 @@ class SO101HardwareNode(Node):
         self.declare_parameter('read_rate_hz', 30.0)
         self.declare_parameter('buffer_commands', True)
         self.declare_parameter('deduplicate_commands', True)
-        self.declare_parameter('command_heartbeat_hz', 5.0)
         self.declare_parameter('max_consecutive_io_failures', 30)
         self.declare_parameter('state_topic', '/so101_hardware/raw_joint_states')
         self.declare_parameter('command_topic', '/so101_hardware/command_positions')
         rate = float(self.get_parameter('read_rate_hz').value)
-        heartbeat_rate = float(
-            self.get_parameter('command_heartbeat_hz').value)
         if not math.isfinite(rate) or rate <= 0.0:
             raise ValueError('read_rate_hz deve ser positivo e finito.')
-        if not math.isfinite(heartbeat_rate) or heartbeat_rate <= 0.0:
-            raise ValueError(
-                'command_heartbeat_hz deve ser positivo e finito.')
         self._serial_lock = threading.Lock()
         self._command_lock = threading.Lock()
         self._connected = False
@@ -70,10 +64,8 @@ class SO101HardwareNode(Node):
             self.get_parameter('buffer_commands').value)
         self._deduplicate_commands = bool(
             self.get_parameter('deduplicate_commands').value)
-        self._command_heartbeat_period = 1.0 / heartbeat_rate
         self._latest_command = None
         self._last_sent_command = None
-        self._last_command_write_time = float('-inf')
         self._last_positions = {}
         self._previous_positions = {}
         self._previous_read_time = None
@@ -84,7 +76,7 @@ class SO101HardwareNode(Node):
 
         # Esta ponte transporta somente o estado/alvo mais recente. BEST_EFFORT
         # evita que congestionamento DDS bloqueie o write() em tempo real do
-        # controller_manager; o heartbeat repete comandos estacionários.
+        # controller_manager; alvos idênticos não são reenviados à serial.
         latest_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
@@ -122,22 +114,16 @@ class SO101HardwareNode(Node):
     def _command_signature(values):
         return tuple(values[name] for name in ROS_JOINT_ORDER)
 
-    def _should_send_command(self, values, now):
+    def _should_send_command(self, values):
         if not self._deduplicate_commands:
             return True
-        signature = self._command_signature(values)
-        return (
-            signature != self._last_sent_command
-            or now - self._last_command_write_time
-            >= self._command_heartbeat_period
-        )
+        return self._command_signature(values) != self._last_sent_command
 
-    def _send_command(self, values, now):
+    def _send_command(self, values):
         with self._serial_lock:
             self.follower.send_action(
                 ros_to_action(values, use_degrees=self._use_degrees))
         self._last_sent_command = self._command_signature(values)
-        self._last_command_write_time = now
         self._reset_io_failure('_write_failures')
 
     def _io_cycle(self):
@@ -148,10 +134,9 @@ class SO101HardwareNode(Node):
                 command = (
                     dict(self._latest_command)
                     if self._latest_command is not None else None)
-            now = time.monotonic()
-            if command is not None and self._should_send_command(command, now):
+            if command is not None and self._should_send_command(command):
                 try:
-                    self._send_command(command, now)
+                    self._send_command(command)
                 except Exception as error:
                     self._handle_io_failure(
                         'comandar', error, '_write_failures')
@@ -210,7 +195,7 @@ class SO101HardwareNode(Node):
                 self._latest_command = values
             return
         try:
-            self._send_command(values, time.monotonic())
+            self._send_command(values)
         except Exception as error:
             self._handle_io_failure('comandar', error, '_write_failures')
 

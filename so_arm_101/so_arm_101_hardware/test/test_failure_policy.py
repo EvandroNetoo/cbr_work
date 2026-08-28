@@ -54,10 +54,8 @@ def _io_node(*, buffered=True, deduplicate=True):
     node._use_degrees = False
     node._buffer_commands = buffered
     node._deduplicate_commands = deduplicate
-    node._command_heartbeat_period = 0.2
     node._latest_command = None
     node._last_sent_command = None
-    node._last_command_write_time = float('-inf')
     node._serial_lock = threading.Lock()
     node._command_lock = threading.Lock()
     node.follower = _Follower()
@@ -127,16 +125,16 @@ def test_buffering_performance_defaults_are_explicit():
     parameters = yaml.safe_load(
         (PACKAGE_ROOT / 'config' / 'real.yaml').read_text())[
             'so101_hardware_node']['ros__parameters']
-    assert parameters['read_rate_hz'] == 30.0
+    assert parameters['read_rate_hz'] == 10.0
     assert parameters['buffer_commands'] is True
     assert parameters['deduplicate_commands'] is True
-    assert parameters['command_heartbeat_hz'] == 5.0
+    assert 'command_heartbeat_hz' not in parameters
     assert parameters['max_consecutive_io_failures'] == 30
 
     launch_source = (PACKAGE_ROOT / 'launch' / 'driver.launch.py').read_text()
     assert "'buffer_commands', default_value=CONFIG_DEFAULT" in launch_source
     assert "'deduplicate_commands', default_value=CONFIG_DEFAULT" in launch_source
-    assert "'command_heartbeat_hz', default_value=CONFIG_DEFAULT" in launch_source
+    assert 'command_heartbeat_hz' not in launch_source
     assert 'OpaqueFunction' in launch_source
 
 
@@ -162,16 +160,13 @@ def test_buffered_callback_does_not_touch_serial_and_keeps_latest():
     assert node.read_calls == 1
 
 
-def test_buffered_command_is_deduplicated_until_heartbeat():
+def test_buffered_command_is_not_resent_while_unchanged():
     node = _io_node()
     node._command_callback(_command(0.1))
     node._io_cycle()
-    node._io_cycle()
+    for _ in range(10):
+        node._io_cycle()
     assert len(node.follower.actions) == 1
-
-    node._last_command_write_time -= node._command_heartbeat_period + 0.01
-    node._io_cycle()
-    assert len(node.follower.actions) == 2
 
 
 def test_changed_buffered_command_is_sent_immediately():
