@@ -1,7 +1,7 @@
 so101_hardware_node:
   ros__parameters:
     # Fonte padrão; use port:=... na CLI somente para uma substituição pontual.
-    port: '/dev/serial/by-path/platform-5200000.usb-usb-0:1.1.1:1.0-port0'
+    port: '/dev/serial/by-path/platform-5200000.usb-usb-0:1.4:1.0-port0'
     robot_id: so101_follower
     # Nomes relativos são resolvidos dentro de share/so_arm_101_hardware/config.
     calibration_file: so101_follower.json
@@ -10,7 +10,7 @@ so101_hardware_node:
     # A escrita acompanha os setpoints interpolados pelo controller_manager.
     write_rate_hz: 30.0
     # Durante movimento, mantém feedback suficiente para o ros2_control.
-    read_rate_hz: 10.0
+    read_rate_hz: 30.0
     # Em repouso, reduz sync_read e publicação de estado para poupar CPU/serial.
     idle_read_rate_hz: 2.0
     read_idle_timeout_sec: 1.0

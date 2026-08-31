@@ -14,10 +14,10 @@ PACKET_HEAD = 0xFA
 PACKET_HEAD_BYTES = bytes((PACKET_HEAD,))
 PACKET_SIZE = 22
 USB_PORT_MATCH = {
-    0: 'usb-0:1.1',
-    1: 'usb-0:1.4',
-    2: 'usb-0:1.3',
-    3: 'usb-0:1.2',
+    0: 'platform-5310000.usb-usb-0:1.1',
+    1: 'platform-5310000.usb-usb-0:1.4',
+    2: 'platform-5310000.usb-usb-0:1.3',
+    3: 'platform-5310000.usb-usb-0:1.2',
 }
 UART_PORT = {
     4: '/dev/ttyS4',

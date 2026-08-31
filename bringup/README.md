@@ -26,9 +26,18 @@ ros2 launch bringup workstation.launch.py enable_xbox_teleop:=true
 ```
 
 O RViz inclui modelo, LiDAR, odometria, câmera, MotionPlanning e painéis
-preparados para Nav2. Nav2 e SLAM não são iniciados por este repositório. O
-launch legado `telemetry.launch.py` continua disponível para abrir apenas o
-mesmo painel RViz.
+preparados para Nav2. Depois de iniciar o map server/AMCL e definir a pose
+inicial, o perfil leve de navegação pode ser iniciado sem argumentos:
+
+```bash
+ros2 launch bringup navigation.launch.py
+```
+
+O launch encontra o YAML e a árvore BT no `share/bringup`; nenhum caminho do
+workspace fica gravado nos parâmetros. Para diagnóstico ainda é possível
+sobrescrever `params_file`, mas isso não é necessário no uso normal. O launch
+legado `telemetry.launch.py` continua disponível para abrir apenas o mesmo
+painel RViz.
 
 No Xbox, `RB` habilita o movimento, `LB` ativa turbo, o stick esquerdo comanda
 X/Y, o stick direito comanda yaw e `B` publica parada e solicita cancelamento

@@ -26,6 +26,10 @@ def generate_launch_description():
     log_level = LaunchConfiguration('log_level')
     fastdds_profile = PathJoinSubstitution([
         FindPackageShare('bringup'), 'config', 'fastdds_nav2.xml'])
+    default_params_file = PathJoinSubstitution([
+        FindPackageShare('bringup'), 'config', 'nav2_navigation_light.yaml'])
+    navigate_to_pose_bt = PathJoinSubstitution([
+        FindPackageShare('bringup'), 'config', 'navigate_to_pose_safe.xml'])
 
     configured_params = ParameterFile(params_file, allow_substs=True)
     node_parameters = [configured_params, {'use_sim_time': use_sim_time}]
@@ -76,7 +80,11 @@ def generate_launch_description():
                 package='nav2_bt_navigator',
                 plugin='nav2_bt_navigator::BtNavigator',
                 name='bt_navigator',
-                parameters=node_parameters,
+                # O caminho e resolvido no share instalado, mantendo o YAML
+                # portavel entre workspace, notebook e Banana Pi.
+                parameters=node_parameters + [{
+                    'default_nav_to_pose_bt_xml': navigate_to_pose_bt,
+                }],
                 remappings=tf_remappings,
             ),
         ],
@@ -116,6 +124,7 @@ def generate_launch_description():
             'FASTDDS_DEFAULT_PROFILES_FILE', fastdds_profile),
         DeclareLaunchArgument(
             'params_file',
+            default_value=default_params_file,
             description='Arquivo YAML de parâmetros Nav2 da CBR.'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('autostart', default_value='true'),

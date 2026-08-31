@@ -6,7 +6,7 @@ import yaml
 
 
 PACKAGE_ROOT = Path(__file__).parents[1]
-NAVIGATION_PARAMS = PACKAGE_ROOT.parent / 'nav2_navigation.yaml'
+NAVIGATION_PARAMS = PACKAGE_ROOT / 'config' / 'nav2_navigation_light.yaml'
 
 
 def test_navigation_is_composed_and_excludes_unused_incompatible_servers():
@@ -34,6 +34,19 @@ def test_navigation_preserves_stamped_command_chain_and_tf_topics():
     assert "('/tf_static', 'tf_static')" in source
     assert "('cmd_vel', 'cmd_vel_nav')" in source
     assert 'parameters=node_parameters' in source
+
+
+def test_navigation_has_installed_defaults_and_no_absolute_yaml_paths():
+    source = (PACKAGE_ROOT / 'launch' / 'navigation.launch.py').read_text()
+    params_text = NAVIGATION_PARAMS.read_text()
+    params = yaml.safe_load(params_text)
+
+    assert "'config', 'nav2_navigation_light.yaml'" in source
+    assert "'config', 'navigate_to_pose_safe.xml'" in source
+    assert 'default_value=default_params_file' in source
+    assert "'default_nav_to_pose_bt_xml': navigate_to_pose_bt" in source
+    assert 'default_nav_to_pose_bt_xml' not in params['bt_navigator']['ros__parameters']
+    assert '/home/' not in params_text
 
 
 def test_navigation_expands_local_fastdds_initial_peer_range():
@@ -70,6 +83,22 @@ def test_navigation_denoises_obstacles_before_inflation():
         assert costmap['denoise_layer'] == {
             'plugin': 'nav2_costmap_2d::DenoiseLayer',
             'enabled': True,
-            'minimal_group_size': 2,
+            'minimal_group_size': 3,
             'group_connectivity_type': 8,
         }
+
+
+def test_light_profile_reduces_controller_and_costmap_load():
+    params = yaml.safe_load(NAVIGATION_PARAMS.read_text())
+    controller = params['controller_server']['ros__parameters']
+    mppi = controller['FollowPath']
+    local = params['local_costmap']['local_costmap']['ros__parameters']
+    global_costmap = params['global_costmap']['global_costmap']['ros__parameters']
+
+    assert controller['controller_frequency'] == 10.0
+    assert mppi['batch_size'] == 800
+    assert mppi['time_steps'] == 40
+    assert local['resolution'] == 0.025
+    assert local['publish_frequency'] == 1.0
+    assert global_costmap['update_frequency'] == 1.0
+    assert global_costmap['publish_frequency'] == 1.0
