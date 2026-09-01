@@ -5,6 +5,8 @@ so101_hardware_node:
     robot_id: so101_follower
     # Nomes relativos são resolvidos dentro de share/so_arm_101_hardware/config.
     calibration_file: so101_follower.json
+    # true mantém os servos sem torque para posicionamento manual do braço.
+    disable_torque: false
     # ROS uses radians; the adapter converts to/from LeRobot degrees.
     use_degrees: true
     # A escrita acompanha os setpoints interpolados pelo controller_manager.

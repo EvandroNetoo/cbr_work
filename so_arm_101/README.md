@@ -97,6 +97,18 @@ Esse launch inicia o driver LeRobot, `robot_state_publisher`,
 somente o driver para diagnóstico; `real.launch.py` nesse pacote é mantido
 como wrapper de compatibilidade.
 
+Para mover o braço manualmente mantendo a leitura das posições, inicie o mesmo
+launch com o torque desabilitado:
+
+```bash
+ros2 launch so_arm_101_bringup real.launch.py \
+  port:=/dev/ttyUSB0 disable_torque:=true
+```
+
+O modo manual ignora comandos enviados aos servos. Segure o braço antes de
+ativá-lo, pois as juntas podem cair sob o próprio peso. Para voltar ao controle
+normal, reinicie o launch sem a flag.
+
 Para executar o perfil embarcado completo na Banana Pi, com planejamento
 MoveIt e sem telas:
 

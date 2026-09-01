@@ -54,6 +54,17 @@ ros2 launch bringup robot.launch.py \
   hardware_state_timeout:=60.0
 ```
 
+Para liberar as juntas do braço para posicionamento manual, mantendo os estados
+publicados pelo robô composto:
+
+```bash
+ros2 launch bringup robot.launch.py \
+  port:=/dev/ttyUSB0 disable_torque:=true
+```
+
+Nesse modo os comandos do braço são ignorados. Sustente-o antes da partida,
+pois as juntas podem cair sob o próprio peso.
+
 Para comparar o perfil atual com as taxas antigas de câmera/base:
 
 ```bash

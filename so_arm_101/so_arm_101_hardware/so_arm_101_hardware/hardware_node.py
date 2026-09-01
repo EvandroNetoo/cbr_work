@@ -17,6 +17,7 @@ from std_srvs.srv import Trigger
 
 from .lerobot_adapter import (
     LEROBOT_TO_ROS,
+    connect_follower,
     make_follower,
     observation_to_ros,
     ros_to_action,
@@ -46,6 +47,7 @@ class SO101HardwareNode(Node):
         self.declare_parameter('port', '')
         self.declare_parameter('robot_id', 'so101_follower')
         self.declare_parameter('calibration_file', '')
+        self.declare_parameter('disable_torque', False)
         self.declare_parameter('use_degrees', False)
         self.declare_parameter('write_rate_hz', 30.0)
         self.declare_parameter('read_rate_hz', 30.0)
@@ -89,6 +91,8 @@ class SO101HardwareNode(Node):
         self._calibration_file = resolve_calibration_file(
             self.get_parameter('calibration_file').value)
         self._use_degrees = bool(self.get_parameter('use_degrees').value)
+        self._disable_torque = bool(
+            self.get_parameter('disable_torque').value)
         self._latest_command = None
         self._last_received_command = None
         self._last_sent_command = None
@@ -123,19 +127,29 @@ class SO101HardwareNode(Node):
         )
         self.state_pub = self.create_publisher(
             JointState, self.get_parameter('state_topic').value, latest_qos)
-        self.command_sub = self.create_subscription(
-            Float64MultiArray,
-            self.get_parameter('command_topic').value,
-            self._command_callback,
-            latest_qos,
-        )
+        self.command_sub = None
+        if not self._disable_torque:
+            self.command_sub = self.create_subscription(
+                Float64MultiArray,
+                self.get_parameter('command_topic').value,
+                self._command_callback,
+                latest_qos,
+            )
         self.calibrate_srv = self.create_service(Trigger, '~/calibrate', self._calibrate)
         self.follower = None
 
         try:
             self.follower = self._create_follower()
-            self.follower.connect(calibrate=False)
-            self.get_logger().info('SO-101 conectado via LeRobot/Feetech.')
+            connect_follower(
+                self.follower, disable_torque=self._disable_torque)
+            if self._disable_torque:
+                self.get_logger().warning(
+                    'SO-101 conectado com torque desabilitado; comandos de '
+                    'movimento serão ignorados e o braço pode ser movido '
+                    'manualmente.')
+            else:
+                self.get_logger().info(
+                    'SO-101 conectado via LeRobot/Feetech.')
         except Exception as error:
             self._force_close_follower(self.follower)
             self.get_logger().fatal(f'Falha ao conectar o SO-101: {error}')
@@ -242,6 +256,8 @@ class SO101HardwareNode(Node):
             return None
 
     def _command_callback(self, message: Float64MultiArray):
+        if self._disable_torque:
+            return
         if len(message.data) != len(ROS_JOINT_ORDER):
             self.get_logger().error(
                 f'Comando inválido: esperadas {len(ROS_JOINT_ORDER)} posições, '
@@ -314,7 +330,8 @@ class SO101HardwareNode(Node):
             with self._serial_lock:
                 self._force_close_follower(self.follower)
                 candidate = self._create_follower()
-                candidate.connect(calibrate=False)
+                connect_follower(
+                    candidate, disable_torque=self._disable_torque)
                 self.follower = candidate
         except Exception as error:
             self._force_close_follower(candidate)
@@ -331,7 +348,7 @@ class SO101HardwareNode(Node):
         self._last_sent_command = None
         self._next_reconnect_time = 0.0
         self._set_reading_active(True)
-        if self._latest_command is not None:
+        if not self._disable_torque and self._latest_command is not None:
             self._wake_write_timer()
         self.get_logger().info('SO-101 reconectado após falha de comunicação.')
         return True

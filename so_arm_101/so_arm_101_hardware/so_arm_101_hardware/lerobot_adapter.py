@@ -165,6 +165,27 @@ def make_follower(
     return SO101Follower(config)
 
 
+def connect_follower(follower, *, disable_torque: bool) -> None:
+    """Connect the follower in normal or manual-positioning mode.
+
+    ``SOFollower.connect()`` calls ``configure()``, whose torque-disabled
+    context manager always enables torque when configuration finishes.  That
+    is correct for normal control, but unsafe for a launch explicitly asking
+    for a freely movable arm.  In that mode, connect the public bus API,
+    disable torque immediately, and keep the connection open only for state
+    reads.  Motor configuration is intentionally skipped because it is not
+    needed for observation and would re-enable torque.
+    """
+    if not disable_torque:
+        follower.connect(calibrate=False)
+        return
+
+    follower.bus.connect()
+    follower.bus.disable_torque(num_retry=5)
+    for camera in follower.cameras.values():
+        camera.connect()
+
+
 def observation_to_ros(observation: Mapping[str, object], *, use_degrees: bool):
     """Convert a LeRobot observation into ROS joint-name/value pairs."""
     scale = 3.141592653589793 / 180.0 if use_degrees else 1.0

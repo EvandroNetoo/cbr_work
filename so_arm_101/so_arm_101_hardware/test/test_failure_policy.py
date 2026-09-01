@@ -76,6 +76,7 @@ def _io_node():
     node._robot_id = 'test_follower'
     node._calibration_file = ''
     node._use_degrees = False
+    node._disable_torque = False
     node._write_rate_hz = 30.0
     node._active_read_rate_hz = 10.0
     node._idle_read_rate_hz = 2.0
@@ -149,7 +150,7 @@ def test_io_performance_defaults_are_explicit():
         (PACKAGE_ROOT / 'config' / 'real.yaml').read_text())[
             'so101_hardware_node']['ros__parameters']
     assert parameters['write_rate_hz'] == 30.0
-    assert parameters['read_rate_hz'] == 10.0
+    assert parameters['read_rate_hz'] == 30.0
     assert parameters['idle_read_rate_hz'] == 2.0
     assert parameters['read_idle_timeout_sec'] == 1.0
     assert parameters['idle_velocity_threshold'] == 0.02
@@ -157,7 +158,8 @@ def test_io_performance_defaults_are_explicit():
     assert 'deduplicate_commands' not in parameters
     assert 'command_heartbeat_hz' not in parameters
     assert parameters['reconnect_interval_sec'] == 1.0
-    assert parameters['reconnect_timeout_sec'] == 30.0
+    assert parameters['reconnect_timeout_sec'] == 5.0
+    assert parameters['disable_torque'] is False
     assert 'max_consecutive_io_failures' not in parameters
 
     launch_source = (PACKAGE_ROOT / 'launch' / 'driver.launch.py').read_text()
@@ -188,6 +190,16 @@ def test_command_callback_does_not_touch_serial_and_keeps_latest():
     assert len(node.follower.actions) == 1
     assert node._last_sent_command == tuple(0.2 for _ in ROS_JOINT_ORDER)
     assert node.write_timer.is_canceled() is False
+
+
+def test_manual_positioning_mode_ignores_commands():
+    node = _io_node()
+    node._disable_torque = True
+
+    node._command_callback(_command(0.2))
+
+    assert node._latest_command is None
+    assert node.write_timer.is_canceled() is True
 
 
 def test_command_is_not_resent_while_unchanged():

@@ -56,6 +56,20 @@ Sem esses argumentos, `config/real.yaml` é a fonte dos parâmetros físicos.
 Os argumentos `port`, `robot_id` e `calibration_file` só sobrescrevem o YAML
 quando são informados explicitamente na linha de comando.
 
+Para soltar todas as juntas e posicionar o braço manualmente, use a feature
+flag `disable_torque:=true`:
+
+```bash
+ros2 launch so_arm_101_bringup real.launch.py \
+  port:=/dev/ttyUSB0 disable_torque:=true
+```
+
+Nesse modo o driver continua publicando as posições medidas, mas não cria a
+assinatura de comandos e não executa a configuração do LeRobot que reabilita o
+torque. Reinicie o launch sem a flag (ou com `disable_torque:=false`) para voltar
+ao controle normal. Sustente o braço antes de desabilitar o torque, pois ele
+pode cair sob o próprio peso.
+
 Os arquivos `config/so101_follower.json` e
 `config/gripper_calibration.yaml` são calibrações de referência. Confirme IDs,
 offsets, faixas e endpoints no hardware antes de comandar. A calibração manual,
@@ -73,8 +87,8 @@ O nó Python não publica actions nem recebe trajetórias. O plugin
 
 No perfil padrão, a callback ROS apenas mantém o alvo mais recente. Um timer de
 escrita a 30 Hz executa `sync_write` somente quando o alvo muda. A leitura usa
-10 Hz durante movimento e cai para 2 Hz após um segundo sem mudança de alvo e
-com velocidades baixas. Um novo alvo restaura imediatamente a leitura a 10 Hz.
+30 Hz durante movimento e cai para 2 Hz após um segundo sem mudança de alvo e
+com velocidades baixas. Um novo alvo restaura imediatamente a leitura a 30 Hz.
 Leitura e escrita compartilham o mesmo lock, portanto nunca acessam a serial ao
 mesmo tempo. Quando não há setpoint pendente, o timer de escrita fica cancelado
 e a interface `ros2_control` também deixa de publicar comandos idênticos. Um

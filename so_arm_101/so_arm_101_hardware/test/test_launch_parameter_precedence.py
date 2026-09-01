@@ -22,6 +22,7 @@ def _context(module, **values):
     defaults = {
         'port': module.CONFIG_DEFAULT,
         'robot_id': module.CONFIG_DEFAULT,
+        'disable_torque': module.CONFIG_DEFAULT,
     }
     defaults.update(values)
     context.launch_configurations.update(defaults)
@@ -46,15 +47,29 @@ def test_explicit_cli_values_override_real_yaml_with_native_types():
     }
 
 
+def test_disable_torque_cli_flag_is_forwarded_as_boolean_parameter():
+    module = _driver_launch_module()
+    context = _context(module, disable_torque='true')
+
+    override = module._optional_parameter_overrides(context)['disable_torque']
+
+    assert override is True
+
+
 def test_all_arm_wrappers_propagate_config_default_sentinel():
     paths = [
         PACKAGE_ROOT / 'launch' / 'real.launch.py',
         PACKAGE_ROOT.parent / 'so_arm_101_bringup' / 'launch' / 'real.launch.py',
         PACKAGE_ROOT.parent / 'so_arm_101_moveit_config' / 'launch'
         / 'real_planning.launch.py',
+        PACKAGE_ROOT.parent / 'so_arm_101_moveit_config' / 'launch'
+        / 'real_planning_camera_apriltag.launch.py',
         PACKAGE_ROOT.parents[1] / 'bringup' / 'launch' / 'robot.launch.py',
     ]
     for path in paths:
         source = path.read_text()
         assert "CONFIG_DEFAULT = '__from_config__'" in source
         assert "DeclareLaunchArgument('port', default_value=CONFIG_DEFAULT)" in source
+        assert "DeclareLaunchArgument('disable_torque', default_value=CONFIG_DEFAULT)" in source
+        if path.name != 'driver.launch.py':
+            assert "'disable_torque': LaunchConfiguration('disable_torque')" in source
