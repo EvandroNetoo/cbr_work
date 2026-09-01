@@ -1,0 +1,12 @@
+# Deposit the object currently held by the gripper on a work surface.
+# Surface height above the floor, in centimeters. Arbitrary values are accepted.
+float32 ws_height_cm
+# Run a fresh AprilTag analysis and consider tagged objects during placement.
+bool analyze_apriltags
+# Run a fresh container analysis and consider containers during placement.
+bool analyze_containers
+---
+interfaces/ManipulationResult outcome
+geometry_msgs/PoseStamped placed_pose
+---
+interfaces/ManipulationFeedback status

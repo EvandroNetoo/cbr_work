@@ -1,0 +1,7 @@
+# Objects are always picked from a tabletop after the mobile base is aligned.
+int32 tag_id
+string profile
+---
+interfaces/ManipulationResult outcome
+---
+interfaces/ManipulationFeedback status

@@ -1,0 +1,8 @@
+# Low-level placement intended for calibration, tests and explicit mission poses.
+# Desired gripper TCP pose at release time.
+geometry_msgs/PoseStamped release_pose
+---
+interfaces/ManipulationResult outcome
+geometry_msgs/PoseStamped placed_pose
+---
+interfaces/ManipulationFeedback status

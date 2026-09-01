@@ -1,0 +1,9 @@
+uint8 NAVIGATION=1
+uint8 OBSERVATION=2
+uint8 SAFE_HOLD=3
+
+uint8 mode
+---
+interfaces/ManipulationResult outcome
+---
+interfaces/ManipulationFeedback status

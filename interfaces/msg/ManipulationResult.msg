@@ -1,0 +1,28 @@
+uint16 SUCCESS=0
+uint16 BUSY=1
+uint16 INVALID_GOAL=2
+uint16 CONFIGURATION_ERROR=3
+uint16 SERVER_UNAVAILABLE=4
+uint16 OBJECT_NOT_FOUND=5
+uint16 MOTION_FAILED=6
+uint16 STATE_CONFLICT=7
+uint16 CANCELED=8
+uint16 INTERNAL_ERROR=9
+uint16 PERCEPTION_UNAVAILABLE=10
+uint16 NO_FREE_SPACE=11
+uint16 FEATURE_UNAVAILABLE=12
+
+uint8 LOCATION_UNKNOWN=0
+uint8 LOCATION_SOURCE=1
+uint8 LOCATION_GRIPPER=2
+uint8 LOCATION_CARGO=3
+uint8 LOCATION_DESTINATION=4
+uint8 LOCATION_LOST=5
+
+# Object affected by the operation. EMPTY means that no object was identified.
+int32 EMPTY=-1
+int32 object_tag_id
+uint16 code
+uint8 final_object_location
+bool state_known
+string message

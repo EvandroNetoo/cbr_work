@@ -1,0 +1,12 @@
+uint8 RED=1
+uint8 BLUE=2
+
+# Deposit the object currently held by the gripper in a detected container.
+# Work-surface height above the floor, in centimeters.
+float32 ws_height_cm
+uint8 container_color
+---
+interfaces/ManipulationResult outcome
+geometry_msgs/PoseStamped placed_pose
+---
+interfaces/ManipulationFeedback status

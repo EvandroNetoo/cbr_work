@@ -1,0 +1,5 @@
+string slot_id
+---
+interfaces/ManipulationResult outcome
+---
+interfaces/ManipulationFeedback status

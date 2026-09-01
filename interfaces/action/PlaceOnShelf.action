@@ -1,0 +1,6 @@
+# Deposit the object currently held by the gripper on the calibrated shelf.
+---
+interfaces/ManipulationResult outcome
+geometry_msgs/PoseStamped placed_pose
+---
+interfaces/ManipulationFeedback status

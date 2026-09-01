@@ -1,0 +1,19 @@
+manipulation_server:
+  ros__parameters:
+    profiles_file: ""
+    cargo_slots_file: ""
+    move_group_action: /move_action
+    apriltag_action: /apriltags/analyze
+    joint_states_topic: /joint_states
+    state_topic: manipulation/state
+    pick_action: manipulation/pick
+    store_action: manipulation/store
+    retrieve_action: manipulation/retrieve
+    place_on_table_action: manipulation/place_on_table
+    place_in_container_action: manipulation/place_in_container
+    stack_action: manipulation/stack
+    place_on_shelf_action: manipulation/place_on_shelf
+    place_at_pose_action: manipulation/place_at_pose
+    prepare_action: manipulation/prepare
+    moveit_server_timeout_s: 15.0
+    apriltag_analysis_duration_s: 2.0

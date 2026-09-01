@@ -1,0 +1,61 @@
+schema_version: 1
+
+pickup:
+  tabletop:
+    observation_state: detect_apriltags
+    approach_height_m: 0.08
+    cube_size_m: 0.042
+    yaw_offset_deg: 0.0
+    attempts: 2
+
+placements:
+  table:
+    strategy: perception
+    # Pose nominal após o alinhamento externo. Preencher após calibrar.
+    enabled: true
+    release_x_m: 0.0
+    release_y_m: -0.20
+    release_yaw_deg: 0.0
+    tcp_release_offset_cm: -7.5
+    approach_height_m: 0.07
+    retreat_height_m: 0.07
+
+  explicit_pose:
+    strategy: cartesian
+    enabled: true
+    approach_height_m: 0.08
+    retreat_height_m: 0.08
+    calibrated_reference: false
+    reference_offset_xyz: [0.0, 0.0, 0.0]
+    yaw_offset_deg: 0.0
+
+  container:
+    strategy: perception
+    # Habilitar somente quando a detecção de contêiner estiver disponível.
+    enabled: false
+    approach_height_m: 0.10
+    retreat_height_m: 0.10
+    calibrated_reference: false
+    reference_offset_xyz: [0.0, 0.0, 0.0]
+    yaw_offset_deg: 90.0
+
+  stack:
+    strategy: tag_relative
+    # Offset calibrado do TCP em relação à tag do cubo de apoio.
+    enabled: true
+    approach_height_m: 0.03
+    retreat_height_m: 0.08
+    calibrated_reference: true
+    reference_offset_xyz: [0.0, 0.0, 0.01]
+    yaw_offset_deg: 0.0
+
+  shelf:
+    strategy: named_state
+    # Habilitar e preencher named_state após medir a pose fixa da prateleira.
+    enabled: false
+    named_state: ""
+    approach_height_m: 0.08
+    retreat_height_m: 0.10
+    calibrated_reference: false
+    reference_offset_xyz: [0.0, 0.0, 0.0]
+    yaw_offset_deg: 90.0

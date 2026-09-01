@@ -12,9 +12,22 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AprilTagDetection.msg"
   "msg/AprilTagDetectionArray.msg"
   "msg/AprilTagStampedDetection.msg"
+  "msg/CargoSlotState.msg"
+  "msg/ManipulationFeedback.msg"
+  "msg/ManipulationResult.msg"
+  "msg/ManipulationState.msg"
   "msg/WheelCommand.msg"
   "action/AnalyzeAprilTags.action"
   "action/MoveToDistance.action"
+  "action/PickObject.action"
+  "action/PlaceAtPose.action"
+  "action/PlaceInContainer.action"
+  "action/PlaceOnShelf.action"
+  "action/PlaceOnTable.action"
+  "action/PrepareManipulator.action"
+  "action/RetrieveObject.action"
+  "action/StackObject.action"
+  "action/StoreObject.action"
   DEPENDENCIES action_msgs builtin_interfaces geometry_msgs std_msgs
 )
 

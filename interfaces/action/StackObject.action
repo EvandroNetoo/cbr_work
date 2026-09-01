@@ -1,0 +1,7 @@
+# Stack the object currently held by the gripper on a tagged support object.
+int32 support_tag_id
+---
+interfaces/ManipulationResult outcome
+geometry_msgs/PoseStamped placed_pose
+---
+interfaces/ManipulationFeedback status
