@@ -59,6 +59,12 @@ class PlacementProfile:
     release_y_m: float | None = None
     release_yaw_deg: float | None = None
     tcp_release_offset_cm: float | None = None
+    free_space_min_distance_m: float = 0.08
+    search_x_min_m: float | None = None
+    search_x_max_m: float | None = None
+    search_y_min_m: float | None = None
+    search_y_max_m: float | None = None
+    search_step_m: float = 0.01
 
 
 @dataclass(frozen=True)
@@ -152,6 +158,9 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 'calibrated_reference',
                 'release_x_m', 'release_y_m', 'release_yaw_deg',
                 'tcp_release_offset_cm',
+                'free_space_min_distance_m',
+                'search_x_min_m', 'search_x_max_m',
+                'search_y_min_m', 'search_y_max_m', 'search_step_m',
             },
             f'placements.{name}',
         )
@@ -208,6 +217,32 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                     raw['tcp_release_offset_cm'],
                     f'placements.{name}.tcp_release_offset_cm',
                 )
+            ),
+            free_space_min_distance_m=_number(
+                raw.get('free_space_min_distance_m', 0.08),
+                f'placements.{name}.free_space_min_distance_m',
+                positive=True,
+            ),
+            search_x_min_m=(
+                None if raw.get('search_x_min_m') is None
+                else _number(raw['search_x_min_m'], f'placements.{name}.search_x_min_m')
+            ),
+            search_x_max_m=(
+                None if raw.get('search_x_max_m') is None
+                else _number(raw['search_x_max_m'], f'placements.{name}.search_x_max_m')
+            ),
+            search_y_min_m=(
+                None if raw.get('search_y_min_m') is None
+                else _number(raw['search_y_min_m'], f'placements.{name}.search_y_min_m')
+            ),
+            search_y_max_m=(
+                None if raw.get('search_y_max_m') is None
+                else _number(raw['search_y_max_m'], f'placements.{name}.search_y_max_m')
+            ),
+            search_step_m=_number(
+                raw.get('search_step_m', 0.01),
+                f'placements.{name}.search_step_m',
+                positive=True,
             ),
         )
         if profile.enabled and strategy == 'named_state' and not profile.named_state:

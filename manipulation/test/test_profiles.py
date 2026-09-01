@@ -43,6 +43,16 @@ def test_nominal_table_pose_calibration_is_complete_or_empty():
     )
 
 
+def test_table_free_space_search_uses_safe_defaults_and_unset_measured_bounds():
+    profile = _profiles().placements['table']
+    assert profile.free_space_min_distance_m == pytest.approx(0.08)
+    assert profile.search_step_m == pytest.approx(0.01)
+    assert profile.search_y_max_m == pytest.approx(-0.10)
+    assert profile.search_x_min_m is None
+    assert profile.search_x_max_m is None
+    assert profile.search_y_min_m is None
+
+
 def test_semantic_placement_profiles_are_explicit():
     profiles = _profiles()
     assert set(profiles.placements) == {

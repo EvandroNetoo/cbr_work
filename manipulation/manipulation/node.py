@@ -600,6 +600,85 @@ class ManipulationServer(Node):
         if quaternion_norm < 1e-6:
             raise ConfigurationError('target_pose possui quaternion nulo.')
 
+    @staticmethod
+    def _table_search_candidates(
+        profile: PlacementProfile,
+    ) -> list[tuple[float, float]]:
+        """Build a bounded grid ordered from the nominal release position."""
+        bounds = (
+            profile.search_x_min_m,
+            profile.search_x_max_m,
+            profile.search_y_min_m,
+            profile.search_y_max_m,
+        )
+        if any(value is None for value in bounds):
+            raise FeatureUnavailable(
+                'Preencha search_x_min_m, search_x_max_m, search_y_min_m e '
+                'search_y_max_m no perfil table antes de analisar AprilTags.'
+            )
+        if profile.release_x_m is None or profile.release_y_m is None:
+            raise FeatureUnavailable(
+                'A posição nominal release_x_m/release_y_m não foi configurada.'
+            )
+        x_min, x_max, y_min, y_max = (float(value) for value in bounds)
+        nominal_x = float(profile.release_x_m)
+        nominal_y = float(profile.release_y_m)
+        step = float(profile.search_step_m)
+        if x_min > x_max or y_min > y_max:
+            raise ConfigurationError(
+                'Os limites mínimos da busca na mesa devem ser menores ou iguais '
+                'aos limites máximos.'
+            )
+        if y_max > -0.10:
+            raise ConfigurationError(
+                'search_y_max_m não pode ser maior que -0.10 m.'
+            )
+        if not (x_min <= nominal_x <= x_max and y_min <= nominal_y <= y_max):
+            raise ConfigurationError(
+                'A pose nominal da mesa deve estar dentro da região de busca.'
+            )
+
+        negative_x = math.floor((nominal_x - x_min) / step + 1e-9)
+        positive_x = math.floor((x_max - nominal_x) / step + 1e-9)
+        negative_y = math.floor((nominal_y - y_min) / step + 1e-9)
+        positive_y = math.floor((y_max - nominal_y) / step + 1e-9)
+        xs = [
+            nominal_x + index * step
+            for index in range(-negative_x, positive_x + 1)
+        ]
+        ys = [
+            nominal_y + index * step
+            for index in range(-negative_y, positive_y + 1)
+        ]
+        candidates = [(x, y) for x in xs for y in ys]
+        candidates.sort(key=lambda point: (
+            (point[0] - nominal_x) ** 2 + (point[1] - nominal_y) ** 2,
+            abs(point[1] - nominal_y),
+            abs(point[0] - nominal_x),
+            point[0],
+            point[1],
+        ))
+        return candidates
+
+    @staticmethod
+    def _select_free_table_position(
+        candidates: list[tuple[float, float]],
+        obstacles: list[tuple[float, float]],
+        minimum_distance_m: float,
+    ) -> tuple[float, float]:
+        """Return the first nominal-outward candidate clear of every tag."""
+        for candidate_x, candidate_y in candidates:
+            if all(
+                math.hypot(candidate_x - obstacle_x, candidate_y - obstacle_y)
+                + 1e-9 >= minimum_distance_m
+                for obstacle_x, obstacle_y in obstacles
+            ):
+                return candidate_x, candidate_y
+        raise NoFreeSpace(
+            'Nenhuma posição da região de busca mantém a distância mínima de '
+            f'{minimum_distance_m:.3f} m das AprilTags.'
+        )
+
     def _placement_profile(self, name: str, capability: str) -> PlacementProfile:
         profile = self._profiles.placements.get(name)
         if profile is None:
@@ -671,18 +750,9 @@ class ManipulationServer(Node):
             object_tag_id = self._inventory.require_gripper_object()
             self._inventory.validate_place(object_tag_id)
             height_cm = float(goal_handle.request.ws_height_cm)
-            self._feedback(
-                goal_handle, PlaceOnTable, ManipulationFeedback.OBSERVING,
-                0.10, f'Localizando superfície com altura informada de {height_cm:g} cm',
-            )
             if bool(goal_handle.request.analyze_containers):
                 raise PerceptionUnavailable(
                     'A análise de contêineres ainda não foi implementada.'
-                )
-            if bool(goal_handle.request.analyze_apriltags):
-                raise FeatureUnavailable(
-                    'A seleção de espaço livre usando AprilTags ainda não foi '
-                    'implementada. Nenhum movimento foi executado.'
                 )
             profile = self._placement_profile('table', 'Depósito nominal na mesa')
             calibration = (
@@ -697,6 +767,54 @@ class ManipulationServer(Node):
                     'tcp_release_offset_cm no perfil table antes do depósito nominal.'
                 )
             release_x_m, release_y_m, release_yaw_deg, tcp_offset_cm = calibration
+            if bool(goal_handle.request.analyze_apriltags):
+                candidates = self._table_search_candidates(profile)
+                observation = self._profiles.pickup_profile(
+                    'tabletop'
+                ).observation_state
+                self._feedback(
+                    goal_handle, PlaceOnTable, ManipulationFeedback.OBSERVING,
+                    0.10, 'Preparando a câmera para analisar as AprilTags da mesa',
+                )
+                self._arm_state(observation, 'Preparando câmera para depósito na mesa')
+                duration = float(
+                    self.get_parameter('apriltag_analysis_duration_s').value
+                )
+                try:
+                    detections = self._motion.obter_deteccoes_de_april_tags(duration)
+                except OperacaoCancelada:
+                    raise
+                except RuntimeError as error:
+                    raise PerceptionUnavailable(str(error)) from error
+                obstacles: list[tuple[float, float]] = []
+                for detection in detections:
+                    if int(detection.id) == object_tag_id:
+                        continue
+                    x = float(detection.pose.position.x)
+                    y = float(detection.pose.position.y)
+                    if not math.isfinite(x) or not math.isfinite(y):
+                        raise PerceptionUnavailable(
+                            f'AprilTag {detection.id} possui posição XY inválida.'
+                        )
+                    obstacles.append((x, y))
+                release_x_m, release_y_m = self._select_free_table_position(
+                    candidates,
+                    obstacles,
+                    float(profile.free_space_min_distance_m),
+                )
+                self._feedback(
+                    goal_handle, PlaceOnTable, ManipulationFeedback.OBSERVING,
+                    0.30,
+                    f'Posição livre selecionada a partir da nominal: '
+                    f'x={release_x_m:.3f}, y={release_y_m:.3f} m; '
+                    f'{len(obstacles)} obstáculo(s)',
+                )
+            else:
+                self._feedback(
+                    goal_handle, PlaceOnTable, ManipulationFeedback.OBSERVING,
+                    0.10,
+                    f'Usando posição nominal na mesa de {height_cm:g} cm',
+                )
             release_pose = criar_pose(
                 float(release_x_m),
                 float(release_y_m),
