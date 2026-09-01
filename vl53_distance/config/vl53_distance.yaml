@@ -1,0 +1,37 @@
+vl53_distance_action:
+  ros__parameters:
+    action_name: /vl53/move_to_distance
+    cmd_vel_topic: /cmd_vel
+    command_frame: base_footprint
+
+    sensor.i2c_bus: 1
+    # Endereço 0x70 do TCA9548A em representação decimal para o YAML ROS.
+    sensor.mux_address: 112
+    sensor.right.channel: 0
+    sensor.right.offset_mm: 48
+    sensor.left.channel: 1
+    sensor.left.offset_mm: 106
+    sensor.raw_min_mm: 0
+    sensor.raw_max_mm: 8191
+    sensor.median_window: 3
+    sensor.ranging_timeout_ms: 200
+
+    control_rate_hz: 10.0
+    command_publish_rate_hz: 20.0
+    command_freshness_timeout_sec: 0.20
+    settle_time_sec: 0.50
+    max_consecutive_read_failures: 3
+
+    linear_pid.kp: 0.8
+    linear_pid.ki: 0.0
+    linear_pid.kd: 0.0
+    linear_pid.integral_limit: 0.20
+    linear_pid.derivative_filter_alpha: 0.20
+    linear_pid.output_limit: 0.10
+
+    angular_pid.kp: 4.0
+    angular_pid.ki: 0.0
+    angular_pid.kd: 0.0
+    angular_pid.integral_limit: 0.20
+    angular_pid.derivative_filter_alpha: 0.20
+    angular_pid.output_limit: 0.50

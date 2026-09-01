@@ -25,6 +25,10 @@ def generate_launch_description():
     localization = IncludeLaunchDescription(PythonLaunchDescriptionSource(
         PathJoinSubstitution([
             FindPackageShare('imu'), 'launch', 'imu_localization.launch.py'])))
+    vl53_distance = IncludeLaunchDescription(PythonLaunchDescriptionSource(
+        PathJoinSubstitution([
+            FindPackageShare('vl53_distance'), 'launch',
+            'vl53_distance.launch.py'])))
     readiness = Node(
         package='base_bringup', executable='wait_for_wheel_states', output='screen')
     rsp = Node(
@@ -56,10 +60,18 @@ def generate_launch_description():
             return [EmitEvent(event=Shutdown(reason='Falha no joint_state_broadcaster.'))]
         return [base]
 
+    def after_base(event, context):
+        del context
+        if event.returncode != 0:
+            return [EmitEvent(event=Shutdown(
+                reason='Falha ao ativar base_controller.'))]
+        return [vl53_distance]
+
     return LaunchDescription([
         driver, lidar, localization, readiness, rsp,
         RegisterEventHandler(OnProcessExit(target_action=readiness, on_exit=after_readiness)),
         RegisterEventHandler(OnProcessExit(target_action=joint, on_exit=after_joint)),
+        RegisterEventHandler(OnProcessExit(target_action=base, on_exit=after_base)),
         RegisterEventHandler(OnProcessExit(
             target_action=control,
             on_exit=[EmitEvent(event=Shutdown(reason='controller_manager da base encerrou.'))])),

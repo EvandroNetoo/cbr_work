@@ -67,6 +67,10 @@ def generate_launch_description():
             'camera_info_topic': LaunchConfiguration('camera_info_topic'),
             'base_frame': LaunchConfiguration('base_frame'),
         }.items())
+    vl53_distance = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('vl53_distance'), 'launch',
+            'vl53_distance.launch.py'])))
     readiness = Node(
         package='bringup', executable='wait_for_hardware_states',
         parameters=[{'timeout_sec': hardware_timeout}], output='screen')
@@ -117,7 +121,7 @@ def generate_launch_description():
 
     def start_move_group(event, context):
         del context
-        return move_group_entities if event.returncode == 0 else shutdown(
+        return ([vl53_distance] + move_group_entities) if event.returncode == 0 else shutdown(
             'Falha ao ativar base_controller.')
 
     return LaunchDescription([

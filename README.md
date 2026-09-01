@@ -17,6 +17,7 @@ O notebook não é necessário para o controle ou planejamento do robô.
 - `bringup`: perfil embarcado completo do robô.
 - `lidar`: aquisição do LiDAR XV-11 e publicação de `/scan_front`.
 - `imu`: aquisição da IMU a 50 Hz e fusão leve com a odometria das rodas.
+- `vl53_distance`: action de posicionamento frontal com dois VL53L0X.
 - `camera`: aquisição e retificação da câmera, independentes do robô.
 - `so_arm_101`: descrição, hardware, controllers, teleop e MoveIt do braço.
 - `apriltag`: detector AprilTag, usando tópicos de câmera externos.
@@ -103,6 +104,7 @@ ros2 action info /arm_controller/follow_joint_trajectory
 ros2 topic echo /tf --once
 ros2 topic hz /imu/data
 ros2 topic echo /wheel/odom --once
+ros2 action info /vl53/move_to_distance
 ```
 
 Os tópicos internos do hardware são `/so101_hardware/raw_joint_states` e

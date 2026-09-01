@@ -25,6 +25,7 @@
   <exec_depend>base_hardware_interface</exec_depend>
   <exec_depend>lidar</exec_depend>
   <exec_depend>imu</exec_depend>
+  <exec_depend>vl53_distance</exec_depend>
   <exec_depend>robot_description</exec_depend>
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>joint_state_broadcaster</exec_depend>

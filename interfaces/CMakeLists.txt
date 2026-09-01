@@ -14,6 +14,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AprilTagStampedDetection.msg"
   "msg/WheelCommand.msg"
   "action/AnalyzeAprilTags.action"
+  "action/MoveToDistance.action"
   DEPENDENCIES action_msgs builtin_interfaces geometry_msgs std_msgs
 )
 
