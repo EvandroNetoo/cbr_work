@@ -20,6 +20,30 @@ def test_complete_pick_store_retrieve_place_transition():
     assert state.snapshot() == (True, EMPTY, {'left': EMPTY})
 
 
+def test_left_and_right_slots_keep_independent_objects():
+    state = ManipulationInventory(['left', 'right'])
+    state.commit_pick(1)
+    state.validate_store(1, 'left')
+    state.commit_store(1, 'left')
+    state.commit_pick(2)
+    state.validate_store(2, 'right')
+    state.commit_store(2, 'right')
+
+    assert state.snapshot() == (
+        True,
+        EMPTY,
+        {'left': 1, 'right': 2},
+    )
+
+    state.validate_retrieve(2, 'right')
+    state.commit_retrieve(2, 'right')
+    assert state.snapshot() == (
+        True,
+        2,
+        {'left': 1, 'right': EMPTY},
+    )
+
+
 def test_cannot_overwrite_an_occupied_slot():
     state = ManipulationInventory(['left'])
     state.commit_pick(1)

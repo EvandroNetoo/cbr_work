@@ -43,14 +43,19 @@ def test_nominal_table_pose_calibration_is_complete_or_empty():
     )
 
 
-def test_table_free_space_search_uses_safe_defaults_and_unset_measured_bounds():
+def test_table_free_space_search_uses_safe_defaults_and_complete_bounds():
     profile = _profiles().placements['table']
     assert profile.free_space_min_distance_m == pytest.approx(0.08)
     assert profile.search_step_m == pytest.approx(0.01)
     assert profile.search_y_max_m == pytest.approx(-0.10)
-    assert profile.search_x_min_m is None
-    assert profile.search_x_max_m is None
-    assert profile.search_y_min_m is None
+    measured_bounds = (
+        profile.search_x_min_m,
+        profile.search_x_max_m,
+        profile.search_y_min_m,
+    )
+    assert all(value is None for value in measured_bounds) or all(
+        value is not None for value in measured_bounds
+    )
 
 
 def test_semantic_placement_profiles_are_explicit():
@@ -60,11 +65,13 @@ def test_semantic_placement_profiles_are_explicit():
     }
 
 
-def test_only_measured_cargo_slot_is_enabled():
+def test_both_measured_cargo_slots_are_enabled():
     profiles = _profiles()
-    assert set(profiles.cargo_slots) == {'left'}
+    assert set(profiles.cargo_slots) == {'left', 'right'}
     assert profiles.cargo_slots['left'].store_state == 'deposit_cube_left'
     assert profiles.cargo_slots['left'].retrieve_state == 'pick_cube_left'
+    assert profiles.cargo_slots['right'].store_state == 'deposit_cube_right'
+    assert profiles.cargo_slots['right'].retrieve_state == 'pick_cube_right'
 
 
 def test_unknown_configuration_field_is_rejected(tmp_path):

@@ -98,6 +98,29 @@ def test_pick_cube_left_named_state_uses_requested_joint_values():
     ])
 
 
+@pytest.mark.parametrize(
+    ('state_name', 'expected'),
+    (
+        (
+            'deposit_cube_right',
+            [-1.6580627894, 0.6981317008, -0.6632251158,
+             -1.7627825445, 1.6580627894],
+        ),
+        (
+            'pick_cube_right',
+            [-1.7453292520, 0.7504915784, -0.9250245036,
+             -1.5184364492, 1.6580627894],
+        ),
+    ),
+)
+def test_right_cargo_named_states_use_measured_joint_values(state_name, expected):
+    root = ET.parse(os.path.join(CONFIG_DIR, 'so_arm_101.srdf')).getroot()
+    state = root.find(f"group_state[@name='{state_name}'][@group='arm']")
+    assert state is not None
+    values = [float(joint.attrib['value']) for joint in state.findall('joint')]
+    assert values == pytest.approx(expected)
+
+
 def test_gripper_group_contains_actuated_and_mimic_joints():
     root = ET.parse(os.path.join(CONFIG_DIR, 'so_arm_101.srdf')).getroot()
     joints = root.findall("group[@name='gripper']/joint")

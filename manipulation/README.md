@@ -69,7 +69,7 @@ ros2 action send_goal manipulation/pick interfaces/action/PickObject \
   "{tag_id: 5, profile: tabletop}" --feedback
 ```
 
-Armazenamento e retirada do compartimento calibrado:
+Armazenamento e retirada dos compartimentos calibrados:
 
 ```bash
 ros2 action send_goal manipulation/store interfaces/action/StoreObject \
@@ -78,10 +78,20 @@ ros2 action send_goal manipulation/retrieve interfaces/action/RetrieveObject \
   "{slot_id: left}" --feedback
 ```
 
+Para o compartimento direito, use os mesmos comandos com `slot_id: right`:
+
+```bash
+ros2 action send_goal manipulation/store interfaces/action/StoreObject \
+  "{slot_id: right}" --feedback
+ros2 action send_goal manipulation/retrieve interfaces/action/RetrieveObject \
+  "{slot_id: right}" --feedback
+```
+
 Na retirada, `store_state` é a pose segura de armazenamento e `retrieve_state`
 é a pose baixa onde a garra alcança o objeto. Para o compartimento `left`, a
 sequência completa é `pre_grip` → `deposit_cube_left` → `pick_cube_left` →
 fechar em `grip` → `deposit_cube_left` → `home`.
+No lado direito, a mesma lógica usa `deposit_cube_right` e `pick_cube_right`.
 
 Depósito em uma pose explícita do TCP (`base_link`):
 
@@ -122,6 +132,6 @@ ros2 action send_goal manipulation/place_on_shelf interfaces/action/PlaceOnShelf
   "{}" --feedback
 ```
 
-O pacote não contém valores inventados para destinos ainda não medidos. O
-único compartimento interno habilitado é `left`, pois é o único com poses
-existentes no SRDF atual.
+O pacote não contém valores inventados para destinos ainda não medidos. Os
+compartimentos internos `left` e `right` estão habilitados com poses existentes
+no SRDF.

@@ -1,12 +1,18 @@
 schema_version: 1
 
-# Somente o compartimento esquerdo possui poses medidas no SRDF atual.
+# Cada compartimento referencia sua pose superior segura e sua pose baixa.
 cargo_slots:
   left:
     # Pose segura de armazenamento, usada antes e depois da pose de retirada.
     store_state: deposit_cube_left
     # Pose baixa onde a garra alcança o objeto armazenado.
     retrieve_state: pick_cube_left
+
+  right:
+    # Primeira pose medida: aproximação e saída segura do compartimento.
+    store_state: deposit_cube_right
+    # Segunda pose medida: garra na altura do objeto armazenado.
+    retrieve_state: pick_cube_right
 
 transport_empty_state: home
 transport_loaded_state: home
