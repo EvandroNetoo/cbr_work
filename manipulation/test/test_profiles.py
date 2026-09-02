@@ -47,8 +47,12 @@ def test_table_free_space_search_uses_safe_defaults_and_complete_bounds():
     profile = _profiles().placements['table']
     assert profile.free_space_min_distance_m == pytest.approx(0.08)
     assert profile.free_space_preferred_distance_m == pytest.approx(0.12)
+    assert profile.reach_center_x_m == pytest.approx(0.0)
+    assert profile.reach_center_y_m == pytest.approx(0.0)
+    assert profile.reach_min_radius_m == pytest.approx(0.16)
+    assert profile.reach_max_radius_m == pytest.approx(0.24)
     assert profile.search_step_m == pytest.approx(0.01)
-    assert profile.search_y_max_m == pytest.approx(-0.10)
+    assert profile.search_y_max_m == pytest.approx(-0.15)
     measured_bounds = (
         profile.search_x_min_m,
         profile.search_x_max_m,
@@ -95,4 +99,17 @@ def test_preferred_free_space_distance_cannot_be_smaller_than_minimum(tmp_path):
     profile_path.write_text(profiles)
 
     with pytest.raises(ConfigurationError, match='deve ser maior ou igual'):
+        load_profiles(profile_path, PACKAGE / 'config' / 'cargo_slots.yaml')
+
+
+def test_reach_minimum_radius_must_be_smaller_than_maximum(tmp_path):
+    profiles = (PACKAGE / 'config' / 'profiles.yaml').read_text()
+    profiles = profiles.replace(
+        'reach_min_radius_m: 0.16',
+        'reach_min_radius_m: 0.25',
+    )
+    profile_path = tmp_path / 'profiles.yaml'
+    profile_path.write_text(profiles)
+
+    with pytest.raises(ConfigurationError, match='deve ser menor'):
         load_profiles(profile_path, PACKAGE / 'config' / 'cargo_slots.yaml')

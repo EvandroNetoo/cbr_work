@@ -61,6 +61,10 @@ class PlacementProfile:
     tcp_release_offset_cm: float | None = None
     free_space_min_distance_m: float = 0.08
     free_space_preferred_distance_m: float = 0.12
+    reach_center_x_m: float = 0.0
+    reach_center_y_m: float = 0.0
+    reach_min_radius_m: float | None = None
+    reach_max_radius_m: float | None = None
     search_x_min_m: float | None = None
     search_x_max_m: float | None = None
     search_y_min_m: float | None = None
@@ -160,6 +164,8 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 'release_x_m', 'release_y_m', 'release_yaw_deg',
                 'tcp_release_offset_cm',
                 'free_space_min_distance_m', 'free_space_preferred_distance_m',
+                'reach_center_x_m', 'reach_center_y_m',
+                'reach_min_radius_m', 'reach_max_radius_m',
                 'search_x_min_m', 'search_x_max_m',
                 'search_y_min_m', 'search_y_max_m', 'search_step_m',
             },
@@ -232,6 +238,30 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 f'placements.{name}.free_space_preferred_distance_m',
                 positive=True,
             ),
+            reach_center_x_m=_number(
+                raw.get('reach_center_x_m', 0.0),
+                f'placements.{name}.reach_center_x_m',
+            ),
+            reach_center_y_m=_number(
+                raw.get('reach_center_y_m', 0.0),
+                f'placements.{name}.reach_center_y_m',
+            ),
+            reach_min_radius_m=(
+                None if raw.get('reach_min_radius_m') is None
+                else _number(
+                    raw['reach_min_radius_m'],
+                    f'placements.{name}.reach_min_radius_m',
+                    positive=True,
+                )
+            ),
+            reach_max_radius_m=(
+                None if raw.get('reach_max_radius_m') is None
+                else _number(
+                    raw['reach_max_radius_m'],
+                    f'placements.{name}.reach_max_radius_m',
+                    positive=True,
+                )
+            ),
             search_x_min_m=(
                 None if raw.get('search_x_min_m') is None
                 else _number(raw['search_x_min_m'], f'placements.{name}.search_x_min_m')
@@ -265,6 +295,21 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
             raise ConfigurationError(
                 f'placements.{name}.free_space_preferred_distance_m deve ser '
                 'maior ou igual a free_space_min_distance_m.'
+            )
+        reach_radii = (profile.reach_min_radius_m, profile.reach_max_radius_m)
+        if (reach_radii[0] is None) != (reach_radii[1] is None):
+            raise ConfigurationError(
+                f'placements.{name}.reach_min_radius_m e reach_max_radius_m '
+                'devem ser configurados juntos.'
+            )
+        if (
+            reach_radii[0] is not None
+            and reach_radii[1] is not None
+            and reach_radii[0] >= reach_radii[1]
+        ):
+            raise ConfigurationError(
+                f'placements.{name}.reach_min_radius_m deve ser menor que '
+                'reach_max_radius_m.'
             )
         placements[name] = profile
 

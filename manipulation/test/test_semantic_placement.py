@@ -1,3 +1,4 @@
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -55,6 +56,10 @@ def _search_profile(**overrides):
         'tcp_release_offset_cm': -3.0,
         'free_space_min_distance_m': 0.08,
         'free_space_preferred_distance_m': 0.12,
+        'reach_center_x_m': 0.0,
+        'reach_center_y_m': 0.0,
+        'reach_min_radius_m': 0.10,
+        'reach_max_radius_m': 0.40,
         'search_x_min_m': -0.10,
         'search_x_max_m': 0.10,
         'search_y_min_m': -0.30,
@@ -209,6 +214,40 @@ def test_table_search_starts_at_nominal_position():
 
     assert candidates[0] == pytest.approx((0.0, -0.20))
     assert all(y <= -0.10 + 1e-9 for _, y in candidates)
+
+
+def test_table_search_keeps_only_rectangle_points_inside_reach_annulus():
+    profile = _search_profile(
+        reach_center_x_m=0.01,
+        reach_center_y_m=-0.01,
+        reach_min_radius_m=0.16,
+        reach_max_radius_m=0.22,
+    )
+
+    candidates = ManipulationServer._table_search_candidates(profile)
+
+    radii = [
+        math.hypot(x - profile.reach_center_x_m, y - profile.reach_center_y_m)
+        for x, y in candidates
+    ]
+    assert candidates
+    assert min(radii) >= profile.reach_min_radius_m - 1e-9
+    assert max(radii) <= profile.reach_max_radius_m + 1e-9
+
+
+def test_table_search_rejects_disjoint_rectangle_and_reach_annulus():
+    profile = _search_profile(
+        search_x_min_m=0.0,
+        search_x_max_m=0.0,
+        search_y_min_m=-0.20,
+        search_y_max_m=-0.20,
+        reach_center_y_m=-0.20,
+        reach_min_radius_m=0.10,
+        reach_max_radius_m=0.20,
+    )
+
+    with pytest.raises(ConfigurationError, match='não contém candidatos'):
+        ManipulationServer._table_search_candidates(profile)
 
 
 def test_table_search_prefers_nearest_candidate_with_comfortable_clearance():

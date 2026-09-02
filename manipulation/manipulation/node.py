@@ -620,9 +620,21 @@ class ManipulationServer(Node):
             raise FeatureUnavailable(
                 'A posição nominal release_x_m/release_y_m não foi configurada.'
             )
+        if (
+            profile.reach_min_radius_m is None
+            or profile.reach_max_radius_m is None
+        ):
+            raise FeatureUnavailable(
+                'Preencha reach_min_radius_m e reach_max_radius_m no perfil '
+                'table antes de analisar AprilTags.'
+            )
         x_min, x_max, y_min, y_max = (float(value) for value in bounds)
         nominal_x = float(profile.release_x_m)
         nominal_y = float(profile.release_y_m)
+        reach_center_x = float(profile.reach_center_x_m)
+        reach_center_y = float(profile.reach_center_y_m)
+        reach_min_radius = float(profile.reach_min_radius_m)
+        reach_max_radius = float(profile.reach_max_radius_m)
         step = float(profile.search_step_m)
         if x_min > x_max or y_min > y_max:
             raise ConfigurationError(
@@ -650,7 +662,22 @@ class ManipulationServer(Node):
             nominal_y + index * step
             for index in range(-negative_y, positive_y + 1)
         ]
-        candidates = [(x, y) for x in xs for y in ys]
+        candidates = []
+        for x in xs:
+            for y in ys:
+                reach_radius = math.hypot(
+                    x - reach_center_x, y - reach_center_y
+                )
+                if (
+                    reach_radius + 1e-9 >= reach_min_radius
+                    and reach_radius <= reach_max_radius + 1e-9
+                ):
+                    candidates.append((x, y))
+        if not candidates:
+            raise ConfigurationError(
+                'A interseção entre a região retangular de busca e a faixa '
+                'de alcance do braço não contém candidatos.'
+            )
         candidates.sort(key=lambda point: (
             (point[0] - nominal_x) ** 2 + (point[1] - nominal_y) ** 2,
             abs(point[1] - nominal_y),

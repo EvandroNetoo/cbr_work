@@ -46,7 +46,10 @@ são ordenados pela distância até `release_x_m/release_y_m` e devem manter
 Se não houver uma posição com essa folga, a busca passa a aceitar o limite de
 `free_space_min_distance_m`. A
 busca usa uma grade delimitada por `search_x_min_m`, `search_x_max_m`,
-`search_y_min_m` e `search_y_max_m`. Se nenhuma tag for detectada, o nominal é
+`search_y_min_m` e `search_y_max_m`. Essa grade é recortada pela faixa circular
+centrada em `reach_center_x_m/reach_center_y_m`: pontos abaixo de
+`reach_min_radius_m` (CP) ou acima de `reach_max_radius_m` (CL) são descartados.
+Se nenhuma tag for detectada, o candidato alcançável mais próximo do nominal é
 usado; se nenhum candidato for livre, a action retorna `NO_FREE_SPACE` sem
 iniciar o depósito.
 
