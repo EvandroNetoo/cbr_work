@@ -16,6 +16,10 @@ alignment_defaults:
   distance_mm: 200
   tolerance_mm: 10
   timeout_s: 10.0
+departure_defaults:
+  distance_mm: 250
+  tolerance_mm: 15
+  timeout_s: 8.0
 start: {x_m: 0.0, y_m: 0.0, yaw_rad: 0.0}
 finish: {x_m: 3.0, y_m: 0.0, yaw_rad: 3.14}
 service_areas:
@@ -33,6 +37,8 @@ service_areas:
     type: SH
     alignment:
       distance_mm: 180
+    departure:
+      distance_mm: 300
 """
 
 
@@ -50,6 +56,11 @@ def test_arena_merges_partial_alignment_override(tmp_path):
     assert right.distance_mm == 180
     assert right.tolerance_mm == 10
     assert right.timeout_s == pytest.approx(10.0)
+    assert arena.service_areas['ws_1'].departure.distance_mm == 250
+    departure = arena.service_areas['ws_3'].departure
+    assert departure.distance_mm == 300
+    assert departure.tolerance_mm == 15
+    assert departure.timeout_s == pytest.approx(8.0)
 
 
 def test_package_arena_refuses_uncalibrated_poses():

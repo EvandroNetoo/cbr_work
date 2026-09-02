@@ -7,6 +7,7 @@ from mission_manager.node import MissionManager
 from mission_manager.models import (
     AlignmentConfig,
     Arena,
+    DepartureConfig,
     MapPose,
     ServiceArea,
     Step,
@@ -15,11 +16,13 @@ from mission_manager.models import (
 
 def _arena():
     alignment = AlignmentConfig(200, 10, 10.0)
+    departure = DepartureConfig(250, 10, 10.0)
     return Arena(
         frame_id='map',
         start=MapPose(0.0, 0.0, 0.0),
         finish=MapPose(3.0, 0.0, 3.14),
         alignment_defaults=alignment,
+        departure_defaults=departure,
         service_areas={
             'ws_1': ServiceArea(
                 area_id='ws_1',
@@ -27,6 +30,7 @@ def _arena():
                 height_cm=12.5,
                 area_type='WS',
                 alignment=alignment,
+                departure=departure,
             ),
         },
     )

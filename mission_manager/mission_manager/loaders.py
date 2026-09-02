@@ -13,6 +13,7 @@ from .errors import ConfigurationError
 from .models import (
     Arena,
     AlignmentConfig,
+    DepartureConfig,
     MapPose,
     Plan,
     SERVICE_AREA_TYPES,
@@ -93,11 +94,11 @@ def _pose(raw_value: Any, context: str) -> MapPose:
     )
 
 
-def _alignment(
+def _distance_config_values(
     raw_value: Any,
     context: str,
-    defaults: AlignmentConfig | None = None,
-) -> AlignmentConfig:
+    defaults: AlignmentConfig | DepartureConfig | None = None,
+) -> tuple[int, int, float]:
     raw = _mapping(raw_value, context)
     _only_keys(raw, {'distance_mm', 'tolerance_mm', 'timeout_s'}, context)
 
@@ -118,22 +119,39 @@ def _alignment(
         raise ConfigurationError(f'{context}.distance_mm deve ser positivo.')
     if tolerance == 0:
         raise ConfigurationError(f'{context}.tolerance_mm deve ser positivo.')
-    return AlignmentConfig(
-        distance_mm=distance,
-        tolerance_mm=tolerance,
-        timeout_s=_number(
+    return (
+        distance,
+        tolerance,
+        _number(
             selected('timeout_s'), f'{context}.timeout_s', positive=True
         ),
     )
 
 
+def _alignment(
+    raw_value: Any,
+    context: str,
+    defaults: AlignmentConfig | None = None,
+) -> AlignmentConfig:
+    return AlignmentConfig(*_distance_config_values(raw_value, context, defaults))
+
+
+def _departure(
+    raw_value: Any,
+    context: str,
+    defaults: DepartureConfig | None = None,
+) -> DepartureConfig:
+    return DepartureConfig(*_distance_config_values(raw_value, context, defaults))
+
+
 def load_arena(path: str | Path) -> Arena:
-    """Load calibrated map targets and merge per-area alignment overrides."""
+    """Load calibrated map targets and merge per-area distance overrides."""
     root = _load_yaml(path)
     _only_keys(
         root,
         {
             'schema_version', 'frame_id', 'alignment_defaults',
+            'departure_defaults',
             'start', 'finish', 'service_areas',
         },
         'arena',
@@ -141,6 +159,9 @@ def load_arena(path: str | Path) -> Arena:
     frame_id = _nonempty_string(root.get('frame_id'), 'arena.frame_id')
     defaults = _alignment(
         root.get('alignment_defaults'), 'arena.alignment_defaults'
+    )
+    departure_defaults = _departure(
+        root.get('departure_defaults'), 'arena.departure_defaults'
     )
     areas_raw = _mapping(root.get('service_areas'), 'arena.service_areas')
     areas: dict[str, ServiceArea] = {}
@@ -153,7 +174,10 @@ def load_arena(path: str | Path) -> Arena:
         raw = _mapping(value, f'arena.service_areas.{area_name}')
         _only_keys(
             raw,
-            {'x_m', 'y_m', 'yaw_rad', 'height_cm', 'type', 'alignment'},
+            {
+                'x_m', 'y_m', 'yaw_rad', 'height_cm', 'type',
+                'alignment', 'departure',
+            },
             f'arena.service_areas.{area_name}',
         )
         area_type = _nonempty_string(
@@ -167,7 +191,6 @@ def load_arena(path: str | Path) -> Arena:
             {key: raw.get(key) for key in ('x_m', 'y_m', 'yaw_rad')},
             f'arena.service_areas.{area_name}',
         )
-        override = raw.get('alignment', {})
         areas[area_name] = ServiceArea(
             area_id=area_name,
             pose=pose,
@@ -177,9 +200,14 @@ def load_arena(path: str | Path) -> Arena:
             ),
             area_type=area_type,
             alignment=_alignment(
-                override,
+                raw.get('alignment', {}),
                 f'arena.service_areas.{area_name}.alignment',
                 defaults,
+            ),
+            departure=_departure(
+                raw.get('departure', {}),
+                f'arena.service_areas.{area_name}.departure',
+                departure_defaults,
             ),
         )
     return Arena(
@@ -187,6 +215,7 @@ def load_arena(path: str | Path) -> Arena:
         start=_pose(root.get('start'), 'arena.start'),
         finish=_pose(root.get('finish'), 'arena.finish'),
         alignment_defaults=defaults,
+        departure_defaults=departure_defaults,
         service_areas=areas,
     )
 

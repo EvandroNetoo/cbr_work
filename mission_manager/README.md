@@ -6,7 +6,7 @@ diretamente: ele compõe Nav2, alinhamento VL53 e as actions semânticas do paco
 
 ## Arquivos
 
-- `config/arena.yaml`: poses fixas, alturas, tipos e alinhamento;
+- `config/arena.yaml`: poses fixas, alturas, tipos, alinhamento e recuo;
 - `config/plans/*.yaml`: passos sequenciais selecionados por `plan_id`;
 - `config/mission_manager.yaml`: nomes das actions e timeouts ROS.
 
@@ -22,8 +22,15 @@ Para uma service area, `navigate` executa:
 PrepareManipulator(NAVIGATION) → NavigateToPose → MoveToDistance
 ```
 
-Para `start` e `finish`, o alinhamento é omitido. O bloco `alignment` de uma
-service area sobrescreve parcialmente `alignment_defaults`.
+Ao sair de uma service area para outro destino, o fluxo começa com:
+
+```text
+MoveToDistance(departure) → PrepareManipulator(NAVIGATION) → NavigateToPose
+```
+
+Para `start` e `finish`, o alinhamento de chegada é omitido. Os blocos
+`alignment` e `departure` de uma service area sobrescrevem parcialmente
+`alignment_defaults` e `departure_defaults`, respectivamente.
 
 ## Execução
 

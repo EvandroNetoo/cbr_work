@@ -256,6 +256,24 @@ class MissionManager(Node):
     def _navigate(self, target: str) -> None:
         assert self._arena is not None
         pose = self._arena.pose_for(target)
+        if (
+            self._current_location in self._arena.service_areas
+            and target != self._current_location
+        ):
+            departure = self._arena.service_areas[
+                self._current_location
+            ].departure
+            departure_goal = MoveToDistance.Goal()
+            departure_goal.distance_mm = departure.distance_mm
+            departure_goal.tolerance_mm = departure.tolerance_mm
+            departure_goal.timeout = self._duration(departure.timeout_s)
+            self._call_action(
+                self._alignment_client,
+                departure_goal,
+                f'recuo para sair de {self._current_location}',
+                departure.timeout_s + 5.0,
+                self._alignment_failure,
+            )
         self._prepare_for_navigation()
         goal = NavigateToPose.Goal()
         goal.pose.header.frame_id = self._arena.frame_id

@@ -27,6 +27,13 @@ class AlignmentConfig:
 
 
 @dataclass(frozen=True)
+class DepartureConfig:
+    distance_mm: int
+    tolerance_mm: int
+    timeout_s: float
+
+
+@dataclass(frozen=True)
 class MapPose:
     x_m: float
     y_m: float
@@ -40,6 +47,7 @@ class ServiceArea:
     height_cm: float
     area_type: str
     alignment: AlignmentConfig
+    departure: DepartureConfig
 
 
 @dataclass(frozen=True)
@@ -48,6 +56,7 @@ class Arena:
     start: MapPose
     finish: MapPose
     alignment_defaults: AlignmentConfig
+    departure_defaults: DepartureConfig
     service_areas: dict[str, ServiceArea]
 
     def pose_for(self, target: str) -> MapPose:

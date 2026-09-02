@@ -8,6 +8,13 @@ alignment_defaults:
   tolerance_mm: 5
   timeout_s: 10.0
 
+# Distância segura da superfície antes de entregar novamente o movimento ao
+# Nav2. Cada área pode sobrescrever estes campos em um bloco `departure`.
+departure_defaults:
+  distance_mm: 250
+  tolerance_mm: 10
+  timeout_s: 10.0
+
 # Preencher com poses medidas no mapa antes da primeira execução.
 start:
   x_m: 0.0009
