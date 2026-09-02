@@ -54,6 +54,7 @@ def _search_profile(**overrides):
         'release_yaw_deg': 0.0,
         'tcp_release_offset_cm': -3.0,
         'free_space_min_distance_m': 0.08,
+        'free_space_preferred_distance_m': 0.12,
         'search_x_min_m': -0.10,
         'search_x_max_m': 0.10,
         'search_y_min_m': -0.30,
@@ -210,18 +211,41 @@ def test_table_search_starts_at_nominal_position():
     assert all(y <= -0.10 + 1e-9 for _, y in candidates)
 
 
-def test_table_search_selects_nearest_candidate_at_least_eight_cm_away():
+def test_table_search_prefers_nearest_candidate_with_comfortable_clearance():
     profile = _search_profile()
     candidates = ManipulationServer._table_search_candidates(profile)
 
     selected = ManipulationServer._select_free_table_position(
-        candidates, [(0.0, -0.20)], profile.free_space_min_distance_m
+        candidates,
+        [(0.0, -0.20)],
+        profile.free_space_min_distance_m,
+        profile.free_space_preferred_distance_m,
     )
 
     assert selected != pytest.approx((0.0, -0.20))
-    assert ((selected[0] ** 2 + (selected[1] + 0.20) ** 2) ** 0.5) == pytest.approx(
-        0.08
+    clearance = (selected[0] ** 2 + (selected[1] + 0.20) ** 2) ** 0.5
+    assert 0.12 <= clearance < 0.13
+
+
+def test_table_search_falls_back_to_minimum_clearance_when_needed():
+    profile = _search_profile(
+        search_x_min_m=0.0,
+        search_x_max_m=0.0,
+        search_y_min_m=-0.28,
+        search_y_max_m=-0.12,
     )
+    candidates = ManipulationServer._table_search_candidates(profile)
+
+    selected = ManipulationServer._select_free_table_position(
+        candidates,
+        [(0.0, -0.20)],
+        profile.free_space_min_distance_m,
+        profile.free_space_preferred_distance_m,
+    )
+
+    clearance = (selected[0] ** 2 + (selected[1] + 0.20) ** 2) ** 0.5
+    assert clearance == pytest.approx(0.08)
+    assert clearance < profile.free_space_preferred_distance_m
 
 
 def test_table_search_reports_no_free_space():
@@ -235,7 +259,10 @@ def test_table_search_reports_no_free_space():
 
     with pytest.raises(NoFreeSpace, match='Nenhuma posição'):
         ManipulationServer._select_free_table_position(
-            candidates, [(0.0, -0.20)], profile.free_space_min_distance_m
+            candidates,
+            [(0.0, -0.20)],
+            profile.free_space_min_distance_m,
+            profile.free_space_preferred_distance_m,
         )
 
 

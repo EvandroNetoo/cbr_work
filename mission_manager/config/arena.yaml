@@ -12,7 +12,7 @@ alignment_defaults:
 # Nav2. Cada área pode sobrescrever estes campos em um bloco `departure`.
 departure_defaults:
   distance_mm: 250
-  tolerance_mm: 10
+  tolerance_mm: 25
   timeout_s: 10.0
 
 # Preencher com poses medidas no mapa antes da primeira execução.

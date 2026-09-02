@@ -19,10 +19,11 @@ placements:
     tcp_release_offset_cm: -7.5
     # Região segura e alcançável para buscar espaço livre. Calibrar os vazios.
     free_space_min_distance_m: 0.08
+    free_space_preferred_distance_m: 0.12
     search_x_min_m: -0.15
     search_x_max_m: 0.15
-    search_y_min_m: -0.30
-    search_y_max_m: -0.10
+    search_y_min_m: -0.20
+    search_y_max_m: -0.15
     search_step_m: 0.01
     approach_height_m: 0.07
     retreat_height_m: 0.07
@@ -53,7 +54,7 @@ placements:
     approach_height_m: 0.03
     retreat_height_m: 0.08
     calibrated_reference: true
-    reference_offset_xyz: [0.0, 0.0, 0.01]
+    reference_offset_xyz: [0.0, 0.0, 0.03]
     yaw_offset_deg: 0.0
 
   shelf:

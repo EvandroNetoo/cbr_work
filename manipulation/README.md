@@ -42,7 +42,9 @@ perfil `table`. A altura do TCP é calculada por
 Quando `analyze_apriltags` é verdadeiro, o servidor posiciona a câmera, analisa
 todas as tags em `arm_base_link` e procura a partir da posição nominal. Os candidatos
 são ordenados pela distância até `release_x_m/release_y_m` e devem manter
-`free_space_min_distance_m` de todas as tags, exceto a do objeto na garra. A
+`free_space_preferred_distance_m` de todas as tags, exceto a do objeto na garra.
+Se não houver uma posição com essa folga, a busca passa a aceitar o limite de
+`free_space_min_distance_m`. A
 busca usa uma grade delimitada por `search_x_min_m`, `search_x_max_m`,
 `search_y_min_m` e `search_y_max_m`. Se nenhuma tag for detectada, o nominal é
 usado; se nenhum candidato for livre, a action retorna `NO_FREE_SPACE` sem

@@ -60,6 +60,7 @@ class PlacementProfile:
     release_yaw_deg: float | None = None
     tcp_release_offset_cm: float | None = None
     free_space_min_distance_m: float = 0.08
+    free_space_preferred_distance_m: float = 0.12
     search_x_min_m: float | None = None
     search_x_max_m: float | None = None
     search_y_min_m: float | None = None
@@ -158,7 +159,7 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 'calibrated_reference',
                 'release_x_m', 'release_y_m', 'release_yaw_deg',
                 'tcp_release_offset_cm',
-                'free_space_min_distance_m',
+                'free_space_min_distance_m', 'free_space_preferred_distance_m',
                 'search_x_min_m', 'search_x_max_m',
                 'search_y_min_m', 'search_y_max_m', 'search_step_m',
             },
@@ -223,6 +224,14 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 f'placements.{name}.free_space_min_distance_m',
                 positive=True,
             ),
+            free_space_preferred_distance_m=_number(
+                raw.get(
+                    'free_space_preferred_distance_m',
+                    raw.get('free_space_min_distance_m', 0.08),
+                ),
+                f'placements.{name}.free_space_preferred_distance_m',
+                positive=True,
+            ),
             search_x_min_m=(
                 None if raw.get('search_x_min_m') is None
                 else _number(raw['search_x_min_m'], f'placements.{name}.search_x_min_m')
@@ -248,6 +257,14 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
         if profile.enabled and strategy == 'named_state' and not profile.named_state:
             raise ConfigurationError(
                 f'placements.{name}.named_state é obrigatório quando habilitado.'
+            )
+        if (
+            profile.free_space_preferred_distance_m
+            < profile.free_space_min_distance_m
+        ):
+            raise ConfigurationError(
+                f'placements.{name}.free_space_preferred_distance_m deve ser '
+                'maior ou igual a free_space_min_distance_m.'
             )
         placements[name] = profile
 

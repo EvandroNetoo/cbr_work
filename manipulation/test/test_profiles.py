@@ -46,6 +46,7 @@ def test_nominal_table_pose_calibration_is_complete_or_empty():
 def test_table_free_space_search_uses_safe_defaults_and_complete_bounds():
     profile = _profiles().placements['table']
     assert profile.free_space_min_distance_m == pytest.approx(0.08)
+    assert profile.free_space_preferred_distance_m == pytest.approx(0.12)
     assert profile.search_step_m == pytest.approx(0.01)
     assert profile.search_y_max_m == pytest.approx(-0.10)
     measured_bounds = (
@@ -81,4 +82,17 @@ def test_unknown_configuration_field_is_rejected(tmp_path):
     profile_path.write_text(profiles)
 
     with pytest.raises(ConfigurationError, match='campos desconhecidos'):
+        load_profiles(profile_path, PACKAGE / 'config' / 'cargo_slots.yaml')
+
+
+def test_preferred_free_space_distance_cannot_be_smaller_than_minimum(tmp_path):
+    profiles = (PACKAGE / 'config' / 'profiles.yaml').read_text()
+    profiles = profiles.replace(
+        'free_space_preferred_distance_m: 0.12',
+        'free_space_preferred_distance_m: 0.07',
+    )
+    profile_path = tmp_path / 'profiles.yaml'
+    profile_path.write_text(profiles)
+
+    with pytest.raises(ConfigurationError, match='deve ser maior ou igual'):
         load_profiles(profile_path, PACKAGE / 'config' / 'cargo_slots.yaml')

@@ -665,15 +665,21 @@ class ManipulationServer(Node):
         candidates: list[tuple[float, float]],
         obstacles: list[tuple[float, float]],
         minimum_distance_m: float,
+        preferred_distance_m: float,
     ) -> tuple[float, float]:
-        """Return the first nominal-outward candidate clear of every tag."""
-        for candidate_x, candidate_y in candidates:
-            if all(
-                math.hypot(candidate_x - obstacle_x, candidate_y - obstacle_y)
-                + 1e-9 >= minimum_distance_m
-                for obstacle_x, obstacle_y in obstacles
-            ):
-                return candidate_x, candidate_y
+        """Prefer comfortable clearance, falling back to the safe minimum."""
+        if preferred_distance_m < minimum_distance_m:
+            raise ConfigurationError(
+                'A distância preferencial deve ser maior ou igual à mínima.'
+            )
+        for required_distance_m in (preferred_distance_m, minimum_distance_m):
+            for candidate_x, candidate_y in candidates:
+                if all(
+                    math.hypot(candidate_x - obstacle_x, candidate_y - obstacle_y)
+                    + 1e-9 >= required_distance_m
+                    for obstacle_x, obstacle_y in obstacles
+                ):
+                    return candidate_x, candidate_y
         raise NoFreeSpace(
             'Nenhuma posição da região de busca mantém a distância mínima de '
             f'{minimum_distance_m:.3f} m das AprilTags.'
@@ -801,6 +807,7 @@ class ManipulationServer(Node):
                     candidates,
                     obstacles,
                     float(profile.free_space_min_distance_m),
+                    float(profile.free_space_preferred_distance_m),
                 )
                 self._feedback(
                     goal_handle, PlaceOnTable, ManipulationFeedback.OBSERVING,
