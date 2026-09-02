@@ -21,6 +21,8 @@ O notebook não é necessário para o controle ou planejamento do robô.
 - `camera`: aquisição e retificação da câmera, independentes do robô.
 - `so_arm_101`: descrição, hardware, controllers, teleop e MoveIt do braço.
 - `apriltag`: detector AprilTag, usando tópicos de câmera externos.
+- `manipulation`: actions semânticas de coleta, carga e depósito.
+- `mission_manager`: execução sequencial de missões sobre Nav2 e manipulação.
 
 ## Build
 

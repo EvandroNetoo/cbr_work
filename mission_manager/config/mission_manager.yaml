@@ -1,0 +1,18 @@
+mission_manager:
+  ros__parameters:
+    arena_file: ""
+    plans_directory: ""
+    execute_action: /mission/execute
+    navigate_action: /navigate_to_pose
+    alignment_action: /vl53/move_to_distance
+    prepare_action: /manipulation/prepare
+    pick_action: /manipulation/pick
+    store_action: /manipulation/store
+    retrieve_action: /manipulation/retrieve
+    place_on_table_action: /manipulation/place_on_table
+    place_in_container_action: /manipulation/place_in_container
+    stack_action: /manipulation/stack
+    place_on_shelf_action: /manipulation/place_on_shelf
+    server_timeout_s: 10.0
+    navigation_timeout_s: 120.0
+    manipulation_timeout_s: 120.0

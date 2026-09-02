@@ -5,7 +5,7 @@ pickup:
     observation_state: detect_apriltags
     approach_height_m: 0.08
     cube_size_m: 0.042
-    yaw_offset_deg: 0.0
+    yaw_offset_deg: 90.0
     attempts: 2
 
 placements:

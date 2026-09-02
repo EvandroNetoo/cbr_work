@@ -1,0 +1,58 @@
+schema_version: 1
+plan_id: example_transport
+
+# Exemplo sintaticamente válido. Ajuste IDs, destinos e tipos de depósito para
+# a tarefa entregue na competição.
+steps:
+  # - id: go_source
+  #   action: navigate
+  #   target: ws_1
+
+  # - id: pick_1
+  #   action: pick
+  #   tag_id: 1
+
+  # - id: store_1
+  #   action: store
+  #   slot_id: left
+
+  # - id: pick_5
+  #   action: pick
+  #   tag_id: 2
+
+  # - id: store_5
+  #   action: store
+  #   slot_id: right
+
+  # - id: pick_3
+  #   action: pick
+  #   tag_id: 4
+
+  - id: go_destination
+    action: navigate
+    target: ws_2
+
+  # - id: place_3
+  #   action: place_on_table
+  #   analyze_apriltags: false
+  #   analyze_containers: false
+
+  # - id: retrieve_1
+  #   action: retrieve
+  #   slot_id: left
+
+  # - id: place_1
+  #   action: stack
+  #   support_tag_id: 4
+
+  # - id: retrieve_5
+  #   action: retrieve
+  #   slot_id: right
+
+  - id: stack_5_on_1
+    action: place_on_table
+    analyze_apriltags: true
+    analyze_containers: false
+
+  - id: finish
+    action: finish

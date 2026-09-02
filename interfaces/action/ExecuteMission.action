@@ -1,0 +1,19 @@
+# Execute one validated sequential plan installed in mission_manager/config/plans.
+string plan_id
+---
+uint16 SUCCESS=0
+uint16 CONFIGURATION_ERROR=1
+uint16 STEP_FAILED=2
+uint16 CANCELED=3
+uint16 INTERNAL_ERROR=4
+
+uint16 code
+uint32 completed_steps
+string failed_step_id
+string message
+---
+uint32 current_step_index
+uint32 total_steps
+string step_id
+string operation
+string description

@@ -1,0 +1,35 @@
+schema_version: 1
+frame_id: map
+
+# Padrão usado por todas as áreas; um bloco alignment local pode sobrescrever
+# somente os campos que forem diferentes.
+alignment_defaults:
+  distance_mm: 40
+  tolerance_mm: 5
+  timeout_s: 10.0
+
+# Preencher com poses medidas no mapa antes da primeira execução.
+start:
+  x_m: 0.0009
+  y_m: 0.1681
+  yaw_rad: -1.6412
+
+finish:
+  x_m: -0.0117
+  y_m: 0.0966
+  yaw_rad: 1.5065
+
+service_areas:
+  ws_1:
+    x_m: -0.1820
+    y_m: 0.4575
+    yaw_rad: -3.1222
+    height_cm: 5
+    type: WS
+
+  ws_2:
+    x_m: 0.1748
+    y_m: 0.1609
+    yaw_rad: -0.0449
+    height_cm: 10
+    type: WS
