@@ -23,7 +23,7 @@ pickup_recovery:
   minimum_wall_distance_mm: 30
   maximum_wall_distance_mm: 250
   preferred_tag_x_m: 0.0
-  preferred_tag_y_m: -0.22
+  preferred_tag_y_m: -0.25
   wall_tolerance_mm: 5
   travel_tolerance_mm: 10
   timeout_s: 15.0
@@ -42,9 +42,9 @@ finish:
 
 service_areas:
   ws_1:
-    x_m: -0.1820
-    y_m: 0.4575
-    yaw_rad: -3.1222
+    x_m: -0.0950
+    y_m: 0.2620
+    yaw_rad: 3.0040
     height_cm: 15
     type: WS
 

@@ -13,7 +13,7 @@ from vl53_distance.action_server import (
     odometry_pose,
     rightward_displacement_mm,
 )
-from vl53_distance.control import ControlCommand, FollowWallCommand
+from vl53_distance.control import FollowWallCommand
 from vl53_distance.sensor_pair import DistanceSample, SensorPairConfig
 
 
@@ -30,11 +30,6 @@ class FakeLogger:
 
 class FakeGoal:
     def __init__(self, *, cancel=False):
-        self.request = SimpleNamespace(
-            distance_mm=300,
-            tolerance_mm=10,
-            timeout=SimpleNamespace(sec=10, nanosec=0),
-        )
         self.is_cancel_requested = cancel
         self.is_active = True
         self.terminal = None
@@ -71,18 +66,6 @@ class FakeFollowWallGoal(FakeGoal):
         )
 
 
-class FakeController:
-    def __init__(self, inside=False):
-        self.inside = inside
-
-    def reset(self):
-        pass
-
-    def calculate(self, left, right, target, tolerance, dt):
-        del left, right, target, tolerance, dt
-        return ControlCommand(0.02, 0.0, 300.0, 0.0, 0.0, self.inside)
-
-
 class FakeFollowWallController:
     def __init__(self, inside=False):
         self.inside = inside
@@ -114,7 +97,7 @@ class SequencePair:
         return value
 
 
-def _bare_server(pair, controller=None):
+def _bare_server(pair):
     server = object.__new__(VL53DistanceAction)
     server._sensor_config = SensorPairConfig()
     server._control_rate_hz = 100000.0
@@ -125,7 +108,6 @@ def _bare_server(pair, controller=None):
     server._failure_limit = 3
     server._wheel_linear_speed = 0.238
     server._kinematic_lever = 0.2225
-    server._controller = controller or FakeController()
     server._follow_wall_controller = FakeFollowWallController()
     server._sensor_pair = pair
     server._lock = threading.RLock()
@@ -139,14 +121,6 @@ def _bare_server(pair, controller=None):
     server._publish_twist = lambda *_args: None
     server.get_logger = lambda: FakeLogger()
     return server
-
-
-def _request(distance=300, tolerance=10, timeout=10):
-    return SimpleNamespace(
-        distance_mm=distance,
-        tolerance_mm=tolerance,
-        timeout=SimpleNamespace(sec=timeout, nanosec=0),
-    )
 
 
 def _follow_request(
@@ -165,23 +139,12 @@ def _follow_request(
     )
 
 
-def test_goal_validation_and_single_goal_reservation():
-    server = _bare_server(SequencePair([]))
-    assert server._goal_callback(_request()).name == GoalResponse.ACCEPT.name
-    assert server._state == 'accepted'
-    assert server._goal_callback(_request()).name == GoalResponse.REJECT.name
-
-    server._state = 'idle'
-    assert server._goal_callback(_request(distance=2000)).name == GoalResponse.REJECT.name
-    assert server._goal_callback(_request(tolerance=0)).name == GoalResponse.REJECT.name
-    assert server._goal_callback(_request(timeout=0)).name == GoalResponse.REJECT.name
-
-
-def test_follow_wall_goal_validation_and_shared_reservation():
+def test_follow_wall_goal_validation_and_single_goal_reservation():
     server = _bare_server(SequencePair([]))
     assert server._follow_wall_goal_callback(
         _follow_request()).name == GoalResponse.ACCEPT.name
-    assert server._goal_callback(_request()).name == GoalResponse.REJECT.name
+    assert server._follow_wall_goal_callback(
+        _follow_request()).name == GoalResponse.REJECT.name
 
     server._state = 'idle'
     assert server._follow_wall_goal_callback(
@@ -198,58 +161,6 @@ def test_follow_wall_goal_validation_and_shared_reservation():
         _follow_request(travel_tolerance=0)).name == GoalResponse.REJECT.name
     assert server._follow_wall_goal_callback(
         _follow_request(timeout=0)).name == GoalResponse.REJECT.name
-
-
-def test_failure_counter_resets_after_valid_sample_and_aborts_on_third_failure(
-    monkeypatch,
-):
-    sample = DistanceSample(406, 348, 300, 300)
-    pair = SequencePair([
-        OSError('transiente'), sample,
-        TimeoutError('um'), TimeoutError('dois'), TimeoutError('três'),
-    ])
-    server = _bare_server(pair)
-    monkeypatch.setattr(action_module.rclpy, 'ok', lambda: True)
-    goal = FakeGoal()
-
-    server._execute_goal(goal)
-
-    assert goal.terminal == 'aborted'
-    assert pair.read_count == 5
-    assert [item.consecutive_read_failures for item in goal.feedback] == [
-        1, 0, 1, 2, 3]
-    assert not server._desired_valid
-    assert server._state == 'idle'
-
-
-def test_both_readings_must_remain_in_tolerance_before_success(monkeypatch):
-    sample = DistanceSample(406, 348, 300, 300)
-    pair = SequencePair([sample, sample])
-    server = _bare_server(pair, controller=FakeController(inside=True))
-    monkeypatch.setattr(action_module.rclpy, 'ok', lambda: True)
-    goal = FakeGoal()
-
-    result = server._execute_goal(goal)
-
-    assert goal.terminal == 'succeeded'
-    assert pair.read_count == 2
-    assert result.has_valid_reading
-    assert result.final_left_distance_mm == 300
-    assert result.final_right_distance_mm == 300
-    assert not server._desired_valid
-
-
-def test_cancel_before_first_read_stops_without_touching_sensor(monkeypatch):
-    pair = SequencePair([])
-    server = _bare_server(pair)
-    monkeypatch.setattr(action_module.rclpy, 'ok', lambda: True)
-    goal = FakeGoal(cancel=True)
-
-    server._execute_goal(goal)
-
-    assert goal.terminal == 'canceled'
-    assert pair.read_count == 0
-    assert not server._desired_valid
 
 
 def test_command_watchdog_replaces_stale_velocity_with_stop():

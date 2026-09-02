@@ -107,7 +107,6 @@ ros2 action info /arm_controller/follow_joint_trajectory
 ros2 topic echo /tf --once
 ros2 topic hz /imu/data
 ros2 topic echo /wheel/odom --once
-ros2 action info /vl53/move_to_distance
 ros2 action info /vl53/follow_wall
 ```
 

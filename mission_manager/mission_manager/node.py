@@ -13,7 +13,6 @@ from ament_index_python.packages import get_package_share_directory
 from interfaces.action import (
     ExecuteMission,
     FollowWall,
-    MoveToDistance,
     PickObject,
     PlaceInContainer,
     PlaceOnShelf,
@@ -46,8 +45,7 @@ class MissionManager(Node):
             'plans_directory': str(share / 'config' / 'plans'),
             'execute_action': '/mission/execute',
             'navigate_action': '/navigate_to_pose',
-            'alignment_action': '/vl53/move_to_distance',
-            'follow_wall_action': '/vl53/follow_wall',
+            'wall_control_action': '/vl53/follow_wall',
             'prepare_action': '/manipulation/prepare',
             'pick_action': '/manipulation/pick',
             'store_action': '/manipulation/store',
@@ -83,8 +81,7 @@ class MissionManager(Node):
             )
 
         self._navigate_client = client(NavigateToPose, 'navigate_action')
-        self._alignment_client = client(MoveToDistance, 'alignment_action')
-        self._follow_wall_client = client(FollowWall, 'follow_wall_action')
+        self._wall_control_client = client(FollowWall, 'wall_control_action')
         self._prepare_client = client(PrepareManipulator, 'prepare_action')
         self._pick_client = client(PickObject, 'pick_action')
         self._store_client = client(StoreObject, 'store_action')
@@ -231,13 +228,7 @@ class MissionManager(Node):
         return result.error_msg or f'código {result.error_code}'
 
     @staticmethod
-    def _alignment_failure(result: MoveToDistance.Result) -> str | None:
-        if result.has_valid_reading:
-            return None
-        return result.message or 'sensores de distância sem leitura válida'
-
-    @staticmethod
-    def _follow_wall_failure(result: FollowWall.Result) -> str | None:
+    def _wall_control_failure(result: FollowWall.Result) -> str | None:
         if result.has_valid_reading and result.has_valid_odometry:
             return None
         return result.message or 'sensores de distância ou odometria inválidos'
@@ -265,12 +256,40 @@ class MissionManager(Node):
         return target_wall, travel
 
     def _duration(self, seconds: float):
-        goal_duration = MoveToDistance.Goal().timeout
+        goal_duration = FollowWall.Goal().timeout
         total_nanoseconds = round(seconds * 1_000_000_000)
         goal_duration.sec, goal_duration.nanosec = divmod(
             total_nanoseconds, 1_000_000_000
         )
         return goal_duration
+
+    def _control_wall(
+        self,
+        distance_mm: int,
+        tolerance_mm: int,
+        timeout_s: float,
+        description: str,
+        *,
+        travel_distance_mm: int = 0,
+        travel_tolerance_mm: int | None = None,
+    ) -> FollowWall.Result:
+        goal = FollowWall.Goal()
+        goal.wall_distance_mm = int(distance_mm)
+        goal.travel_distance_mm = int(travel_distance_mm)
+        goal.wall_tolerance_mm = int(tolerance_mm)
+        goal.travel_tolerance_mm = int(
+            travel_tolerance_mm
+            if travel_tolerance_mm is not None
+            else tolerance_mm
+        )
+        goal.timeout = self._duration(timeout_s)
+        return self._call_action(
+            self._wall_control_client,
+            goal,
+            description,
+            timeout_s + 5.0,
+            self._wall_control_failure,
+        )
 
     def _navigation_timeout(self) -> float:
         return float(self.get_parameter('navigation_timeout_s').value)
@@ -310,16 +329,11 @@ class MissionManager(Node):
             departure = self._arena.service_areas[
                 self._current_location
             ].departure
-            departure_goal = MoveToDistance.Goal()
-            departure_goal.distance_mm = departure.distance_mm
-            departure_goal.tolerance_mm = departure.tolerance_mm
-            departure_goal.timeout = self._duration(departure.timeout_s)
-            self._call_action(
-                self._alignment_client,
-                departure_goal,
+            self._control_wall(
+                departure.distance_mm,
+                departure.tolerance_mm,
+                departure.timeout_s,
                 f'recuo para sair de {self._current_location}',
-                departure.timeout_s + 5.0,
-                self._alignment_failure,
             )
             self._current_wall_distance_mm = None
         self._prepare_for_navigation()
@@ -340,16 +354,11 @@ class MissionManager(Node):
         self._current_wall_distance_mm = None
         if target in self._arena.service_areas:
             alignment = self._arena.service_areas[target].alignment
-            alignment_goal = MoveToDistance.Goal()
-            alignment_goal.distance_mm = alignment.distance_mm
-            alignment_goal.tolerance_mm = alignment.tolerance_mm
-            alignment_goal.timeout = self._duration(alignment.timeout_s)
-            result = self._call_action(
-                self._alignment_client,
-                alignment_goal,
+            result = self._control_wall(
+                alignment.distance_mm,
+                alignment.tolerance_mm,
+                alignment.timeout_s,
                 f'alinhamento em {target}',
-                alignment.timeout_s + 5.0,
-                self._alignment_failure,
             )
             self._current_wall_distance_mm = float(
                 result.final_average_distance_mm
@@ -388,18 +397,13 @@ class MissionManager(Node):
             '(positivo=direita, negativo=esquerda).'
         )
         self._prepare_for_pick_observation()
-        goal = FollowWall.Goal()
-        goal.wall_distance_mm = int(target_wall)
-        goal.travel_distance_mm = int(travel)
-        goal.wall_tolerance_mm = int(config.wall_tolerance_mm)
-        goal.travel_tolerance_mm = int(config.travel_tolerance_mm)
-        goal.timeout = self._duration(config.timeout_s)
-        follow_result = self._call_action(
-            self._follow_wall_client,
-            goal,
+        follow_result = self._control_wall(
+            target_wall,
+            config.wall_tolerance_mm,
+            config.timeout_s,
             f"reposicionamento para repetir o passo '{step.step_id}'",
-            config.timeout_s + 5.0,
-            self._follow_wall_failure,
+            travel_distance_mm=travel,
+            travel_tolerance_mm=config.travel_tolerance_mm,
         )
         self._current_wall_distance_mm = float(
             follow_result.final_average_distance_mm

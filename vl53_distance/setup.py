@@ -21,7 +21,7 @@ setup(
     zip_safe=True,
     maintainer='author',
     maintainer_email='todo@todo.com',
-    description='Actions ROS 2 para posicionar a base usando dois VL53L0X.',
+    description='Action ROS 2 para posicionar a base usando dois VL53L0X.',
     license='GPL-3.0-only',
     entry_points={
         'console_scripts': [

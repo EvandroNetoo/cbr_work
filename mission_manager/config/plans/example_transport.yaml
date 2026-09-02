@@ -12,21 +12,21 @@ steps:
     action: pick
     tag_id: 1
 
-  # - id: store_1
-  #   action: store
-  #   slot_id: left
+  - id: store_1
+    action: store
+    slot_id: left
 
-  # - id: pick_5
-  #   action: pick
-  #   tag_id: 2
+  - id: pick_5
+    action: pick
+    tag_id: 2
 
-  # - id: store_5
-  #   action: store
-  #   slot_id: right
+  - id: store_5
+    action: store
+    slot_id: right
 
-  # - id: pick_3
-  #   action: pick
-  #   tag_id: 4
+  - id: pick_3
+    action: pick
+    tag_id: 4
 
   # - id: go_destination
   #   action: navigate

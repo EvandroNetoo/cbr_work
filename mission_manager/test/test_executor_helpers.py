@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from interfaces.action import MoveToDistance, PickObject, PrepareManipulator
+from interfaces.action import FollowWall, PickObject, PrepareManipulator
 from nav2_msgs.action import NavigateToPose
 
 from mission_manager.node import MissionManager
@@ -58,14 +58,35 @@ def test_navigation_result_validator_preserves_nav2_error_message():
     assert MissionManager._navigation_failure(result) is None
 
 
-def test_alignment_requires_a_valid_sensor_reading():
-    result = MoveToDistance.Result()
+def test_wall_control_requires_valid_distance_and_odometry():
+    result = FollowWall.Result()
     result.has_valid_reading = False
+    result.has_valid_odometry = True
     result.message = 'sensor indisponível'
 
-    assert MissionManager._alignment_failure(result) == 'sensor indisponível'
+    assert MissionManager._wall_control_failure(result) == 'sensor indisponível'
     result.has_valid_reading = True
-    assert MissionManager._alignment_failure(result) is None
+    assert MissionManager._wall_control_failure(result) is None
+
+
+def test_wall_control_uses_zero_travel_for_alignment():
+    manager = MissionManager.__new__(MissionManager)
+    manager._wall_control_client = object()
+    manager._duration = lambda seconds: seconds
+    calls = []
+
+    def call_action(client, goal, *args):
+        calls.append((client, goal, args))
+        return FollowWall.Result()
+
+    manager._call_action = call_action
+    manager._control_wall(50, 5, 10.0, 'alinhamento')
+
+    goal = calls[0][1]
+    assert goal.wall_distance_mm == 50
+    assert goal.travel_distance_mm == 0
+    assert goal.wall_tolerance_mm == 5
+    assert goal.travel_tolerance_mm == 5
 
 
 def test_manipulation_validator_uses_semantic_outcome():

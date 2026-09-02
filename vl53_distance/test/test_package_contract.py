@@ -8,17 +8,6 @@ WORKSPACE_SOURCE = PACKAGE.parent
 
 
 def test_action_interface_contains_goal_result_and_feedback_contract():
-    action = (
-        WORKSPACE_SOURCE / 'interfaces' / 'action' / 'MoveToDistance.action'
-    ).read_text()
-    assert 'uint32 distance_mm' in action
-    assert 'uint32 tolerance_mm' in action
-    assert 'builtin_interfaces/Duration timeout' in action
-    assert 'bool has_valid_reading' in action
-    assert 'float32 linear_velocity_mps' in action
-    assert 'uint32 consecutive_read_failures' in action
-    assert action.count('---') == 2
-
     follow_wall = (
         WORKSPACE_SOURCE / 'interfaces' / 'action' / 'FollowWall.action'
     ).read_text()
@@ -43,7 +32,7 @@ def test_physical_defaults_match_the_validated_example():
     assert parameters['sensor.median_window'] == 3
     assert parameters['sensor.ranging_timeout_ms'] == 200
     assert parameters['max_consecutive_read_failures'] == 3
-    assert parameters['follow_wall_action_name'] == '/vl53/follow_wall'
+    assert parameters['action_name'] == '/vl53/follow_wall'
     assert parameters['odom_topic'] == '/odom'
     assert parameters['odom_start_timeout_sec'] > 0.0
     assert parameters['odom_freshness_timeout_sec'] > 0.0
@@ -63,7 +52,7 @@ def test_action_uses_watchdog_and_stops_on_every_terminal_path():
     assert 'self._freshness_timeout' in source
     assert 'consecutive_failures >= self._failure_limit' in source
     assert 'self._invalidate_command(publish=True)' in source
-    assert "name='vl53-distance-action-goal'" in source
+    assert "name='vl53-follow-wall-action-goal'" in source
     assert "'/cmd_vel'" in source
     assert "'/odom'" in source
     assert 'FollowWall' in source

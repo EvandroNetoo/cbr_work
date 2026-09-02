@@ -1,4 +1,4 @@
-"""Inicia o servidor da action de distância com sua configuração física."""
+"""Inicia a action de controle da parede com sua configuração física."""
 
 import os
 import sys

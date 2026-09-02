@@ -1,7 +1,6 @@
 vl53_distance_action:
   ros__parameters:
-    action_name: /vl53/move_to_distance
-    follow_wall_action_name: /vl53/follow_wall
+    action_name: /vl53/follow_wall
     cmd_vel_topic: /cmd_vel
     odom_topic: /odom
     command_frame: base_footprint

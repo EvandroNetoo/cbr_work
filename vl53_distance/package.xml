@@ -2,7 +2,7 @@
 <package format="3">
   <name>vl53_distance</name>
   <version>0.1.0</version>
-  <description>Actions ROS 2 para posicionar a base usando dois VL53L0X.</description>
+  <description>Action ROS 2 para posicionar a base usando dois VL53L0X.</description>
   <maintainer email="todo@todo.com">author</maintainer>
   <license>GPL-3.0-only</license>
 

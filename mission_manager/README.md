@@ -20,13 +20,13 @@ a arena ou o plano não forem válidos.
 Para uma service area, `navigate` executa:
 
 ```text
-PrepareManipulator(NAVIGATION) → NavigateToPose → MoveToDistance
+PrepareManipulator(NAVIGATION) → NavigateToPose → FollowWall(travel=0)
 ```
 
 Ao sair de uma service area para outro destino, o fluxo começa com:
 
 ```text
-MoveToDistance(departure) → PrepareManipulator(NAVIGATION) → NavigateToPose
+FollowWall(departure, travel=0) → PrepareManipulator(NAVIGATION) → NavigateToPose
 ```
 
 Para `start` e `finish`, o alinhamento de chegada é omitido. Os blocos

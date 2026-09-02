@@ -20,7 +20,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/AnalyzeAprilTags.action"
   "action/ExecuteMission.action"
   "action/FollowWall.action"
-  "action/MoveToDistance.action"
   "action/PickObject.action"
   "action/PlaceAtPose.action"
   "action/PlaceInContainer.action"

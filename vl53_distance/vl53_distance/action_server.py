@@ -1,4 +1,4 @@
-"""Actions que posicionam a base com dois sensores VL53L0X."""
+"""Action que posiciona a base com dois sensores VL53L0X e odometria."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Iterable
 
 from builtin_interfaces.msg import Duration as DurationMsg
 from geometry_msgs.msg import TwistStamped
-from interfaces.action import FollowWall, MoveToDistance
+from interfaces.action import FollowWall
 from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
@@ -21,8 +21,6 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 
 from .control import (
-    ControlCommand,
-    DistanceController,
     FollowWallCommand,
     FollowWallController,
     limit_mecanum_command,
@@ -110,10 +108,6 @@ class VL53DistanceAction(Node):
         if self._failure_limit <= 0:
             raise ValueError('max_consecutive_read_failures deve ser positivo.')
 
-        self._controller = DistanceController(
-            PIDController(self._read_pid_config('linear_pid')),
-            PIDController(self._read_pid_config('angular_pid')),
-        )
         self._follow_wall_controller = FollowWallController(
             PIDController(self._read_pid_config('linear_pid')),
             PIDController(self._read_pid_config('travel_pid')),
@@ -148,30 +142,18 @@ class VL53DistanceAction(Node):
         action_name = str(self.get_parameter('action_name').value)
         self._action_server = ActionServer(
             self,
-            MoveToDistance,
+            FollowWall,
             action_name,
-            goal_callback=self._goal_callback,
+            goal_callback=self._follow_wall_goal_callback,
             cancel_callback=self._cancel_callback,
             handle_accepted_callback=self._handle_accepted_callback,
         )
-        follow_wall_action_name = str(
-            self.get_parameter('follow_wall_action_name').value)
-        self._follow_wall_action_server = ActionServer(
-            self,
-            FollowWall,
-            follow_wall_action_name,
-            goal_callback=self._follow_wall_goal_callback,
-            cancel_callback=self._cancel_callback,
-            handle_accepted_callback=self._handle_follow_wall_accepted_callback,
-        )
         self.get_logger().info(
-            f'VL53L0X pronto; aguardando goals em {action_name} e '
-            f'{follow_wall_action_name}.')
+            f'VL53L0X pronto; aguardando goals em {action_name}.')
 
     def _declare_parameters(self) -> None:
         defaults = {
-            'action_name': '/vl53/move_to_distance',
-            'follow_wall_action_name': '/vl53/follow_wall',
+            'action_name': '/vl53/follow_wall',
             'cmd_vel_topic': '/cmd_vel',
             'odom_topic': '/odom',
             'command_frame': 'base_footprint',
@@ -283,25 +265,6 @@ class VL53DistanceAction(Node):
             self._desired_valid = False
         return GoalResponse.ACCEPT
 
-    def _goal_callback(self, request) -> GoalResponse:
-        target = int(request.distance_mm)
-        tolerance = int(request.tolerance_mm)
-        timeout = duration_seconds(request.timeout)
-        minimum = max(1, self._sensor_config.minimum_target_mm)
-        maximum = self._sensor_config.maximum_target_mm
-        if target < minimum or target > maximum:
-            self.get_logger().warning(
-                f'Goal rejeitado: distância deve estar entre {minimum} e '
-                f'{maximum} mm.')
-            return GoalResponse.REJECT
-        if tolerance <= 0:
-            self.get_logger().warning('Goal rejeitado: tolerância deve ser positiva.')
-            return GoalResponse.REJECT
-        if not math.isfinite(timeout) or timeout <= 0.0:
-            self.get_logger().warning('Goal rejeitado: timeout deve ser positivo.')
-            return GoalResponse.REJECT
-        return self._reserve_goal('controle VL53')
-
     def _follow_wall_goal_callback(self, request) -> GoalResponse:
         target = int(request.wall_distance_mm)
         wall_tolerance = int(request.wall_tolerance_mm)
@@ -330,17 +293,6 @@ class VL53DistanceAction(Node):
 
     def _handle_accepted_callback(self, goal_handle) -> None:
         worker = threading.Thread(
-            target=self._execute_goal,
-            args=(goal_handle,),
-            name='vl53-distance-action-goal',
-            daemon=True,
-        )
-        with self._lock:
-            self._worker_thread = worker
-        worker.start()
-
-    def _handle_follow_wall_accepted_callback(self, goal_handle) -> None:
-        worker = threading.Thread(
             target=self._execute_follow_wall_goal,
             args=(goal_handle,),
             name='vl53-follow-wall-action-goal',
@@ -349,130 +301,6 @@ class VL53DistanceAction(Node):
         with self._lock:
             self._worker_thread = worker
         worker.start()
-
-    def _execute_goal(self, goal_handle):
-        started = time.monotonic()
-        last_iteration = started
-        last_sample: DistanceSample | None = None
-        consecutive_failures = 0
-        settled_since: float | None = None
-        self._controller.reset()
-        self._sensor_pair.reset_filter()
-        with self._lock:
-            self._state = 'executing'
-        if not goal_handle.is_cancel_requested:
-            goal_handle.executing()
-
-        try:
-            while (
-                rclpy.ok()
-                and goal_handle.is_active
-                and not self._shutdown_event.is_set()
-            ):
-                now = time.monotonic()
-                elapsed = now - started
-                if goal_handle.is_cancel_requested:
-                    result = self._result(last_sample, elapsed, 'Goal cancelado.')
-                    goal_handle.canceled(result)
-                    return result
-                if elapsed >= duration_seconds(goal_handle.request.timeout):
-                    result = self._result(
-                        last_sample, elapsed,
-                        'Timeout antes de alcançar a distância solicitada.')
-                    goal_handle.abort(result)
-                    return result
-
-                iteration_started = now
-                try:
-                    sample = self._sensor_pair.read()
-                except Exception as error:
-                    consecutive_failures += 1
-                    settled_since = None
-                    self._controller.reset()
-                    self._invalidate_command(publish=True)
-                    self.get_logger().warning(
-                        f'Falha de leitura VL53L0X '
-                        f'({consecutive_failures}/{self._failure_limit}): {error}')
-                    self._publish_feedback(
-                        goal_handle, last_sample, None, consecutive_failures,
-                        time.monotonic() - started)
-                    if consecutive_failures >= self._failure_limit:
-                        result = self._result(
-                            last_sample, time.monotonic() - started,
-                            'Número máximo de falhas consecutivas atingido.')
-                        goal_handle.abort(result)
-                        return result
-                else:
-                    last_sample = sample
-                    consecutive_failures = 0
-                    now = time.monotonic()
-                    if (
-                        goal_handle.is_cancel_requested
-                        or self._shutdown_event.is_set()
-                    ):
-                        continue
-                    elapsed = now - started
-                    if elapsed >= duration_seconds(goal_handle.request.timeout):
-                        continue
-                    dt = max(now - last_iteration, 1.0 / self._control_rate_hz)
-                    command = self._controller.calculate(
-                        sample.left_mm,
-                        sample.right_mm,
-                        int(goal_handle.request.distance_mm),
-                        int(goal_handle.request.tolerance_mm),
-                        dt,
-                    )
-                    last_iteration = now
-                    if command.inside_tolerance:
-                        self._controller.reset()
-                        self._set_desired_command(0.0, 0.0, 0.0)
-                        if settled_since is None:
-                            settled_since = now
-                        elif now - settled_since >= self._settle_time:
-                            result = self._result(
-                                sample, elapsed,
-                                'Distância e alinhamento alcançados.')
-                            goal_handle.succeed(result)
-                            return result
-                    else:
-                        settled_since = None
-                        self._set_desired_command(
-                            command.linear_velocity_mps,
-                            0.0,
-                            command.angular_velocity_rad_s,
-                        )
-                    self._publish_feedback(
-                        goal_handle, sample, command, 0, elapsed)
-
-                remaining = (
-                    1.0 / self._control_rate_hz
-                    - (time.monotonic() - iteration_started))
-                self._goal_wakeup.wait(timeout=max(0.0, remaining))
-                self._goal_wakeup.clear()
-
-            if goal_handle.is_active:
-                result = self._result(
-                    last_sample, time.monotonic() - started,
-                    'Servidor encerrado durante o goal.')
-                goal_handle.abort(result)
-                return result
-            return self._result(
-                last_sample, time.monotonic() - started, 'Goal encerrado.')
-        except Exception as error:
-            self.get_logger().error(f'Falha inesperada na action VL53L0X: {error}')
-            if goal_handle.is_active:
-                result = self._result(
-                    last_sample, time.monotonic() - started,
-                    f'Falha inesperada: {error}')
-                goal_handle.abort(result)
-                return result
-            return self._result(
-                last_sample, time.monotonic() - started, str(error))
-        finally:
-            self._invalidate_command(publish=True)
-            with self._lock:
-                self._state = 'idle'
-                self._worker_thread = None
 
     def _execute_follow_wall_goal(self, goal_handle):
         started = time.monotonic()
@@ -720,30 +548,6 @@ class VL53DistanceAction(Node):
             if rclpy.ok():
                 raise
 
-    def _publish_feedback(
-        self,
-        goal_handle,
-        sample: DistanceSample | None,
-        command: ControlCommand | None,
-        failures: int,
-        elapsed: float,
-    ) -> None:
-        feedback = MoveToDistance.Feedback()
-        if sample is not None:
-            feedback.raw_left_distance_mm = sample.raw_left_mm
-            feedback.raw_right_distance_mm = sample.raw_right_mm
-            feedback.left_distance_mm = sample.left_mm
-            feedback.right_distance_mm = sample.right_mm
-            feedback.average_distance_mm = sample.average_mm
-        if command is not None:
-            feedback.distance_error_mm = command.distance_error_mm
-            feedback.alignment_error_mm = command.alignment_error_mm
-            feedback.linear_velocity_mps = command.linear_velocity_mps
-            feedback.angular_velocity_rad_s = command.angular_velocity_rad_s
-        feedback.consecutive_read_failures = int(failures)
-        feedback.elapsed = duration_message(elapsed)
-        goal_handle.publish_feedback(feedback)
-
     def _publish_follow_wall_feedback(
         self,
         goal_handle,
@@ -779,22 +583,6 @@ class VL53DistanceAction(Node):
         goal_handle.publish_feedback(feedback)
 
     @staticmethod
-    def _result(
-        sample: DistanceSample | None,
-        elapsed: float,
-        message: str,
-    ):
-        result = MoveToDistance.Result()
-        result.has_valid_reading = sample is not None
-        if sample is not None:
-            result.final_left_distance_mm = sample.left_mm
-            result.final_right_distance_mm = sample.right_mm
-            result.final_average_distance_mm = sample.average_mm
-        result.elapsed = duration_message(elapsed)
-        result.message = message
-        return result
-
-    @staticmethod
     def _follow_wall_result(
         sample: DistanceSample | None,
         has_valid_odometry: bool,
@@ -828,8 +616,6 @@ class VL53DistanceAction(Node):
             self.get_logger().error(f'Falha ao fechar os VL53L0X: {error}')
         if hasattr(self, '_action_server'):
             self._action_server.destroy()
-        if hasattr(self, '_follow_wall_action_server'):
-            self._follow_wall_action_server.destroy()
         return super().destroy_node()
 
 
