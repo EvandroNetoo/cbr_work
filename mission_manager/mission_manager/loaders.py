@@ -16,6 +16,7 @@ from .models import (
     DepartureConfig,
     MapPose,
     Plan,
+    PickupRecoveryConfig,
     SERVICE_AREA_TYPES,
     STEP_ACTIONS,
     ServiceArea,
@@ -144,6 +145,74 @@ def _departure(
     return DepartureConfig(*_distance_config_values(raw_value, context, defaults))
 
 
+def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
+    raw = _mapping(raw_value, context)
+    _only_keys(
+        raw,
+        {
+            'enabled', 'minimum_wall_distance_mm',
+            'maximum_wall_distance_mm', 'preferred_tag_x_m',
+            'preferred_tag_y_m', 'wall_tolerance_mm',
+            'travel_tolerance_mm', 'timeout_s',
+            'max_reposition_attempts',
+        },
+        context,
+    )
+    minimum = _integer(
+        raw.get('minimum_wall_distance_mm'),
+        f'{context}.minimum_wall_distance_mm',
+        nonnegative=True,
+    )
+    maximum = _integer(
+        raw.get('maximum_wall_distance_mm'),
+        f'{context}.maximum_wall_distance_mm',
+        nonnegative=True,
+    )
+    wall_tolerance = _integer(
+        raw.get('wall_tolerance_mm'),
+        f'{context}.wall_tolerance_mm',
+        nonnegative=True,
+    )
+    travel_tolerance = _integer(
+        raw.get('travel_tolerance_mm'),
+        f'{context}.travel_tolerance_mm',
+        nonnegative=True,
+    )
+    attempts = _integer(
+        raw.get('max_reposition_attempts'),
+        f'{context}.max_reposition_attempts',
+        nonnegative=True,
+    )
+    if minimum == 0:
+        raise ConfigurationError(
+            f'{context}.minimum_wall_distance_mm deve ser positivo.'
+        )
+    if maximum < minimum:
+        raise ConfigurationError(
+            f'{context}.maximum_wall_distance_mm deve ser maior ou igual '
+            'ao mínimo.'
+        )
+    if wall_tolerance == 0 or travel_tolerance == 0:
+        raise ConfigurationError(f'{context}.tolerâncias devem ser positivas.')
+    return PickupRecoveryConfig(
+        enabled=_boolean(raw.get('enabled'), f'{context}.enabled'),
+        minimum_wall_distance_mm=minimum,
+        maximum_wall_distance_mm=maximum,
+        preferred_tag_x_m=_number(
+            raw.get('preferred_tag_x_m'), f'{context}.preferred_tag_x_m'
+        ),
+        preferred_tag_y_m=_number(
+            raw.get('preferred_tag_y_m'), f'{context}.preferred_tag_y_m'
+        ),
+        wall_tolerance_mm=wall_tolerance,
+        travel_tolerance_mm=travel_tolerance,
+        timeout_s=_number(
+            raw.get('timeout_s'), f'{context}.timeout_s', positive=True
+        ),
+        max_reposition_attempts=attempts,
+    )
+
+
 def load_arena(path: str | Path) -> Arena:
     """Load calibrated map targets and merge per-area distance overrides."""
     root = _load_yaml(path)
@@ -151,7 +220,7 @@ def load_arena(path: str | Path) -> Arena:
         root,
         {
             'schema_version', 'frame_id', 'alignment_defaults',
-            'departure_defaults',
+            'departure_defaults', 'pickup_recovery',
             'start', 'finish', 'service_areas',
         },
         'arena',
@@ -162,6 +231,9 @@ def load_arena(path: str | Path) -> Arena:
     )
     departure_defaults = _departure(
         root.get('departure_defaults'), 'arena.departure_defaults'
+    )
+    pickup_recovery = _pickup_recovery(
+        root.get('pickup_recovery'), 'arena.pickup_recovery'
     )
     areas_raw = _mapping(root.get('service_areas'), 'arena.service_areas')
     areas: dict[str, ServiceArea] = {}
@@ -216,6 +288,7 @@ def load_arena(path: str | Path) -> Arena:
         finish=_pose(root.get('finish'), 'arena.finish'),
         alignment_defaults=defaults,
         departure_defaults=departure_defaults,
+        pickup_recovery=pickup_recovery,
         service_areas=areas,
     )
 

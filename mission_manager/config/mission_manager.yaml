@@ -5,6 +5,7 @@ mission_manager:
     execute_action: /mission/execute
     navigate_action: /navigate_to_pose
     alignment_action: /vl53/move_to_distance
+    follow_wall_action: /vl53/follow_wall
     prepare_action: /manipulation/prepare
     pick_action: /manipulation/pick
     store_action: /manipulation/store

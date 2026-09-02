@@ -34,6 +34,19 @@ class DepartureConfig:
 
 
 @dataclass(frozen=True)
+class PickupRecoveryConfig:
+    enabled: bool
+    minimum_wall_distance_mm: int
+    maximum_wall_distance_mm: int
+    preferred_tag_x_m: float
+    preferred_tag_y_m: float
+    wall_tolerance_mm: int
+    travel_tolerance_mm: int
+    timeout_s: float
+    max_reposition_attempts: int
+
+
+@dataclass(frozen=True)
 class MapPose:
     x_m: float
     y_m: float
@@ -57,6 +70,7 @@ class Arena:
     finish: MapPose
     alignment_defaults: AlignmentConfig
     departure_defaults: DepartureConfig
+    pickup_recovery: PickupRecoveryConfig
     service_areas: dict[str, ServiceArea]
 
     def pose_for(self, target: str) -> MapPose:

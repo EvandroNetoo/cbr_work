@@ -188,7 +188,8 @@ def test_follow_wall_goal_validation_and_shared_reservation():
         _follow_request(travel=-500)).name == GoalResponse.ACCEPT.name
     server._state = 'idle'
     assert server._follow_wall_goal_callback(
-        _follow_request(travel=0)).name == GoalResponse.REJECT.name
+        _follow_request(travel=0)).name == GoalResponse.ACCEPT.name
+    server._state = 'idle'
     assert server._follow_wall_goal_callback(
         _follow_request(wall=2000)).name == GoalResponse.REJECT.name
     assert server._follow_wall_goal_callback(

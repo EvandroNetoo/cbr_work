@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from interfaces.action import MoveToDistance
+from interfaces.action import MoveToDistance, PickObject, PrepareManipulator
 from nav2_msgs.action import NavigateToPose
 
 from mission_manager.node import MissionManager
@@ -9,6 +9,7 @@ from mission_manager.models import (
     Arena,
     DepartureConfig,
     MapPose,
+    PickupRecoveryConfig,
     ServiceArea,
     Step,
 )
@@ -23,6 +24,17 @@ def _arena():
         finish=MapPose(3.0, 0.0, 3.14),
         alignment_defaults=alignment,
         departure_defaults=departure,
+        pickup_recovery=PickupRecoveryConfig(
+            enabled=True,
+            minimum_wall_distance_mm=30,
+            maximum_wall_distance_mm=250,
+            preferred_tag_x_m=0.0,
+            preferred_tag_y_m=-0.22,
+            wall_tolerance_mm=5,
+            travel_tolerance_mm=10,
+            timeout_s=15.0,
+            max_reposition_attempts=1,
+        ),
         service_areas={
             'ws_1': ServiceArea(
                 area_id='ws_1',
@@ -68,6 +80,76 @@ def test_manipulation_validator_uses_semantic_outcome():
     assert MissionManager._manipulation_failure(failure) == 'garra vazia'
 
 
+def test_pickup_recovery_moves_away_for_near_tag_and_centers_laterally():
+    config = _arena().pickup_recovery
+
+    wall, travel = MissionManager._pickup_recovery_correction(
+        120.0, 0.08, -0.10, config
+    )
+
+    assert wall == 240
+    assert travel == -80
+
+
+def test_pickup_recovery_moves_closer_for_far_tag_respecting_minimum():
+    config = _arena().pickup_recovery
+
+    wall, travel = MissionManager._pickup_recovery_correction(
+        120.0, 0.0, -0.35, config
+    )
+
+    assert wall == 30
+    assert travel == 0
+
+
+def test_pick_retries_after_one_recoverable_result():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._pick_client = object()
+    calls = []
+    recoveries = []
+
+    failure = PickObject.Result()
+    failure.outcome.code = failure.outcome.MOTION_FAILED
+    failure.outcome.message = 'fora do alcance'
+    failure.has_detected_pose = True
+    failure.recovery_reason = failure.RECOVERY_OUT_OF_REACH
+    success = PickObject.Result()
+    success.outcome.code = success.outcome.SUCCESS
+
+    results = iter((failure, success))
+
+    def call_action(client, goal, *_args, **kwargs):
+        calls.append((client, goal, kwargs))
+        return next(results)
+
+    manager._call_action = call_action
+    manager._recover_pick = lambda result, step: recoveries.append((result, step))
+    step = Step('pick_cube', 'pick', tag_id=1)
+
+    manager._execute_pick(step, 120.0)
+
+    assert len(calls) == 2
+    assert all(call[2]['allow_unsuccessful_status'] for call in calls)
+    assert len(recoveries) == 1
+    assert recoveries[0][1] == step
+
+
+def test_pick_recovery_prepares_arm_in_apriltag_observation_pose():
+    manager = MissionManager.__new__(MissionManager)
+    manager._prepare_client = object()
+    manager._manipulation_timeout = lambda: 120.0
+    calls = []
+    manager._call_action = lambda client, goal, *_args: calls.append(
+        (client, goal)
+    )
+
+    manager._prepare_for_pick_observation()
+
+    assert calls[0][0] is manager._prepare_client
+    assert calls[0][1].mode == PrepareManipulator.Goal.OBSERVATION
+
+
 def test_executor_maps_sequential_steps_to_semantic_action_goals():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
@@ -81,7 +163,13 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     manager._stack_client = object()
     manager._place_shelf_client = object()
     calls = []
-    manager._call_action = lambda client, goal, *_args: calls.append((client, goal))
+    def call_action(client, goal, *_args, **_kwargs):
+        calls.append((client, goal))
+        return SimpleNamespace(outcome=SimpleNamespace(
+            SUCCESS=0, code=0, message='ok'
+        ))
+
+    manager._call_action = call_action
 
     steps = (
         Step('pick', 'pick', tag_id=7),

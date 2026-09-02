@@ -4,7 +4,7 @@ frame_id: map
 # Padrão usado por todas as áreas; um bloco alignment local pode sobrescrever
 # somente os campos que forem diferentes.
 alignment_defaults:
-  distance_mm: 40
+  distance_mm: 30
   tolerance_mm: 5
   timeout_s: 10.0
 
@@ -14,6 +14,20 @@ departure_defaults:
   distance_mm: 250
   tolerance_mm: 25
   timeout_s: 10.0
+
+# Se uma coleta estiver fora do alcance, centraliza novamente a AprilTag no
+# referencial do braço e repete a detecção. O eixo x corrige o percurso ao
+# longo da parede; o eixo y corrige a distância perpendicular à parede.
+pickup_recovery:
+  enabled: true
+  minimum_wall_distance_mm: 30
+  maximum_wall_distance_mm: 250
+  preferred_tag_x_m: 0.0
+  preferred_tag_y_m: -0.22
+  wall_tolerance_mm: 5
+  travel_tolerance_mm: 10
+  timeout_s: 15.0
+  max_reposition_attempts: 1
 
 # Preencher com poses medidas no mapa antes da primeira execução.
 start:
@@ -31,7 +45,7 @@ service_areas:
     x_m: -0.1820
     y_m: 0.4575
     yaw_rad: -3.1222
-    height_cm: 5
+    height_cm: 15
     type: WS
 
   ws_2:

@@ -39,6 +39,9 @@ usa seus próprios limites `reach_x/y_*`, CP e CL, definidos em
 `pickup.tabletop`. Uma AprilTag detectada fora dessa região é rejeitada antes
 do planejamento cartesiano e não consome uma segunda tentativa. Desabilitar a
 flag preserva o envio direto da pose ao MoveIt.
+Nos bloqueios do filtro e nas falhas MoveIt de código `99999`, o resultado de
+`PickObject` informa `recovery_reason` e `detected_pose` para que o gerenciador
+de missão possa reposicionar a base antes de repetir a detecção.
 
 Quando `analyze_apriltags` e `analyze_containers` são falsos,
 `place_on_table` usa `release_x_m`, `release_y_m` e `release_yaw_deg` fixos do

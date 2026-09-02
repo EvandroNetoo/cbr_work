@@ -20,6 +20,16 @@ departure_defaults:
   distance_mm: 250
   tolerance_mm: 15
   timeout_s: 8.0
+pickup_recovery:
+  enabled: true
+  minimum_wall_distance_mm: 30
+  maximum_wall_distance_mm: 250
+  preferred_tag_x_m: 0.0
+  preferred_tag_y_m: -0.22
+  wall_tolerance_mm: 5
+  travel_tolerance_mm: 10
+  timeout_s: 15.0
+  max_reposition_attempts: 1
 start: {x_m: 0.0, y_m: 0.0, yaw_rad: 0.0}
 finish: {x_m: 3.0, y_m: 0.0, yaw_rad: 3.14}
 service_areas:
@@ -61,6 +71,8 @@ def test_arena_merges_partial_alignment_override(tmp_path):
     assert departure.distance_mm == 300
     assert departure.tolerance_mm == 15
     assert departure.timeout_s == pytest.approx(8.0)
+    assert arena.pickup_recovery.minimum_wall_distance_mm == 30
+    assert arena.pickup_recovery.preferred_tag_y_m == pytest.approx(-0.22)
 
 
 def test_package_arena_refuses_uncalibrated_poses():

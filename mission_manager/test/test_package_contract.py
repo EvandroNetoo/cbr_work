@@ -21,6 +21,7 @@ def test_package_stays_minimal_and_uses_existing_actions():
 
     assert 'NavigateToPose' in source
     assert 'MoveToDistance' in source
+    assert 'FollowWall' in source
     assert 'PrepareManipulator.Goal.NAVIGATION' in source
     assert 'self._current_step_index' in source
     assert 'self._current_location' in source

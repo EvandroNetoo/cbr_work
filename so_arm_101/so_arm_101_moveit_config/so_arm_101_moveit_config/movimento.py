@@ -43,6 +43,14 @@ class OperacaoCancelada(RuntimeError):
     """A operação pai recebeu uma solicitação de cancelamento."""
 
 
+class FalhaDoMoveIt(RuntimeError):
+    """Falha devolvida pelo MoveIt, preservando o código numérico original."""
+
+    def __init__(self, message: str, error_code: int | None = None) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+
+
 class ExecutorDoMoveIt:
     """Encapsula a comunicação com o servidor de ação do MoveIt."""
 
@@ -353,19 +361,34 @@ class ExecutorDoMoveIt:
             resultado_da_acao = self._aguardar_futuro(futuro_do_resultado)
         finally:
             self._definir_objetivo_ativo(None)
-        if resultado_da_acao is None or resultado_da_acao.status != GoalStatus.STATUS_SUCCEEDED:
+        codigo_do_erro = (
+            getattr(resultado_da_acao.result, "error_code", None)
+            if resultado_da_acao
+            else None
+        )
+        valor_bruto = getattr(codigo_do_erro, "val", None)
+        valor_do_erro = (
+            int(valor_bruto) if valor_bruto is not None else None
+        )
+        if (
+            resultado_da_acao is None
+            or resultado_da_acao.status != GoalStatus.STATUS_SUCCEEDED
+            or valor_do_erro not in (None, 1)
+        ):
             self._verificar_cancelamento()
-            codigo_do_erro = (
-                getattr(resultado_da_acao.result, "error_code", None)
-                if resultado_da_acao
-                else None
+            texto_do_erro = (
+                str(valor_do_erro)
+                if valor_do_erro is not None
+                else "desconhecido"
             )
-            valor_do_erro = getattr(codigo_do_erro, "val", "desconhecido")
             self.no.get_logger().error(
                 f"MoveIt não conseguiu executar o grupo '{grupo}'. "
-                f"Código de erro: {valor_do_erro}"
+                f"Código de erro: {texto_do_erro}"
             )
-            raise RuntimeError(f"Movimento falhou no MoveIt (código {valor_do_erro}).")
+            raise FalhaDoMoveIt(
+                f"Movimento falhou no MoveIt (código {texto_do_erro}).",
+                valor_do_erro,
+            )
 
         resultado = resultado_da_acao.result
         tempo_do_moveit = float(getattr(resultado, "planning_time", 0.0))

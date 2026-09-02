@@ -37,7 +37,23 @@ class MotionFailed(ManipulationError):
     pass
 
 
-class ObjectOutOfReach(MotionFailed):
+class PickRecoveryRequired(MotionFailed):
+    """Pickup pode ser repetido após reposicionar a base."""
+
+    def __init__(
+        self,
+        message: str,
+        detected_pose,
+        recovery_reason: int,
+        moveit_error_code: int = 0,
+    ) -> None:
+        super().__init__(message)
+        self.detected_pose = detected_pose
+        self.recovery_reason = int(recovery_reason)
+        self.moveit_error_code = int(moveit_error_code)
+
+
+class ObjectOutOfReach(PickRecoveryRequired):
     pass
 
 

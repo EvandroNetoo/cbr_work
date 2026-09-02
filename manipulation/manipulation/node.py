@@ -44,7 +44,11 @@ from so_arm_101_moveit_config.configuracao import (
     VELOCIDADE_MAXIMA,
     VELOCIDADE_MAXIMA_DA_GARRA,
 )
-from so_arm_101_moveit_config.movimento import ExecutorDoMoveIt, OperacaoCancelada
+from so_arm_101_moveit_config.movimento import (
+    ExecutorDoMoveIt,
+    FalhaDoMoveIt,
+    OperacaoCancelada,
+)
 from so_arm_101_moveit_config.restricoes import (
     criar_pose,
     normalizar_angulo_de_pegada,
@@ -59,6 +63,7 @@ from .errors import (
     ObjectNotFound,
     ObjectOutOfReach,
     PerceptionUnavailable,
+    PickRecoveryRequired,
     ServerUnavailable,
     StateConflict,
 )
@@ -330,6 +335,7 @@ class ManipulationServer(Node):
         tag_id: int,
         final_location: int | None = None,
         placed_pose: Any | None = None,
+        failure: Exception | None = None,
     ) -> Any:
         result = action_type.Result()
         result.outcome.object_tag_id = int(tag_id)
@@ -344,6 +350,11 @@ class ManipulationServer(Node):
         result.outcome.message = message
         if placed_pose is not None and hasattr(result, 'placed_pose'):
             result.placed_pose = copy.deepcopy(placed_pose)
+        if action_type is PickObject and isinstance(failure, PickRecoveryRequired):
+            result.recovery_reason = failure.recovery_reason
+            result.has_detected_pose = True
+            result.detected_pose = copy.deepcopy(failure.detected_pose)
+            result.moveit_error_code = failure.moveit_error_code
         if code == ManipulationResult.SUCCESS:
             goal_handle.succeed()
         elif code == ManipulationResult.CANCELED:
@@ -391,7 +402,10 @@ class ManipulationServer(Node):
             ):
                 code = ManipulationResult.OBJECT_NOT_FOUND
             self.get_logger().error(f'{operation_name} falhou: {error}')
-            return self._make_result(action_type, goal_handle, code, str(error), tag_id)
+            return self._make_result(
+                action_type, goal_handle, code, str(error), tag_id,
+                failure=error,
+            )
         finally:
             self._cancel_event.clear()
             with self._lock:
@@ -408,6 +422,7 @@ class ManipulationServer(Node):
             last_error: Exception | None = None
             for attempt in range(1, profile.attempts + 1):
                 grasp_committed = False
+                detected_pose = None
                 try:
                     self._feedback(
                         goal_handle, PickObject, ManipulationFeedback.PREPARING,
@@ -425,6 +440,7 @@ class ManipulationServer(Node):
                     x, y, tag_z, yaw = self._motion.obter_pose_da_april_tag(
                         tag_id, duration
                     )
+                    detected_pose = criar_pose(x, y, tag_z, yaw)
                     if profile.reachability_filter_enabled:
                         reach_filter = self._pickup_reach_filter(profile)
                         if not reach_filter(x, y):
@@ -435,7 +451,9 @@ class ManipulationServer(Node):
                             raise ObjectOutOfReach(
                                 f'AprilTag {tag_id} detectada em x={x:.3f}, '
                                 f'y={y:.3f} m (raio={radius:.3f} m), fora da '
-                                'área de alcance configurada para a coleta.'
+                                'área de alcance configurada para a coleta.',
+                                detected_pose,
+                                PickObject.Result.RECOVERY_OUT_OF_REACH,
                             )
                     grasp_z = tag_z - profile.cube_size_m
                     grasp_yaw = (
@@ -487,6 +505,30 @@ class ManipulationServer(Node):
                     raise
                 except ObjectOutOfReach:
                     raise
+                except FalhaDoMoveIt as error:
+                    if (
+                        not grasp_committed
+                        and detected_pose is not None
+                        and error.error_code == 99999
+                    ):
+                        raise PickRecoveryRequired(
+                            f'{error} A base pode ser reposicionada usando a '
+                            'pose detectada da AprilTag.',
+                            detected_pose,
+                            PickObject.Result.RECOVERY_MOVEIT_UNREACHABLE,
+                            error.error_code,
+                        ) from error
+                    last_error = error
+                    if not self._inventory.snapshot()[0]:
+                        raise
+                    if grasp_committed:
+                        self._inventory.mark_unknown()
+                        self._publish_state()
+                        raise
+                    if attempt < profile.attempts:
+                        self.get_logger().warning(
+                            f'Tentativa de coleta {attempt} falhou: {error}'
+                        )
                 except Exception as error:
                     last_error = error
                     if not self._inventory.snapshot()[0]:

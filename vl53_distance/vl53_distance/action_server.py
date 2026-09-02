@@ -304,7 +304,6 @@ class VL53DistanceAction(Node):
 
     def _follow_wall_goal_callback(self, request) -> GoalResponse:
         target = int(request.wall_distance_mm)
-        travel = int(request.travel_distance_mm)
         wall_tolerance = int(request.wall_tolerance_mm)
         travel_tolerance = int(request.travel_tolerance_mm)
         timeout = duration_seconds(request.timeout)
@@ -314,10 +313,6 @@ class VL53DistanceAction(Node):
             self.get_logger().warning(
                 f'Goal rejeitado: distância da parede deve estar entre '
                 f'{minimum} e {maximum} mm.')
-            return GoalResponse.REJECT
-        if travel == 0:
-            self.get_logger().warning(
-                'Goal rejeitado: percurso lateral não pode ser zero.')
             return GoalResponse.REJECT
         if wall_tolerance <= 0 or travel_tolerance <= 0:
             self.get_logger().warning(

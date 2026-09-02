@@ -12,6 +12,7 @@ from action_msgs.msg import GoalStatus
 from ament_index_python.packages import get_package_share_directory
 from interfaces.action import (
     ExecuteMission,
+    FollowWall,
     MoveToDistance,
     PickObject,
     PlaceInContainer,
@@ -31,7 +32,7 @@ from rclpy.node import Node
 
 from .errors import ConfigurationError, MissionCanceled, StepFailed
 from .loaders import PLAN_ID_PATTERN, load_arena, load_plan, validate_plan
-from .models import Arena, Plan, Step
+from .models import Arena, PickupRecoveryConfig, Plan, Step
 
 
 class MissionManager(Node):
@@ -46,6 +47,7 @@ class MissionManager(Node):
             'execute_action': '/mission/execute',
             'navigate_action': '/navigate_to_pose',
             'alignment_action': '/vl53/move_to_distance',
+            'follow_wall_action': '/vl53/follow_wall',
             'prepare_action': '/manipulation/prepare',
             'pick_action': '/manipulation/pick',
             'store_action': '/manipulation/store',
@@ -68,6 +70,7 @@ class MissionManager(Node):
         self._status = 'idle'
         self._current_step_index = 0
         self._current_location = 'start'
+        self._current_wall_distance_mm: float | None = None
         self._active_child = None
         self._arena: Arena | None = None
 
@@ -81,6 +84,7 @@ class MissionManager(Node):
 
         self._navigate_client = client(NavigateToPose, 'navigate_action')
         self._alignment_client = client(MoveToDistance, 'alignment_action')
+        self._follow_wall_client = client(FollowWall, 'follow_wall_action')
         self._prepare_client = client(PrepareManipulator, 'prepare_action')
         self._pick_client = client(PickObject, 'pick_action')
         self._store_client = client(StoreObject, 'store_action')
@@ -164,6 +168,8 @@ class MissionManager(Node):
         description: str,
         timeout_s: float,
         validate_result: Callable[[Any], str | None] | None = None,
+        *,
+        allow_unsuccessful_status: bool = False,
     ) -> Any:
         self._check_canceled()
         if not math.isfinite(timeout_s) or timeout_s <= 0.0:
@@ -195,9 +201,11 @@ class MissionManager(Node):
         finally:
             with self._lock:
                 self._active_child = None
+        if result_wrapper is None:
+            raise StepFailed(f'{description} falhou sem resultado.')
         if (
-            result_wrapper is None
-            or result_wrapper.status != GoalStatus.STATUS_SUCCEEDED
+            result_wrapper.status != GoalStatus.STATUS_SUCCEEDED
+            and not allow_unsuccessful_status
         ):
             status = (
                 result_wrapper.status if result_wrapper is not None else 'sem resultado'
@@ -228,6 +236,34 @@ class MissionManager(Node):
             return None
         return result.message or 'sensores de distância sem leitura válida'
 
+    @staticmethod
+    def _follow_wall_failure(result: FollowWall.Result) -> str | None:
+        if result.has_valid_reading and result.has_valid_odometry:
+            return None
+        return result.message or 'sensores de distância ou odometria inválidos'
+
+    @staticmethod
+    def _pickup_recovery_correction(
+        current_wall_distance_mm: float,
+        detected_x_m: float,
+        detected_y_m: float,
+        config: PickupRecoveryConfig,
+    ) -> tuple[int, int]:
+        target_wall = round(
+            current_wall_distance_mm
+            + 1000.0 * (detected_y_m - config.preferred_tag_y_m)
+        )
+        target_wall = max(
+            config.minimum_wall_distance_mm,
+            min(config.maximum_wall_distance_mm, target_wall),
+        )
+        travel = round(1000.0 * (config.preferred_tag_x_m - detected_x_m))
+        if abs(target_wall - current_wall_distance_mm) <= config.wall_tolerance_mm:
+            target_wall = round(current_wall_distance_mm)
+        if abs(travel) <= config.travel_tolerance_mm:
+            travel = 0
+        return target_wall, travel
+
     def _duration(self, seconds: float):
         goal_duration = MoveToDistance.Goal().timeout
         total_nanoseconds = round(seconds * 1_000_000_000)
@@ -253,6 +289,17 @@ class MissionManager(Node):
             self._manipulation_failure,
         )
 
+    def _prepare_for_pick_observation(self) -> None:
+        goal = PrepareManipulator.Goal()
+        goal.mode = PrepareManipulator.Goal.OBSERVATION
+        self._call_action(
+            self._prepare_client,
+            goal,
+            'preparação do manipulador para observar AprilTags',
+            self._manipulation_timeout(),
+            self._manipulation_failure,
+        )
+
     def _navigate(self, target: str) -> None:
         assert self._arena is not None
         pose = self._arena.pose_for(target)
@@ -274,6 +321,7 @@ class MissionManager(Node):
                 departure.timeout_s + 5.0,
                 self._alignment_failure,
             )
+            self._current_wall_distance_mm = None
         self._prepare_for_navigation()
         goal = NavigateToPose.Goal()
         goal.pose.header.frame_id = self._arena.frame_id
@@ -289,30 +337,112 @@ class MissionManager(Node):
             self._navigation_timeout(),
             self._navigation_failure,
         )
+        self._current_wall_distance_mm = None
         if target in self._arena.service_areas:
             alignment = self._arena.service_areas[target].alignment
             alignment_goal = MoveToDistance.Goal()
             alignment_goal.distance_mm = alignment.distance_mm
             alignment_goal.tolerance_mm = alignment.tolerance_mm
             alignment_goal.timeout = self._duration(alignment.timeout_s)
-            self._call_action(
+            result = self._call_action(
                 self._alignment_client,
                 alignment_goal,
                 f'alinhamento em {target}',
                 alignment.timeout_s + 5.0,
                 self._alignment_failure,
             )
+            self._current_wall_distance_mm = float(
+                result.final_average_distance_mm
+            )
         self._current_location = target
+
+    def _recover_pick(self, result: PickObject.Result, step: Step) -> None:
+        assert self._arena is not None
+        config = self._arena.pickup_recovery
+        if self._current_wall_distance_mm is None:
+            raise StepFailed(
+                'Não há uma distância atual válida da parede para recuperar '
+                'a coleta.'
+            )
+        pose = result.detected_pose.pose.position
+        target_wall, travel = self._pickup_recovery_correction(
+            self._current_wall_distance_mm,
+            float(pose.x),
+            float(pose.y),
+            config,
+        )
+        if (
+            travel == 0
+            and target_wall == round(self._current_wall_distance_mm)
+        ):
+            raise StepFailed(
+                f"passo '{step.step_id}' (pick) continua fora do alcance, "
+                'mas a correção calculada já está dentro das tolerâncias ou '
+                'limitada pela distância mínima/máxima da parede.'
+            )
+
+        self.get_logger().warning(
+            f'Coleta da AprilTag {step.tag_id} fora do alcance em '
+            f'x={pose.x:.3f}, y={pose.y:.3f} m. Reposicionando a base para '
+            f'{target_wall} mm da parede e deslocando {travel} mm '
+            '(positivo=direita, negativo=esquerda).'
+        )
+        self._prepare_for_pick_observation()
+        goal = FollowWall.Goal()
+        goal.wall_distance_mm = int(target_wall)
+        goal.travel_distance_mm = int(travel)
+        goal.wall_tolerance_mm = int(config.wall_tolerance_mm)
+        goal.travel_tolerance_mm = int(config.travel_tolerance_mm)
+        goal.timeout = self._duration(config.timeout_s)
+        follow_result = self._call_action(
+            self._follow_wall_client,
+            goal,
+            f"reposicionamento para repetir o passo '{step.step_id}'",
+            config.timeout_s + 5.0,
+            self._follow_wall_failure,
+        )
+        self._current_wall_distance_mm = float(
+            follow_result.final_average_distance_mm
+        )
+
+    def _execute_pick(self, step: Step, timeout: float) -> None:
+        assert self._arena is not None
+        config = self._arena.pickup_recovery
+        for reposition_count in range(config.max_reposition_attempts + 1):
+            goal = PickObject.Goal()
+            goal.tag_id = int(step.tag_id)
+            goal.profile = ''
+            result = self._call_action(
+                self._pick_client,
+                goal,
+                f"passo '{step.step_id}' (pick)",
+                timeout,
+                allow_unsuccessful_status=True,
+            )
+            failure = self._manipulation_failure(result)
+            if failure is None:
+                return
+            recoverable = (
+                config.enabled
+                and result.has_detected_pose
+                and result.recovery_reason != PickObject.Result.RECOVERY_NONE
+            )
+            if (
+                not recoverable
+                or reposition_count >= config.max_reposition_attempts
+            ):
+                raise StepFailed(
+                    f"passo '{step.step_id}' (pick) falhou: {failure}"
+                )
+            self._recover_pick(result, step)
 
     def _execute_manipulation(self, step: Step) -> None:
         assert self._arena is not None
         area = self._arena.service_areas[self._current_location]
         timeout = self._manipulation_timeout()
         if step.action == 'pick':
-            goal = PickObject.Goal()
-            goal.tag_id = int(step.tag_id)
-            goal.profile = ''
-            client = self._pick_client
+            self._execute_pick(step, timeout)
+            return
         elif step.action == 'store':
             goal = StoreObject.Goal()
             goal.slot_id = str(step.slot_id)
@@ -420,6 +550,7 @@ class MissionManager(Node):
     def _execute_callback(self, goal_handle: Any) -> ExecuteMission.Result:
         self._status = 'running'
         self._current_location = 'start'
+        self._current_wall_distance_mm = None
         completed = 0
         failed_step = ''
         try:

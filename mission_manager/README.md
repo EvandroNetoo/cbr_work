@@ -6,7 +6,8 @@ diretamente: ele compõe Nav2, alinhamento VL53 e as actions semânticas do paco
 
 ## Arquivos
 
-- `config/arena.yaml`: poses fixas, alturas, tipos, alinhamento e recuo;
+- `config/arena.yaml`: poses fixas, alturas, tipos, alinhamento, recuo e
+  recuperação de coleta;
 - `config/plans/*.yaml`: passos sequenciais selecionados por `plan_id`;
 - `config/mission_manager.yaml`: nomes das actions e timeouts ROS.
 
@@ -31,6 +32,27 @@ MoveToDistance(departure) → PrepareManipulator(NAVIGATION) → NavigateToPose
 Para `start` e `finish`, o alinhamento de chegada é omitido. Os blocos
 `alignment` e `departure` de uma service area sobrescrevem parcialmente
 `alignment_defaults` e `departure_defaults`, respectivamente.
+
+## Recuperação de coleta fora do alcance
+
+Quando o filtro de alcance bloqueia a AprilTag, ou o MoveIt devolve o código
+`99999` antes de fechar a garra, o resultado de `PickObject` inclui a pose
+detectada. Se `pickup_recovery.enabled` estiver ativo, o mission manager:
+
+```text
+PrepareManipulator(OBSERVATION) → FollowWall → PickObject (nova detecção)
+```
+
+O alvo do `FollowWall` é calculado a partir da última distância VL53 válida:
+
+```text
+travel_mm = 1000 * (preferred_tag_x_m - tag_x_m)
+wall_mm = current_wall_mm + 1000 * (tag_y_m - preferred_tag_y_m)
+```
+
+`wall_mm` é limitado por `minimum_wall_distance_mm` e
+`maximum_wall_distance_mm`. Deslocamento lateral positivo significa direita e
+negativo significa esquerda.
 
 ## Execução
 
