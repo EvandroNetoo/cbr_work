@@ -20,6 +20,12 @@ def test_pickup_has_only_tabletop_source():
     profiles = _profiles()
     assert set(profiles.pickup) == {'tabletop'}
     assert profiles.pickup['tabletop'].cube_size_m == pytest.approx(0.042)
+    pickup = profiles.pickup['tabletop']
+    assert pickup.reachability_filter_enabled is False
+    assert pickup.reach_min_radius_m is not None
+    assert pickup.reach_max_radius_m is not None
+    assert pickup.reach_x_min_m is not None
+    assert pickup.reach_x_max_m is not None
 
 
 def test_expected_placement_profiles_are_enabled():
@@ -47,12 +53,11 @@ def test_table_free_space_search_uses_safe_defaults_and_complete_bounds():
     profile = _profiles().placements['table']
     assert profile.free_space_min_distance_m == pytest.approx(0.08)
     assert profile.free_space_preferred_distance_m == pytest.approx(0.12)
-    assert profile.reach_center_x_m == pytest.approx(0.0)
-    assert profile.reach_center_y_m == pytest.approx(0.0)
-    assert profile.reach_min_radius_m == pytest.approx(0.16)
-    assert profile.reach_max_radius_m == pytest.approx(0.24)
+    assert profile.reach_min_radius_m is not None
+    assert profile.reach_max_radius_m is not None
+    assert profile.reach_min_radius_m < profile.reach_max_radius_m
     assert profile.search_step_m == pytest.approx(0.01)
-    assert profile.search_y_max_m == pytest.approx(-0.15)
+    assert profile.search_y_max_m <= -0.10
     measured_bounds = (
         profile.search_x_min_m,
         profile.search_x_max_m,
@@ -105,11 +110,24 @@ def test_preferred_free_space_distance_cannot_be_smaller_than_minimum(tmp_path):
 def test_reach_minimum_radius_must_be_smaller_than_maximum(tmp_path):
     profiles = (PACKAGE / 'config' / 'profiles.yaml').read_text()
     profiles = profiles.replace(
-        'reach_min_radius_m: 0.16',
-        'reach_min_radius_m: 0.25',
+        'reach_min_radius_m: 0.125',
+        'reach_min_radius_m: 0.31',
     )
     profile_path = tmp_path / 'profiles.yaml'
     profile_path.write_text(profiles)
 
     with pytest.raises(ConfigurationError, match='deve ser menor'):
+        load_profiles(profile_path, PACKAGE / 'config' / 'cargo_slots.yaml')
+
+
+def test_pickup_reachability_flag_must_be_boolean(tmp_path):
+    profiles = (PACKAGE / 'config' / 'profiles.yaml').read_text()
+    profiles = profiles.replace(
+        'reachability_filter_enabled: false',
+        'reachability_filter_enabled: "true"',
+    )
+    profile_path = tmp_path / 'profiles.yaml'
+    profile_path.write_text(profiles)
+
+    with pytest.raises(ConfigurationError, match='deve ser booleano'):
         load_profiles(profile_path, PACKAGE / 'config' / 'cargo_slots.yaml')

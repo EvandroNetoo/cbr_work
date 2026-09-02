@@ -37,5 +37,9 @@ class MotionFailed(ManipulationError):
     pass
 
 
+class ObjectOutOfReach(MotionFailed):
+    pass
+
+
 class StateConflict(ManipulationError):
     pass

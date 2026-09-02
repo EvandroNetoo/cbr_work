@@ -42,6 +42,15 @@ class PickupProfile:
     cube_size_m: float
     yaw_offset_deg: float
     attempts: int
+    reachability_filter_enabled: bool = False
+    reach_center_x_m: float = 0.0
+    reach_center_y_m: float = 0.0
+    reach_min_radius_m: float | None = None
+    reach_max_radius_m: float | None = None
+    reach_x_min_m: float | None = None
+    reach_x_max_m: float | None = None
+    reach_y_min_m: float | None = None
+    reach_y_max_m: float | None = None
 
 
 @dataclass(frozen=True)
@@ -127,13 +136,24 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
             raw,
             {
                 'observation_state', 'approach_height_m', 'cube_size_m',
-                'yaw_offset_deg', 'attempts',
+                'yaw_offset_deg', 'attempts', 'reachability_filter_enabled',
+                'reach_center_x_m', 'reach_center_y_m',
+                'reach_min_radius_m', 'reach_max_radius_m',
+                'reach_x_min_m', 'reach_x_max_m',
+                'reach_y_min_m', 'reach_y_max_m',
             },
             f'pickup.{name}',
         )
         attempts = int(raw.get('attempts', 1))
         if attempts <= 0:
             raise ConfigurationError(f'pickup.{name}.attempts deve ser positivo.')
+        reachability_filter_enabled = raw.get(
+            'reachability_filter_enabled', False
+        )
+        if not isinstance(reachability_filter_enabled, bool):
+            raise ConfigurationError(
+                f'pickup.{name}.reachability_filter_enabled deve ser booleano.'
+            )
         pickup[name] = PickupProfile(
             name=name,
             observation_state=str(raw.get('observation_state', '')),
@@ -147,9 +167,72 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 raw.get('yaw_offset_deg', 90.0), f'pickup.{name}.yaw_offset_deg'
             ),
             attempts=attempts,
+            reachability_filter_enabled=reachability_filter_enabled,
+            reach_center_x_m=_number(
+                raw.get('reach_center_x_m', 0.0),
+                f'pickup.{name}.reach_center_x_m',
+            ),
+            reach_center_y_m=_number(
+                raw.get('reach_center_y_m', 0.0),
+                f'pickup.{name}.reach_center_y_m',
+            ),
+            reach_min_radius_m=(
+                None if raw.get('reach_min_radius_m') is None
+                else _number(
+                    raw['reach_min_radius_m'],
+                    f'pickup.{name}.reach_min_radius_m', positive=True,
+                )
+            ),
+            reach_max_radius_m=(
+                None if raw.get('reach_max_radius_m') is None
+                else _number(
+                    raw['reach_max_radius_m'],
+                    f'pickup.{name}.reach_max_radius_m', positive=True,
+                )
+            ),
+            reach_x_min_m=(
+                None if raw.get('reach_x_min_m') is None
+                else _number(raw['reach_x_min_m'], f'pickup.{name}.reach_x_min_m')
+            ),
+            reach_x_max_m=(
+                None if raw.get('reach_x_max_m') is None
+                else _number(raw['reach_x_max_m'], f'pickup.{name}.reach_x_max_m')
+            ),
+            reach_y_min_m=(
+                None if raw.get('reach_y_min_m') is None
+                else _number(raw['reach_y_min_m'], f'pickup.{name}.reach_y_min_m')
+            ),
+            reach_y_max_m=(
+                None if raw.get('reach_y_max_m') is None
+                else _number(raw['reach_y_max_m'], f'pickup.{name}.reach_y_max_m')
+            ),
         )
         if not pickup[name].observation_state:
             raise ConfigurationError(f'pickup.{name}.observation_state não pode ser vazio.')
+        if pickup[name].reachability_filter_enabled:
+            reach = pickup[name]
+            values = (
+                reach.reach_min_radius_m, reach.reach_max_radius_m,
+                reach.reach_x_min_m, reach.reach_x_max_m,
+                reach.reach_y_min_m, reach.reach_y_max_m,
+            )
+            if any(value is None for value in values):
+                raise ConfigurationError(
+                    f'pickup.{name} deve configurar os raios e os limites XY '
+                    'quando reachability_filter_enabled estiver habilitada.'
+                )
+            if reach.reach_min_radius_m >= reach.reach_max_radius_m:
+                raise ConfigurationError(
+                    f'pickup.{name}.reach_min_radius_m deve ser menor que '
+                    'reach_max_radius_m.'
+                )
+            if (
+                reach.reach_x_min_m > reach.reach_x_max_m
+                or reach.reach_y_min_m > reach.reach_y_max_m
+            ):
+                raise ConfigurationError(
+                    f'pickup.{name} possui limites XY de alcance inválidos.'
+                )
 
     placements: dict[str, PlacementProfile] = {}
     for name, raw_value in placements_raw.items():

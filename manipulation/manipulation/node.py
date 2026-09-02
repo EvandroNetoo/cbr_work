@@ -57,11 +57,12 @@ from .errors import (
     FeatureUnavailable,
     NoFreeSpace,
     ObjectNotFound,
+    ObjectOutOfReach,
     PerceptionUnavailable,
     ServerUnavailable,
     StateConflict,
 )
-from .profiles import PlacementProfile, ProfileSet, load_profiles
+from .profiles import PickupProfile, PlacementProfile, ProfileSet, load_profiles
 from .state import EMPTY, ManipulationInventory
 
 
@@ -424,6 +425,18 @@ class ManipulationServer(Node):
                     x, y, tag_z, yaw = self._motion.obter_pose_da_april_tag(
                         tag_id, duration
                     )
+                    if profile.reachability_filter_enabled:
+                        reach_filter = self._pickup_reach_filter(profile)
+                        if not reach_filter(x, y):
+                            radius = math.hypot(
+                                x - profile.reach_center_x_m,
+                                y - profile.reach_center_y_m,
+                            )
+                            raise ObjectOutOfReach(
+                                f'AprilTag {tag_id} detectada em x={x:.3f}, '
+                                f'y={y:.3f} m (raio={radius:.3f} m), fora da '
+                                'área de alcance configurada para a coleta.'
+                            )
                     grasp_z = tag_z - profile.cube_size_m
                     grasp_yaw = (
                         normalizar_angulo_de_pegada(yaw) + profile.yaw_offset_deg
@@ -471,6 +484,8 @@ class ManipulationServer(Node):
                         ManipulationResult.LOCATION_GRIPPER,
                     )
                 except OperacaoCancelada:
+                    raise
+                except ObjectOutOfReach:
                     raise
                 except Exception as error:
                     last_error = error
@@ -601,10 +616,69 @@ class ManipulationServer(Node):
             raise ConfigurationError('target_pose possui quaternion nulo.')
 
     @staticmethod
-    def _table_search_candidates(
+    def _reach_filter(
+        *,
+        x_min: float | None,
+        x_max: float | None,
+        y_min: float | None,
+        y_max: float | None,
+        center_x: float,
+        center_y: float,
+        min_radius: float | None,
+        max_radius: float | None,
+        context: str,
+    ) -> Callable[[float, float], bool]:
+        if None in (x_min, x_max, y_min, y_max):
+            raise FeatureUnavailable(
+                f'Preencha os limites XY de alcance em {context}.'
+            )
+        if min_radius is None or max_radius is None:
+            raise FeatureUnavailable(
+                f'Preencha reach_min_radius_m e reach_max_radius_m em {context}.'
+            )
+        if x_min > x_max or y_min > y_max:
+            raise ConfigurationError(
+                f'Os limites XY de alcance em {context} são inválidos.'
+            )
+        if min_radius >= max_radius:
+            raise ConfigurationError(
+                'reach_min_radius_m deve ser menor que reach_max_radius_m em '
+                f'{context}.'
+            )
+
+        def contains(x: float, y: float) -> bool:
+            radius = math.hypot(x - center_x, y - center_y)
+            return (
+                x_min - 1e-9 <= x <= x_max + 1e-9
+                and y_min - 1e-9 <= y <= y_max + 1e-9
+                and radius + 1e-9 >= min_radius
+                and radius <= max_radius + 1e-9
+            )
+
+        return contains
+
+    @staticmethod
+    def _pickup_reach_filter(
+        profile: PickupProfile,
+    ) -> Callable[[float, float], bool]:
+        """Build the independent RL intersection CP/CL filter for pickup."""
+        return ManipulationServer._reach_filter(
+            x_min=profile.reach_x_min_m,
+            x_max=profile.reach_x_max_m,
+            y_min=profile.reach_y_min_m,
+            y_max=profile.reach_y_max_m,
+            center_x=profile.reach_center_x_m,
+            center_y=profile.reach_center_y_m,
+            min_radius=profile.reach_min_radius_m,
+            max_radius=profile.reach_max_radius_m,
+            context=f'pickup.{profile.name}',
+        )
+
+    @staticmethod
+    def _table_reach_filter(
         profile: PlacementProfile,
-    ) -> list[tuple[float, float]]:
-        """Build a bounded grid ordered from the nominal release position."""
+    ) -> Callable[[float, float], bool]:
+        """Return the common RL intersection CP/CL membership test."""
         bounds = (
             profile.search_x_min_m,
             profile.search_x_max_m,
@@ -616,10 +690,6 @@ class ManipulationServer(Node):
                 'Preencha search_x_min_m, search_x_max_m, search_y_min_m e '
                 'search_y_max_m no perfil table antes de analisar AprilTags.'
             )
-        if profile.release_x_m is None or profile.release_y_m is None:
-            raise FeatureUnavailable(
-                'A posição nominal release_x_m/release_y_m não foi configurada.'
-            )
         if (
             profile.reach_min_radius_m is None
             or profile.reach_max_radius_m is None
@@ -628,23 +698,45 @@ class ManipulationServer(Node):
                 'Preencha reach_min_radius_m e reach_max_radius_m no perfil '
                 'table antes de analisar AprilTags.'
             )
-        x_min, x_max, y_min, y_max = (float(value) for value in bounds)
-        nominal_x = float(profile.release_x_m)
-        nominal_y = float(profile.release_y_m)
-        reach_center_x = float(profile.reach_center_x_m)
-        reach_center_y = float(profile.reach_center_y_m)
-        reach_min_radius = float(profile.reach_min_radius_m)
-        reach_max_radius = float(profile.reach_max_radius_m)
-        step = float(profile.search_step_m)
-        if x_min > x_max or y_min > y_max:
-            raise ConfigurationError(
-                'Os limites mínimos da busca na mesa devem ser menores ou iguais '
-                'aos limites máximos.'
-            )
-        if y_max > -0.10:
+        if (
+            profile.search_y_max_m is not None
+            and profile.search_y_max_m > -0.10
+        ):
             raise ConfigurationError(
                 'search_y_max_m não pode ser maior que -0.10 m.'
             )
+        return ManipulationServer._reach_filter(
+            x_min=profile.search_x_min_m,
+            x_max=profile.search_x_max_m,
+            y_min=profile.search_y_min_m,
+            y_max=profile.search_y_max_m,
+            center_x=profile.reach_center_x_m,
+            center_y=profile.reach_center_y_m,
+            min_radius=profile.reach_min_radius_m,
+            max_radius=profile.reach_max_radius_m,
+            context='placements.table',
+        )
+
+    @staticmethod
+    def _table_search_candidates(
+        profile: PlacementProfile,
+    ) -> list[tuple[float, float]]:
+        """Build a bounded grid ordered from the nominal release position."""
+        reach_filter = ManipulationServer._table_reach_filter(profile)
+        bounds = (
+            profile.search_x_min_m,
+            profile.search_x_max_m,
+            profile.search_y_min_m,
+            profile.search_y_max_m,
+        )
+        if profile.release_x_m is None or profile.release_y_m is None:
+            raise FeatureUnavailable(
+                'A posição nominal release_x_m/release_y_m não foi configurada.'
+            )
+        x_min, x_max, y_min, y_max = (float(value) for value in bounds)
+        nominal_x = float(profile.release_x_m)
+        nominal_y = float(profile.release_y_m)
+        step = float(profile.search_step_m)
         if not (x_min <= nominal_x <= x_max and y_min <= nominal_y <= y_max):
             raise ConfigurationError(
                 'A pose nominal da mesa deve estar dentro da região de busca.'
@@ -665,13 +757,7 @@ class ManipulationServer(Node):
         candidates = []
         for x in xs:
             for y in ys:
-                reach_radius = math.hypot(
-                    x - reach_center_x, y - reach_center_y
-                )
-                if (
-                    reach_radius + 1e-9 >= reach_min_radius
-                    and reach_radius <= reach_max_radius + 1e-9
-                ):
+                if reach_filter(x, y):
                     candidates.append((x, y))
         if not candidates:
             raise ConfigurationError(

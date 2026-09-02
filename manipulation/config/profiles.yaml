@@ -7,6 +7,17 @@ pickup:
     cube_size_m: 0.042
     yaw_offset_deg: 0.0
     attempts: 2
+    # RL, CP e CL exclusivos da coleta; calibrar independentemente do depósito.
+    reachability_filter_enabled: true
+    reach_center_x_m: 0.0
+    reach_center_y_m: 0.0
+    reach_min_radius_m: 0.155
+    reach_max_radius_m: 0.28
+    # valor alto para não limitar a busca de espaço livre; calibrar se necessário.
+    reach_x_min_m: -1
+    reach_x_max_m: 1
+    reach_y_min_m: -1
+    reach_y_max_m: 0
 
 placements:
   table:
@@ -20,10 +31,10 @@ placements:
     # Região segura e alcançável para buscar espaço livre. Calibrar os vazios.
     free_space_min_distance_m: 0.08
     free_space_preferred_distance_m: 0.12
-    # Faixa de alcance XY em torno do centro do braço (CP=0.16 m, CL=0.24 m).
+    # Faixa de alcance XY em torno do centro do braço.
     reach_center_x_m: 0.0
     reach_center_y_m: 0.0
-    reach_min_radius_m: 0.15
+    reach_min_radius_m: 0.125
     reach_max_radius_m: 0.30
     search_x_min_m: -0.2
     search_x_max_m: 0.2

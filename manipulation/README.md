@@ -34,6 +34,12 @@ No empilhamento, `support_tag_id` identifica apenas o cubo de apoio.
 As coordenadas X, Y e Z do apoio são obtidas da pose 3D dessa AprilTag; a
 altura da WS não faz parte da interface de empilhamento.
 
+Quando `pickup.tabletop.reachability_filter_enabled` está habilitado, a coleta
+usa seus próprios limites `reach_x/y_*`, CP e CL, definidos em
+`pickup.tabletop`. Uma AprilTag detectada fora dessa região é rejeitada antes
+do planejamento cartesiano e não consome uma segunda tentativa. Desabilitar a
+flag preserva o envio direto da pose ao MoveIt.
+
 Quando `analyze_apriltags` e `analyze_containers` são falsos,
 `place_on_table` usa `release_x_m`, `release_y_m` e `release_yaw_deg` fixos do
 perfil `table`. A altura do TCP é calculada por
