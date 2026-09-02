@@ -49,7 +49,10 @@ class SO101HardwareNode(Node):
         self.declare_parameter('calibration_file', '')
         self.declare_parameter('disable_torque', False)
         self.declare_parameter('use_degrees', False)
-        self.declare_parameter('write_rate_hz', 30.0)
+        # O controller_manager interpola a 30 Hz. Amostrar o último alvo a uma
+        # taxa maior evita alias de fase entre dois timers de 30 Hz: um alvo
+        # não fica esperando um ciclo inteiro nem é substituído pelo próximo.
+        self.declare_parameter('write_rate_hz', 60.0)
         self.declare_parameter('read_rate_hz', 30.0)
         self.declare_parameter('idle_read_rate_hz', 2.0)
         self.declare_parameter('read_idle_timeout_sec', 1.0)
@@ -96,8 +99,8 @@ class SO101HardwareNode(Node):
         self._latest_command = None
         self._last_received_command = None
         self._last_sent_command = None
-        # Dois períodos evitam alias entre o publisher e o timer quando ambos
-        # operam a 30 Hz; depois disso, o timer pode dormir sem perder fluidez.
+        # Dois períodos do escritor mantêm a janela ativa após a última
+        # mudança; depois disso o timer dorme para não consumir CPU em repouso.
         self._write_idle_timeout = 2.0 / self._write_rate_hz
         self._last_command_change_time = time.monotonic()
         self._read_is_idle = False

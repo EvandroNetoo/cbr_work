@@ -149,7 +149,7 @@ def test_io_performance_defaults_are_explicit():
     parameters = yaml.safe_load(
         (PACKAGE_ROOT / 'config' / 'real.yaml').read_text())[
             'so101_hardware_node']['ros__parameters']
-    assert parameters['write_rate_hz'] == 30.0
+    assert parameters['write_rate_hz'] == 60.0
     assert parameters['read_rate_hz'] == 30.0
     assert parameters['idle_read_rate_hz'] == 2.0
     assert parameters['read_idle_timeout_sec'] == 1.0

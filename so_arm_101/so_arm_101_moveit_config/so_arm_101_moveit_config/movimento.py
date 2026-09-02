@@ -133,7 +133,7 @@ class ExecutorDoMoveIt:
     def obter_deteccoes_de_april_tags(
         self, duracao_da_analise: float
     ) -> list[AprilTagStampedDetection]:
-        """Analisa a cena e devolve a melhor detecção de cada tag em base_link."""
+        """Analisa a cena e devolve a melhor detecção no frame do braço."""
         if duracao_da_analise <= 0.0:
             raise ValueError("A duração da análise da AprilTag deve ser positiva.")
 
@@ -199,7 +199,7 @@ class ExecutorDoMoveIt:
         })
         if referencias_invalidas:
             raise RuntimeError(
-                "A análise retornou AprilTags fora de base_link: "
+                f"A análise retornou AprilTags fora de {REFERENCIAL_BASE}: "
                 f"{referencias_invalidas}."
             )
         self.no.get_logger().info(
@@ -219,7 +219,7 @@ class ExecutorDoMoveIt:
         if deteccao is None:
             ids_encontrados = sorted({item.id for item in deteccoes})
             raise RuntimeError(
-                f"AprilTag {tag_id} não encontrada em base_link durante "
+                f"AprilTag {tag_id} não encontrada em {REFERENCIAL_BASE} durante "
                 f"{duracao_da_analise:.1f}s. IDs encontrados: {ids_encontrados}. "
                 "Confirme a visibilidade da tag e o TF da câmera."
             )

@@ -2,8 +2,8 @@
 
 set -e
 
-# ROBOT="banana@172.20.10.8"
-ROBOT="banana@192.168.1.216"
+ROBOT="banana@172.20.10.8"
+# ROBOT="banana@192.168.1.216"
 # ROBOT="banana@10.108.64.44"
 
 rsync -av \

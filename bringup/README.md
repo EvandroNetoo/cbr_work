@@ -8,9 +8,14 @@ retificação calibrada e o detector AprilTag. O notebook é usado apenas para
 visualização.
 
 O perfil otimizado usa câmera a 15 FPS, detector AprilTag limitado a 10 Hz e
-`controller_manager` a 30 Hz. Braço e base mantêm somente o comando mais recente
-e reenviam alvos estacionários a 5 Hz. LiDAR e MoveIt continuam sempre ativos
-nesta fase.
+`controller_manager` a 30 Hz. O braço amostra o setpoint mais recente a 60 Hz,
+mas só escreve na serial quando ele muda; a taxa maior evita alias com o loop
+de controle. A base mantém somente o comando mais recente e reenvia o alvo
+estacionário a 5 Hz. LiDAR e MoveIt continuam sempre ativos nesta fase.
+
+As poses cartesianas e as detecções usadas pela manipulação são expressas em
+`arm_base_link`. No perfil composto, `base_link` pertence ao chassi e difere da
+base do braço pelo yaw físico de 90 graus do suporte.
 
 A futura lógica autônoma deve ser incluída neste perfil depois que os
 controllers e o `/move_action` estiverem prontos; o notebook não é requisito

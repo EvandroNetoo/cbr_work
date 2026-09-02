@@ -20,19 +20,21 @@ def test_srdf_matches_urdf_root_arm_chain_and_tcp():
     for element in root.iter():
         for key, value in element.attrib.items():
             element.attrib[key] = value.replace(
-                '$(arg arm_base_link_name)', 'base_link')
+                '$(arg arm_base_link_name)', 'arm_base_link')
     urdf = ET.parse(URDF_PATH).getroot().find(
         '{http://www.ros.org/wiki/xacro}macro[@name="so_101_arm"]')
     for element in urdf.iter():
         for key, value in element.attrib.items():
-            element.attrib[key] = value.replace('${arm_base_link_name}', 'base_link')
+            element.attrib[key] = value.replace(
+                '${arm_base_link_name}', 'arm_base_link')
     chain = root.find("group[@name='arm']/chain")
     world_joint = urdf.find(".//joint[@name='world_to_base']")
     assert root.find('virtual_joint') is None
     assert world_joint.attrib['type'] == 'fixed'
     assert world_joint.find('parent').attrib['link'] == 'world'
-    assert world_joint.find('child').attrib['link'] == 'base_link'
-    assert chain.attrib == {'base_link': 'base_link', 'tip_link': 'gripper_tcp'}
+    assert world_joint.find('child').attrib['link'] == 'arm_base_link'
+    assert chain.attrib == {
+        'base_link': 'arm_base_link', 'tip_link': 'gripper_tcp'}
     tcp_joint = urdf.find(".//joint[@name='link5_to_gripper_tcp']")
     assert tcp_joint.attrib['type'] == 'fixed'
     assert tcp_joint.find('parent').attrib['link'] == 'link5_1'

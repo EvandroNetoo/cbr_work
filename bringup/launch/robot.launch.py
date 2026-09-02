@@ -139,7 +139,12 @@ def generate_launch_description():
             'calibration_file', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument('image_topic', default_value='/camera/image_rect'),
         DeclareLaunchArgument('camera_info_topic', default_value='/camera/camera_info'),
-        DeclareLaunchArgument('base_frame', default_value='base_link'),
+        DeclareLaunchArgument(
+            'base_frame', default_value='arm_base_link',
+            description=(
+                'Referencial cartesiano da manipulação. Deve permanecer na '
+                'base física do braço para ter a mesma semântica do launch '
+                'standalone.')),
         arm_driver, base_driver, lidar, localization, camera, apriltag, rsp, readiness,
         RegisterEventHandler(OnProcessExit(target_action=readiness, on_exit=start_control)),
         chain(joint, arm, 'joint_state_broadcaster'),

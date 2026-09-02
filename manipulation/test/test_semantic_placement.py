@@ -18,7 +18,7 @@ from interfaces.msg import AprilTagStampedDetection
 
 def _pose():
     pose = PoseStamped()
-    pose.header.frame_id = 'base_link'
+    pose.header.frame_id = 'arm_base_link'
     pose.pose.position.z = 0.10
     pose.pose.orientation.w = 1.0
     return pose
@@ -66,7 +66,7 @@ def _search_profile(**overrides):
 
 def _detection(tag_id, x, y):
     detection = AprilTagStampedDetection()
-    detection.header.frame_id = 'base_link'
+    detection.header.frame_id = 'arm_base_link'
     detection.id = tag_id
     detection.pose.position.x = x
     detection.pose.position.y = y

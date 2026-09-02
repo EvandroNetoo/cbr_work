@@ -7,7 +7,7 @@ from interfaces.action import PlaceAtPose, PlaceInContainer, PlaceOnTable
 
 def _valid_pose():
     goal = PlaceAtPose.Goal()
-    goal.release_pose.header.frame_id = 'base_link'
+    goal.release_pose.header.frame_id = 'arm_base_link'
     goal.release_pose.pose.position.x = 0.1
     goal.release_pose.pose.position.y = -0.2
     goal.release_pose.pose.position.z = 0.05
@@ -15,11 +15,11 @@ def _valid_pose():
     return goal.release_pose
 
 
-def test_explicit_release_pose_must_be_in_base_link():
+def test_explicit_release_pose_must_be_in_arm_base_link():
     pose = _valid_pose()
     pose.header.frame_id = 'map'
 
-    with pytest.raises(ConfigurationError, match='base_link'):
+    with pytest.raises(ConfigurationError, match='arm_base_link'):
         ManipulationServer._validate_target_pose(pose)
 
 

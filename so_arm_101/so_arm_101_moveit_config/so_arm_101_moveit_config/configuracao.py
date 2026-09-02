@@ -15,14 +15,17 @@ EstadosDeGrupo: TypeAlias = dict[str, dict[str, dict[str, float]]]
 
 GRUPO_BRACO: Final[str] = "arm"
 GRUPO_GARRA: Final[str] = "gripper"
-REFERENCIAL_BASE: Final[str] = "base_link"
+# Referencial cartesiano canônico do manipulador. No robô composto, base_link
+# pertence ao chassi e arm_base_link inclui o yaw físico do suporte; usar o
+# frame do braço mantém poses e yaw idênticos ao perfil standalone.
+REFERENCIAL_BASE: Final[str] = "arm_base_link"
 LINK_FIM_DA_GARRA: Final[str] = "gripper_tcp"
 
 OBJETO_X: Final[float] = -0.0
 OBJETO_Y: Final[float] = -0.25
 OBJETO_Z: Final[float] = 0.03
 # Use None para manter as coordenadas OBJETO_X/Y/Z acima. Quando definido,
-# o ID é procurado pelo detector AprilTag e sua posição em base_link substitui
+# o ID é procurado pelo detector AprilTag e sua posição em arm_base_link substitui
 # as três coordenadas do objeto.
 APRIL_TAG_ID: Final[int | None] = 1
 TEMPO_DE_ANALISE_DA_APRIL_TAG: Final[float] = 2.0

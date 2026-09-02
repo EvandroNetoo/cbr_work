@@ -32,6 +32,7 @@ def generate_launch_description() -> LaunchDescription:
         bringup_share, 'config', 'controllers_real_overrides.yaml'])
     robot_description = ParameterValue(Command([
         'xacro ', xacro_file,
+        ' arm_base_link_name:=arm_base_link',
         ' use_real_ros2_control:=true',
         ' hardware_plugin:=so_arm_101_hardware_interface/SO101System',
     ]), value_type=str)

@@ -86,8 +86,8 @@ O nó Python não publica actions nem recebe trajetórias. O plugin
 ## Ciclo de I/O e reconexão
 
 No perfil padrão, a callback ROS apenas mantém o alvo mais recente. Um timer de
-escrita a 30 Hz executa `sync_write` somente quando o alvo muda. A leitura usa
-30 Hz durante movimento e cai para 2 Hz após um segundo sem mudança de alvo e
+escrita amostrada a 60 Hz executa `sync_write` somente quando o alvo muda. A
+leitura usa 30 Hz durante movimento e cai para 2 Hz após um segundo sem mudança de alvo e
 com velocidades baixas. Um novo alvo restaura imediatamente a leitura a 30 Hz.
 Leitura e escrita compartilham o mesmo lock, portanto nunca acessam a serial ao
 mesmo tempo. Quando não há setpoint pendente, o timer de escrita fica cancelado

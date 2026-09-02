@@ -19,6 +19,7 @@ def test_robot_profile_is_headless_and_always_starts_vision():
     assert "FindPackageShare('imu')" in source
     assert '--remap ~/odometry:=/wheel/odom' in source
     assert "FindPackageShare('robot_description')" in source
+    assert "'base_frame', default_value='arm_base_link'" in source
     assert source.count("executable='ros2_control_node'") == 1
     assert "arguments=['joint_state_broadcaster'" in source
     assert 'enable_apriltag' not in source

@@ -52,7 +52,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('image_topic', default_value='/camera/image_rect'),
         DeclareLaunchArgument(
             'camera_info_topic', default_value='/camera/camera_info'),
-        DeclareLaunchArgument('base_frame', default_value='base_link'),
+        DeclareLaunchArgument('base_frame', default_value='arm_base_link'),
         arm_planning,
         camera,
         apriltag,

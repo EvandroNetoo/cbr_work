@@ -40,7 +40,7 @@ perfil `table`. A altura do TCP é calculada por
 `(ws_height_cm + tcp_release_offset_cm) / 100`.
 
 Quando `analyze_apriltags` é verdadeiro, o servidor posiciona a câmera, analisa
-todas as tags em `base_link` e procura a partir da posição nominal. Os candidatos
+todas as tags em `arm_base_link` e procura a partir da posição nominal. Os candidatos
 são ordenados pela distância até `release_x_m/release_y_m` e devem manter
 `free_space_min_distance_m` de todas as tags, exceto a do objeto na garra. A
 busca usa uma grade delimitada por `search_x_min_m`, `search_x_max_m`,
@@ -93,11 +93,11 @@ sequência completa é `pre_grip` → `deposit_cube_left` → `pick_cube_left` �
 fechar em `grip` → `deposit_cube_left` → `home`.
 No lado direito, a mesma lógica usa `deposit_cube_right` e `pick_cube_right`.
 
-Depósito em uma pose explícita do TCP (`base_link`):
+Depósito em uma pose explícita do TCP (`arm_base_link`):
 
 ```bash
 ros2 action send_goal manipulation/place_at_pose interfaces/action/PlaceAtPose \
-  "{release_pose: {header: {frame_id: base_link}, pose: \
+  "{release_pose: {header: {frame_id: arm_base_link}, pose: \
     {position: {x: 0.20, y: 0.0, z: 0.10}, orientation: {w: 1.0}}}}" \
   --feedback
 ```
