@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/WheelCommand.msg"
   "action/AnalyzeAprilTags.action"
   "action/ExecuteMission.action"
+  "action/FollowWall.action"
   "action/MoveToDistance.action"
   "action/PickObject.action"
   "action/PlaceAtPose.action"

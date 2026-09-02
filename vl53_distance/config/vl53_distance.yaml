@@ -1,7 +1,9 @@
 vl53_distance_action:
   ros__parameters:
     action_name: /vl53/move_to_distance
+    follow_wall_action_name: /vl53/follow_wall
     cmd_vel_topic: /cmd_vel
+    odom_topic: /odom
     command_frame: base_footprint
 
     sensor.i2c_bus: 1
@@ -19,8 +21,12 @@ vl53_distance_action:
     control_rate_hz: 10.0
     command_publish_rate_hz: 20.0
     command_freshness_timeout_sec: 0.20
+    odom_start_timeout_sec: 1.0
+    odom_freshness_timeout_sec: 0.30
     settle_time_sec: 0.50
     max_consecutive_read_failures: 3
+    wheel_linear_speed_limit: 0.238
+    kinematic_lever: 0.2225
 
     linear_pid.kp: 0.8
     linear_pid.ki: 0.0
@@ -28,6 +34,15 @@ vl53_distance_action:
     linear_pid.integral_limit: 0.20
     linear_pid.derivative_filter_alpha: 0.20
     linear_pid.output_limit: 0.10
+
+    # Erro em metros; a saída é convertida para linear.y, invertendo o sinal
+    # porque a action usa positivo=direita e o ROS usa +Y=esquerda.
+    travel_pid.kp: 2.0
+    travel_pid.ki: 0.0
+    travel_pid.kd: 0.0
+    travel_pid.integral_limit: 0.20
+    travel_pid.derivative_filter_alpha: 0.20
+    travel_pid.output_limit: 0.10
 
     angular_pid.kp: 4.0
     angular_pid.ki: 0.0

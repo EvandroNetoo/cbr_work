@@ -19,6 +19,18 @@ def test_action_interface_contains_goal_result_and_feedback_contract():
     assert 'uint32 consecutive_read_failures' in action
     assert action.count('---') == 2
 
+    follow_wall = (
+        WORKSPACE_SOURCE / 'interfaces' / 'action' / 'FollowWall.action'
+    ).read_text()
+    assert 'uint32 wall_distance_mm' in follow_wall
+    assert 'int32 travel_distance_mm' in follow_wall
+    assert 'uint32 wall_tolerance_mm' in follow_wall
+    assert 'uint32 travel_tolerance_mm' in follow_wall
+    assert 'bool has_valid_odometry' in follow_wall
+    assert 'float32 traveled_distance_mm' in follow_wall
+    assert 'float32 linear_y_velocity_mps' in follow_wall
+    assert follow_wall.count('---') == 2
+
 
 def test_physical_defaults_match_the_validated_example():
     config = yaml.safe_load(
@@ -31,10 +43,18 @@ def test_physical_defaults_match_the_validated_example():
     assert parameters['sensor.median_window'] == 3
     assert parameters['sensor.ranging_timeout_ms'] == 200
     assert parameters['max_consecutive_read_failures'] == 3
+    assert parameters['follow_wall_action_name'] == '/vl53/follow_wall'
+    assert parameters['odom_topic'] == '/odom'
+    assert parameters['odom_start_timeout_sec'] > 0.0
+    assert parameters['odom_freshness_timeout_sec'] > 0.0
+    assert parameters['wheel_linear_speed_limit'] == 0.238
+    assert parameters['kinematic_lever'] == 0.2225
     assert parameters['linear_pid.ki'] == 0.0
     assert parameters['linear_pid.kd'] == 0.0
     assert parameters['angular_pid.ki'] == 0.0
     assert parameters['angular_pid.kd'] == 0.0
+    assert parameters['travel_pid.ki'] == 0.0
+    assert parameters['travel_pid.kd'] == 0.0
 
 
 def test_action_uses_watchdog_and_stops_on_every_terminal_path():
@@ -45,6 +65,9 @@ def test_action_uses_watchdog_and_stops_on_every_terminal_path():
     assert 'self._invalidate_command(publish=True)' in source
     assert "name='vl53-distance-action-goal'" in source
     assert "'/cmd_vel'" in source
+    assert "'/odom'" in source
+    assert 'FollowWall' in source
+    assert 'rightward_displacement_mm' in source
 
 
 def test_both_physical_launches_start_action_after_base_controller():
