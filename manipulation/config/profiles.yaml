@@ -6,7 +6,7 @@ pickup:
     approach_height_m: 0.08
     cube_size_m: 0.042
     yaw_offset_deg: 0.0
-    attempts: 2
+    attempts: 1
     # RL, CP e CL exclusivos da coleta; calibrar independentemente do depósito.
     reachability_filter_enabled: true
     reach_center_x_m: 0.0

@@ -2,11 +2,13 @@
 
 import math
 from pathlib import Path
+import threading
 
 import pytest
 import yaml
 
 from so_arm_101_moveit_config.configuracao import (
+    ACELERACAO_MAXIMA,
     APRIL_TAG_ID,
     TAMANHO_DO_CUBO,
     TENTATIVAS_DE_PLANEJAMENTO,
@@ -25,6 +27,25 @@ def test_estado_articular_usa_orcamento_menor_que_pose_cartesiana():
     assert TENTATIVAS_DE_PLANEJAMENTO_ARTICULAR == 1
     assert TEMPO_DE_PLANEJAMENTO_ARTICULAR < TEMPO_DE_PLANEJAMENTO
     assert TENTATIVAS_DE_PLANEJAMENTO_ARTICULAR < TENTATIVAS_DE_PLANEJAMENTO
+
+
+def test_aceleracao_do_braco_usa_escala_maxima():
+    assert ACELERACAO_MAXIMA == pytest.approx(1.0)
+
+
+def test_estado_articular_ja_atingido_e_omitido():
+    executor = ExecutorDoMoveIt.__new__(ExecutorDoMoveIt)
+    executor._condicao_dos_estados = threading.Condition()
+    executor.sequencia_dos_estados_das_juntas = 1
+    executor.posicoes_juntas_atuais = {'joint': 1.0}
+    executor.velocidades_juntas_atuais = {'joint': 0.0}
+
+    assert executor._estado_articular_ja_atingido(
+        'arm', {'joint': 1.005}, 0.01
+    )
+    assert not executor._estado_articular_ja_atingido(
+        'arm', {'joint': 1.02}, 0.01
+    )
 
 
 def test_sequencia_nao_contem_esperas_fixas():

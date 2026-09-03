@@ -286,6 +286,10 @@ class ManipulationServer(Node):
         )
         self._arm_state(state, 'Recolhendo o manipulador para transporte')
 
+    def _transfer_state(self, description: str = 'Indo para detect_apriltags'):
+        profile = self._profiles.pickup_profile('tabletop')
+        self._arm_state(profile.observation_state, description)
+
     def _ensure_moveit(self) -> None:
         timeout = float(self.get_parameter('moveit_server_timeout_s').value)
         if not math.isfinite(timeout) or timeout <= 0.0:
@@ -505,7 +509,9 @@ class ManipulationServer(Node):
                         GRUPO_BRACO, restricoes_de_pre_pegada(approach_pose),
                         VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
                     )
-                    self._safe()
+                    self._transfer_state(
+                        'Retornando para detect_apriltags após a coleta'
+                    )
                     return (
                         f'Objeto {tag_id} coletado da mesa.',
                         ManipulationResult.LOCATION_GRIPPER,
@@ -572,6 +578,9 @@ class ManipulationServer(Node):
             slot = self._profiles.cargo_slots.get(slot_id)
             if slot is None:
                 raise ConfigurationError(f"Compartimento não configurado: '{slot_id}'.")
+            self._transfer_state(
+                'Garantindo detect_apriltags antes do compartimento'
+            )
             self._feedback(
                 goal_handle, StoreObject, ManipulationFeedback.APPROACHING,
                 0.30, f"Levando objeto ao compartimento '{slot_id}'",
@@ -587,7 +596,9 @@ class ManipulationServer(Node):
                 self._inventory.mark_unknown()
                 raise
             self._inventory.commit_store(object_tag_id, slot_id)
-            self._safe()
+            self._transfer_state(
+                'Retornando do compartimento para detect_apriltags'
+            )
             return (
                 f"Objeto {object_tag_id} armazenado em '{slot_id}'.",
                 ManipulationResult.LOCATION_CARGO,
@@ -611,6 +622,9 @@ class ManipulationServer(Node):
                 0.10, 'Preparando a abertura da garra para retirar o objeto',
             )
             self._gripper('pre_grip', 'Posicionando a garra em pre_grip')
+            self._transfer_state(
+                'Garantindo detect_apriltags antes de acessar o compartimento'
+            )
             self._feedback(
                 goal_handle, RetrieveObject, ManipulationFeedback.APPROACHING,
                 0.25, f"Aproximando do compartimento '{slot_id}'",
@@ -636,8 +650,12 @@ class ManipulationServer(Node):
                     goal_handle, RetrieveObject, ManipulationFeedback.RETREATING,
                     0.80, 'Elevando o objeto do compartimento',
                 )
-                self._arm_state(slot.store_state, 'Retornando à pose de armazenamento')
-                self._safe()
+                self._arm_state(
+                    slot.store_state, 'Retornando à pose de armazenamento'
+                )
+                self._transfer_state(
+                    'Retornando do compartimento para detect_apriltags'
+                )
             except Exception:
                 self._inventory.mark_unknown()
                 raise

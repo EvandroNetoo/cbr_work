@@ -66,28 +66,45 @@ def test_server_serializes_actions_and_propagates_cancellation():
         assert callback in source
 
 
-def test_retrieve_uses_safe_waypoint_before_and_after_grasp():
+def test_retrieve_uses_explicit_waypoints_before_and_after_grasp():
     source = (PACKAGE / 'manipulation' / 'node.py').read_text()
     retrieve = source.split('def _execute_retrieve', 1)[1]
     retrieve = retrieve.split('def _validate_target_pose', 1)[0]
 
     pre_grip = retrieve.index("self._gripper('pre_grip'")
+    transfer = retrieve.index('self._transfer_state(', pre_grip)
     approach_store = retrieve.index(
-        'self._arm_state(slot.store_state', pre_grip
+        'self._arm_state(slot.store_state', transfer
     )
     retrieve_pose = retrieve.index(
         'self._arm_state(slot.retrieve_state', approach_store
     )
     close_gripper = retrieve.index("self._gripper('grip'", retrieve_pose)
     retreat_store = retrieve.index(
-        'self._arm_state(slot.store_state', close_gripper
+        'self._arm_state(\n                    slot.store_state', close_gripper
     )
-    go_home = retrieve.index('self._safe()', retreat_store)
+    return_transfer = retrieve.index('self._transfer_state(', retreat_store)
 
     assert (
-        pre_grip < approach_store < retrieve_pose < close_gripper
-        < retreat_store < go_home
+        pre_grip < transfer < approach_store < retrieve_pose < close_gripper
+        < retreat_store < return_transfer
     )
+    assert 'self._safe()' not in retrieve
+
+
+def test_pick_returns_to_approach_before_detection_pose():
+    source = (PACKAGE / 'manipulation' / 'node.py').read_text()
+    pick = source.split('def _execute_pick', 1)[1]
+    pick = pick.split('def _execute_store', 1)[0]
+
+    close_gripper = pick.index("self._gripper('grip'")
+    return_approach = pick.index(
+        'restricoes_de_pre_pegada(approach_pose)', close_gripper
+    )
+    return_detection = pick.index('self._transfer_state(', return_approach)
+
+    assert close_gripper < return_approach < return_detection
+    assert 'executar_trajetoria_invertida' not in pick
 
 
 def test_launch_installs_profiles_from_package_share():

@@ -319,6 +319,14 @@ class ExecutorDoMoveIt:
         if not posicoes_das_juntas:
             raise ValueError("Informe ao menos uma posição de junta.")
 
+        if self._estado_articular_ja_atingido(
+            grupo, posicoes_das_juntas, tolerancia
+        ):
+            self.no.get_logger().info(
+                f"{descricao}: estado já atingido; movimento omitido."
+            )
+            return
+
         self.no.get_logger().info(descricao)
         restricoes = restricoes_de_posicao_inicial(posicoes_das_juntas, tolerancia)
         self.executar_objetivo(
@@ -328,6 +336,36 @@ class ExecutorDoMoveIt:
             aceleracao,
             tentativas_de_planejamento=TENTATIVAS_DE_PLANEJAMENTO_ARTICULAR,
             tempo_de_planejamento=TEMPO_DE_PLANEJAMENTO_ARTICULAR,
+        )
+
+    def _estado_articular_ja_atingido(
+        self,
+        grupo: str,
+        posicoes_das_juntas: PosicoesJuntas,
+        tolerancia: float,
+    ) -> bool:
+        """Confirma posição e repouso antes de omitir um movimento repetido."""
+        with self._condicao_dos_estados:
+            if self.sequencia_dos_estados_das_juntas == 0:
+                return False
+            posicoes = dict(self.posicoes_juntas_atuais)
+            velocidades = dict(self.velocidades_juntas_atuais)
+        if any(nome not in posicoes for nome in posicoes_das_juntas):
+            return False
+        if any(
+            abs(posicoes[nome] - alvo) > tolerancia
+            for nome, alvo in posicoes_das_juntas.items()
+        ):
+            return False
+        velocidade_maxima = (
+            VELOCIDADE_DE_ASSENTAMENTO_DA_GARRA
+            if grupo == GRUPO_GARRA
+            else VELOCIDADE_DE_ASSENTAMENTO_DO_BRACO
+        )
+        return all(
+            nome in velocidades
+            and abs(velocidades[nome]) <= velocidade_maxima
+            for nome in posicoes_das_juntas
         )
 
     def executar_objetivo(

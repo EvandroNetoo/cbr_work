@@ -47,6 +47,11 @@ O mesmo resultado sempre inclui `observed_detections`, com a melhor observação
 de cada ID encontrado nas tentativas executadas sem movimentar a base. Isso
 também vale para coleta bem-sucedida e para alvo não encontrado.
 
+A coleta mantém o caminho `detect_apriltags` → `approach` → `grasp`. Depois de
+fechar a garra, o MoveIt planeja explicitamente o retorno primeiro para
+`approach` e depois para `detect_apriltags`. Não há ponto elevado adicional nem
+reprodução de trajetórias armazenadas.
+
 Quando `analyze_apriltags` e `analyze_containers` são falsos,
 `place_on_table` usa `release_x_m`, `release_y_m` e `release_yaw_deg` fixos do
 perfil `table`. A altura do TCP é calculada por
@@ -109,9 +114,11 @@ ros2 action send_goal manipulation/retrieve interfaces/action/RetrieveObject \
 
 Na retirada, `store_state` é a pose segura de armazenamento e `retrieve_state`
 é a pose baixa onde a garra alcança o objeto. Para o compartimento `left`, a
-sequência completa é `pre_grip` → `deposit_cube_left` → `pick_cube_left` →
-fechar em `grip` → `deposit_cube_left` → `home`.
-No lado direito, a mesma lógica usa `deposit_cube_right` e `pick_cube_right`.
+sequência completa é `pre_grip` → `detect_apriltags` → `deposit_cube_left` →
+`pick_cube_left` → fechar em `grip` → `deposit_cube_left` →
+`detect_apriltags`. No lado direito, a mesma lógica usa `deposit_cube_right` e
+`pick_cube_right`. O armazenamento também parte de `detect_apriltags` e volta
+para essa pose; `home` fica para a preparação da navegação da base.
 
 Depósito em uma pose explícita do TCP (`arm_base_link`):
 

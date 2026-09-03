@@ -21,7 +21,8 @@ def test_pickup_has_only_tabletop_source():
     assert set(profiles.pickup) == {'tabletop'}
     assert profiles.pickup['tabletop'].cube_size_m == pytest.approx(0.042)
     pickup = profiles.pickup['tabletop']
-    assert pickup.reachability_filter_enabled is False
+    assert pickup.attempts == 1
+    assert pickup.reachability_filter_enabled is True
     assert pickup.reach_min_radius_m is not None
     assert pickup.reach_max_radius_m is not None
     assert pickup.reach_x_min_m is not None
@@ -86,7 +87,7 @@ def test_both_measured_cargo_slots_are_enabled():
 
 def test_unknown_configuration_field_is_rejected(tmp_path):
     profiles = (PACKAGE / 'config' / 'profiles.yaml').read_text()
-    profiles = profiles.replace('attempts: 2', 'attempts: 2\n    typo: true')
+    profiles = profiles.replace('attempts: 1', 'attempts: 1\n    typo: true')
     profile_path = tmp_path / 'profiles.yaml'
     profile_path.write_text(profiles)
 
@@ -123,7 +124,7 @@ def test_reach_minimum_radius_must_be_smaller_than_maximum(tmp_path):
 def test_pickup_reachability_flag_must_be_boolean(tmp_path):
     profiles = (PACKAGE / 'config' / 'profiles.yaml').read_text()
     profiles = profiles.replace(
-        'reachability_filter_enabled: false',
+        'reachability_filter_enabled: true',
         'reachability_filter_enabled: "true"',
     )
     profile_path = tmp_path / 'profiles.yaml'
