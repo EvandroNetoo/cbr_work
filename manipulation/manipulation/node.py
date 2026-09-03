@@ -59,10 +59,11 @@ from .errors import (
     PerceptionUnavailable,
     PickRecoveryRequired,
     ServerUnavailable,
-    StateConflict,
 )
 from .profiles import load_profiles, PickupProfile, PlacementProfile, ProfileSet
-from .state_client import EMPTY, MissionStateClient
+
+
+EMPTY = ManipulationResult.EMPTY
 
 
 _ERROR_CODES = {
@@ -72,7 +73,6 @@ _ERROR_CODES = {
     PerceptionUnavailable: ManipulationResult.PERCEPTION_UNAVAILABLE,
     NoFreeSpace: ManipulationResult.NO_FREE_SPACE,
     FeatureUnavailable: ManipulationResult.FEATURE_UNAVAILABLE,
-    StateConflict: ManipulationResult.STATE_CONFLICT,
 }
 
 
@@ -82,9 +82,13 @@ class ManipulationServer(Node):
     def __init__(self) -> None:
         """Load calibrated profiles and create the serialized action servers."""
         super().__init__('manipulation_server')
-        if not hasattr(PickObject.Result(), 'observed_detections'):
+        if (
+            not hasattr(PickObject.Result(), 'observed_detections')
+            or not hasattr(StoreObject.Goal(), 'object_tag_id')
+            or not hasattr(PrepareManipulator.Goal(), 'gripper_loaded')
+        ):
             raise ConfigurationError(
-                'A interface PickObject instalada está desatualizada; '
+                'As interfaces de manipulação instaladas estão desatualizadas; '
                 'recompile interfaces antes de iniciar manipulation.'
             )
         share = Path(get_package_share_directory('manipulation'))
@@ -94,8 +98,6 @@ class ManipulationServer(Node):
             'move_group_action': '/move_action',
             'apriltag_action': '/apriltags/analyze',
             'joint_states_topic': '/joint_states',
-            'state_service': '/mission/manipulation_state',
-            'state_service_timeout_s': 2.0,
             'pick_action': 'manipulation/pick',
             'store_action': 'manipulation/store',
             'retrieve_action': 'manipulation/retrieve',
@@ -123,14 +125,10 @@ class ManipulationServer(Node):
         self._validate_named_states(self._profiles)
 
         self._callback_group = ReentrantCallbackGroup()
-        self._inventory = MissionStateClient(
-            self,
-            str(self.get_parameter('state_service').value),
-            float(self.get_parameter('state_service_timeout_s').value),
-            self._callback_group,
-        )
         self._busy = False
         self._active_operation = ''
+        self._effect_known = True
+        self._effect_location = ManipulationResult.LOCATION_UNKNOWN
         self._lock = threading.RLock()
         self._cancel_event = threading.Event()
         self._motion = ExecutorDoMoveIt(
@@ -190,7 +188,7 @@ class ManipulationServer(Node):
             ),
         ]
         self.get_logger().info(
-            'Manipulação pronta; estado lógico fornecido pelo mission manager.'
+            'Manipulação pronta; actions físicas independentes do estado da missão.'
         )
 
     @staticmethod
@@ -277,11 +275,10 @@ class ManipulationServer(Node):
             aceleracao=ACELERACAO_MAXIMA_DA_GARRA,
         )
 
-    def _safe(self) -> None:
-        _, gripper, _ = self._inventory.snapshot()
+    def _safe(self, gripper_loaded: bool) -> None:
         state = (
             self._profiles.transport_loaded_state
-            if gripper != EMPTY
+            if gripper_loaded
             else self._profiles.transport_empty_state
         )
         self._arm_state(state, 'Recolhendo o manipulador para transporte')
@@ -299,19 +296,14 @@ class ManipulationServer(Node):
                 f"Action '{self.get_parameter('move_group_action').value}' indisponível."
             )
 
-    @staticmethod
-    def _location_for_snapshot(
-        tag_id: int,
-        snapshot: tuple[bool, int, dict[str, int]],
-    ) -> int:
-        if tag_id == EMPTY:
-            return ManipulationResult.LOCATION_UNKNOWN
-        _, gripper, slots = snapshot
-        if gripper == tag_id:
-            return ManipulationResult.LOCATION_GRIPPER
-        if tag_id in slots.values():
-            return ManipulationResult.LOCATION_CARGO
-        return ManipulationResult.LOCATION_UNKNOWN
+    def _record_effect(self, location: int) -> None:
+        """Record a completed physical load transition for the action result."""
+        self._effect_location = int(location)
+
+    def _mark_effect_unknown(self) -> None:
+        """Report that an interrupted gripper transition has an ambiguous effect."""
+        self._effect_known = False
+        self._effect_location = ManipulationResult.LOCATION_LOST
 
     def _make_result(
         self,
@@ -328,21 +320,13 @@ class ManipulationServer(Node):
         result = action_type.Result()
         result.outcome.object_tag_id = int(tag_id)
         result.outcome.code = int(code)
-        try:
-            snapshot = self._inventory.snapshot()
-        except ServerUnavailable:
-            cached_snapshot = getattr(self._inventory, 'cached_snapshot', None)
-            snapshot = (
-                cached_snapshot()
-                if cached_snapshot is not None
-                else (False, EMPTY, {})
-            )
-        known, _, _ = snapshot
-        result.outcome.state_known = known
+        result.outcome.effect_known = getattr(self, '_effect_known', True)
         result.outcome.final_object_location = int(
             final_location
             if final_location is not None
-            else self._location_for_snapshot(tag_id, snapshot)
+            else getattr(
+                self, '_effect_location', ManipulationResult.LOCATION_UNKNOWN
+            )
         )
         result.outcome.message = message
         if placed_pose is not None and hasattr(result, 'placed_pose'):
@@ -374,6 +358,8 @@ class ManipulationServer(Node):
         observed_detections: list[Any] | None = None,
     ) -> Any:
         self._set_active(operation_name)
+        self._effect_known = True
+        self._effect_location = ManipulationResult.LOCATION_UNKNOWN
         try:
             if requires_moveit:
                 self._ensure_moveit()
@@ -426,7 +412,8 @@ class ManipulationServer(Node):
             ]
 
         def operation() -> tuple[str, int]:
-            self._inventory.validate_pick(tag_id)
+            if tag_id < 0:
+                raise ConfigurationError('tag_id não pode ser negativo.')
             profile = self._profiles.pickup_profile(goal_handle.request.profile)
             last_error: Exception | None = None
             for attempt in range(1, profile.attempts + 1):
@@ -497,9 +484,9 @@ class ManipulationServer(Node):
                     try:
                         self._gripper('grip', 'Fechando a garra')
                     except Exception:
-                        self._inventory.mark_unknown()
+                        self._mark_effect_unknown()
                         raise
-                    self._inventory.commit_pick(tag_id)
+                    self._record_effect(ManipulationResult.LOCATION_GRIPPER)
                     grasp_committed = True
                     self._feedback(
                         goal_handle, PickObject, ManipulationFeedback.RETREATING,
@@ -517,6 +504,8 @@ class ManipulationServer(Node):
                         ManipulationResult.LOCATION_GRIPPER,
                     )
                 except OperacaoCancelada:
+                    if grasp_committed:
+                        self._mark_effect_unknown()
                     raise
                 except ObjectOutOfReach:
                     raise
@@ -534,10 +523,8 @@ class ManipulationServer(Node):
                             error.error_code,
                         ) from error
                     last_error = error
-                    if not self._inventory.snapshot()[0]:
-                        raise
                     if grasp_committed:
-                        self._inventory.mark_unknown()
+                        self._mark_effect_unknown()
                         raise
                     if attempt < profile.attempts:
                         self.get_logger().warning(
@@ -545,10 +532,8 @@ class ManipulationServer(Node):
                         )
                 except Exception as error:
                     last_error = error
-                    if not self._inventory.snapshot()[0]:
-                        raise
                     if grasp_committed:
-                        self._inventory.mark_unknown()
+                        self._mark_effect_unknown()
                         raise
                     if attempt < profile.attempts:
                         self.get_logger().warning(
@@ -570,11 +555,11 @@ class ManipulationServer(Node):
 
     def _execute_store(self, goal_handle: Any) -> StoreObject.Result:
         slot_id = str(goal_handle.request.slot_id)
-        _, tag_id, _ = self._inventory.snapshot()
+        tag_id = int(goal_handle.request.object_tag_id)
 
         def operation() -> tuple[str, int]:
-            object_tag_id = self._inventory.require_gripper_object()
-            self._inventory.validate_store(object_tag_id, slot_id)
+            if tag_id < 0:
+                raise ConfigurationError('object_tag_id não pode ser negativo.')
             slot = self._profiles.cargo_slots.get(slot_id)
             if slot is None:
                 raise ConfigurationError(f"Compartimento não configurado: '{slot_id}'.")
@@ -593,14 +578,14 @@ class ManipulationServer(Node):
             try:
                 self._gripper('open', 'Abrindo a garra')
             except Exception:
-                self._inventory.mark_unknown()
+                self._mark_effect_unknown()
                 raise
-            self._inventory.commit_store(object_tag_id, slot_id)
+            self._record_effect(ManipulationResult.LOCATION_CARGO)
             self._transfer_state(
                 'Retornando do compartimento para detect_apriltags'
             )
             return (
-                f"Objeto {object_tag_id} armazenado em '{slot_id}'.",
+                f"Objeto {tag_id} armazenado em '{slot_id}'.",
                 ManipulationResult.LOCATION_CARGO,
             )
 
@@ -608,12 +593,11 @@ class ManipulationServer(Node):
 
     def _execute_retrieve(self, goal_handle: Any) -> RetrieveObject.Result:
         slot_id = str(goal_handle.request.slot_id)
-        _, _, slots = self._inventory.snapshot()
-        tag_id = slots.get(slot_id, EMPTY)
+        tag_id = int(goal_handle.request.object_tag_id)
 
         def operation() -> tuple[str, int]:
-            object_tag_id = self._inventory.require_slot_object(slot_id)
-            self._inventory.validate_retrieve(object_tag_id, slot_id)
+            if tag_id < 0:
+                raise ConfigurationError('object_tag_id não pode ser negativo.')
             slot = self._profiles.cargo_slots.get(slot_id)
             if slot is None:
                 raise ConfigurationError(f"Compartimento não configurado: '{slot_id}'.")
@@ -642,9 +626,9 @@ class ManipulationServer(Node):
             try:
                 self._gripper('grip', 'Fechando a garra')
             except Exception:
-                self._inventory.mark_unknown()
+                self._mark_effect_unknown()
                 raise
-            self._inventory.commit_retrieve(object_tag_id, slot_id)
+            self._record_effect(ManipulationResult.LOCATION_GRIPPER)
             try:
                 self._feedback(
                     goal_handle, RetrieveObject, ManipulationFeedback.RETREATING,
@@ -657,10 +641,10 @@ class ManipulationServer(Node):
                     'Retornando do compartimento para detect_apriltags'
                 )
             except Exception:
-                self._inventory.mark_unknown()
+                self._mark_effect_unknown()
                 raise
             return (
-                f"Objeto {object_tag_id} retirado de '{slot_id}'.",
+                f"Objeto {tag_id} retirado de '{slot_id}'.",
                 ManipulationResult.LOCATION_GRIPPER,
             )
 
@@ -887,7 +871,6 @@ class ManipulationServer(Node):
         destination: str,
     ) -> tuple[str, int, Any]:
         """Execute the common approach, release and retreat transaction."""
-        self._inventory.validate_place(tag_id)
         approach_pose = copy.deepcopy(release_pose)
         approach_pose.pose.position.z += profile.approach_height_m
         retreat_pose = copy.deepcopy(release_pose)
@@ -911,9 +894,9 @@ class ManipulationServer(Node):
         try:
             self._gripper('open', 'Abrindo a garra no destino')
         except Exception:
-            self._inventory.mark_unknown()
+            self._mark_effect_unknown()
             raise
-        self._inventory.commit_place()
+        self._record_effect(ManipulationResult.LOCATION_DESTINATION)
         self._feedback(
             goal_handle, action_type, ManipulationFeedback.RETREATING,
             0.86, 'Recuando do destino',
@@ -922,7 +905,7 @@ class ManipulationServer(Node):
             GRUPO_BRACO, restricoes_de_pre_pegada(retreat_pose),
             VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
         )
-        self._safe()
+        self._safe(False)
         return (
             f'Objeto {tag_id} depositado: {destination}.',
             ManipulationResult.LOCATION_DESTINATION,
@@ -930,11 +913,11 @@ class ManipulationServer(Node):
         )
 
     def _execute_place_on_table(self, goal_handle: Any) -> PlaceOnTable.Result:
-        _, tag_id, _ = self._inventory.snapshot()
+        tag_id = int(goal_handle.request.object_tag_id)
 
         def operation() -> tuple[str, int, Any]:
-            object_tag_id = self._inventory.require_gripper_object()
-            self._inventory.validate_place(object_tag_id)
+            if tag_id < 0:
+                raise ConfigurationError('object_tag_id não pode ser negativo.')
             height_cm = float(goal_handle.request.ws_height_cm)
             if bool(goal_handle.request.analyze_containers):
                 raise PerceptionUnavailable(
@@ -974,7 +957,7 @@ class ManipulationServer(Node):
                     raise PerceptionUnavailable(str(error)) from error
                 obstacles: list[tuple[float, float]] = []
                 for detection in detections:
-                    if int(detection.id) == object_tag_id:
+                    if int(detection.id) == tag_id:
                         continue
                     x = float(detection.pose.position.x)
                     y = float(detection.pose.position.y)
@@ -1009,7 +992,7 @@ class ManipulationServer(Node):
                 float(release_yaw_deg),
             )
             return self._release_at_pose(
-                goal_handle, PlaceOnTable, object_tag_id, release_pose, profile,
+                goal_handle, PlaceOnTable, tag_id, release_pose, profile,
                 f'mesa com altura de {height_cm:g} cm',
             )
 
@@ -1020,11 +1003,11 @@ class ManipulationServer(Node):
     def _execute_place_in_container(
         self, goal_handle: Any
     ) -> PlaceInContainer.Result:
-        _, tag_id, _ = self._inventory.snapshot()
+        tag_id = int(goal_handle.request.object_tag_id)
 
         def operation() -> tuple[str, int]:
-            object_tag_id = self._inventory.require_gripper_object()
-            self._inventory.validate_place(object_tag_id)
+            if tag_id < 0:
+                raise ConfigurationError('object_tag_id não pode ser negativo.')
             color = int(goal_handle.request.container_color)
             colors = {
                 PlaceInContainer.Goal.RED: 'vermelho',
@@ -1049,13 +1032,13 @@ class ManipulationServer(Node):
         )
 
     def _execute_stack(self, goal_handle: Any) -> StackObject.Result:
-        _, tag_id, _ = self._inventory.snapshot()
+        tag_id = int(goal_handle.request.object_tag_id)
         support_tag_id = int(goal_handle.request.support_tag_id)
 
         def operation() -> tuple[str, int, Any]:
-            object_tag_id = self._inventory.require_gripper_object()
-            self._inventory.validate_place(object_tag_id)
-            if support_tag_id < 0 or support_tag_id == object_tag_id:
+            if tag_id < 0:
+                raise ConfigurationError('object_tag_id não pode ser negativo.')
+            if support_tag_id < 0 or support_tag_id == tag_id:
                 raise ConfigurationError(
                     'support_tag_id deve identificar outro objeto não negativo.'
                 )
@@ -1088,7 +1071,7 @@ class ManipulationServer(Node):
                 normalizar_angulo_de_pegada(yaw) + profile.yaw_offset_deg,
             )
             return self._release_at_pose(
-                goal_handle, StackObject, object_tag_id, release_pose, profile,
+                goal_handle, StackObject, tag_id, release_pose, profile,
                 f'empilhamento sobre o objeto {support_tag_id}',
             )
 
@@ -1097,11 +1080,11 @@ class ManipulationServer(Node):
     def _execute_place_on_shelf(
         self, goal_handle: Any
     ) -> PlaceOnShelf.Result:
-        _, tag_id, _ = self._inventory.snapshot()
+        tag_id = int(goal_handle.request.object_tag_id)
 
         def operation() -> tuple[str, int]:
-            object_tag_id = self._inventory.require_gripper_object()
-            self._inventory.validate_place(object_tag_id)
+            if tag_id < 0:
+                raise ConfigurationError('object_tag_id não pode ser negativo.')
             profile = self._placement_profile('shelf', 'Depósito na prateleira')
             if profile.strategy != 'named_state' or not profile.named_state:
                 raise FeatureUnavailable(
@@ -1119,12 +1102,12 @@ class ManipulationServer(Node):
             try:
                 self._gripper('open', 'Abrindo a garra na prateleira')
             except Exception:
-                self._inventory.mark_unknown()
+                self._mark_effect_unknown()
                 raise
-            self._inventory.commit_place()
-            self._safe()
+            self._record_effect(ManipulationResult.LOCATION_DESTINATION)
+            self._safe(False)
             return (
-                f'Objeto {object_tag_id} depositado na prateleira.',
+                f'Objeto {tag_id} depositado na prateleira.',
                 ManipulationResult.LOCATION_DESTINATION,
             )
 
@@ -1133,16 +1116,16 @@ class ManipulationServer(Node):
         )
 
     def _execute_place_at_pose(self, goal_handle: Any) -> PlaceAtPose.Result:
-        _, tag_id, _ = self._inventory.snapshot()
+        tag_id = int(goal_handle.request.object_tag_id)
 
         def operation() -> tuple[str, int, Any]:
-            object_tag_id = self._inventory.require_gripper_object()
-            self._inventory.validate_place(object_tag_id)
+            if tag_id < 0:
+                raise ConfigurationError('object_tag_id não pode ser negativo.')
             release_pose = copy.deepcopy(goal_handle.request.release_pose)
             self._validate_target_pose(release_pose)
             profile = self._placement_profile('explicit_pose', 'Depósito em pose')
             return self._release_at_pose(
-                goal_handle, PlaceAtPose, object_tag_id, release_pose, profile,
+                goal_handle, PlaceAtPose, tag_id, release_pose, profile,
                 'pose explícita',
             )
 
@@ -1158,7 +1141,7 @@ class ManipulationServer(Node):
                 PrepareManipulator.Goal.NAVIGATION,
                 PrepareManipulator.Goal.SAFE_HOLD,
             ):
-                self._safe()
+                self._safe(bool(goal_handle.request.gripper_loaded))
                 description = 'Manipulador recolhido para navegação.'
             elif mode == PrepareManipulator.Goal.OBSERVATION:
                 profile = self._profiles.pickup_profile('tabletop')

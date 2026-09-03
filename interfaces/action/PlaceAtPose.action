@@ -1,4 +1,5 @@
 # Low-level placement intended for calibration, tests and explicit mission poses.
+int32 object_tag_id
 # Desired gripper TCP pose at release time.
 geometry_msgs/PoseStamped release_pose
 ---

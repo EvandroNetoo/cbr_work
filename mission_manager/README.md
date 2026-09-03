@@ -101,12 +101,13 @@ e o cancelamento é propagado para o goal filho ativo.
 
 O `mission_manager` é o dono do estado lógico da garra e dos compartimentos.
 Depois de validar o plano e a arena, cada nova missão reinicia esse estado como
-conhecido, com garra e slots vazios. O pacote `manipulation` solicita validações
-e confirma transições somente nos pontos em que o movimento físico foi
-efetivado; em falhas ambíguas, marca o estado como desconhecido.
+conhecido, com garra e slots vazios. Antes de cada action física, o gerenciador
+valida a precondição, preenche explicitamente o ID do objeto e somente depois
+do resultado confirmado faz o commit da transição. Timeout, perda de comunicação,
+cancelamento sem resultado ou efeito físico ambíguo tornam o estado desconhecido
+e bloqueiam novas operações automáticas.
 
-O snapshot atual é publicado em `/mission/state` com QoS `transient_local`. A
-API interna `/mission/manipulation_state` atende as transações usadas pelo
-servidor de manipulação. `WorldState`, no pacote de missão, é o ponto de extensão
-para incorporar futuramente estados de objetos, estações e outros elementos da
-arena.
+O snapshot atual é publicado em `/mission/state` com QoS `transient_local`.
+Não existe uma API de estado usada pelo servidor de manipulação: `WorldState`
+permanece interno ao gerenciador e é o ponto de extensão para incorporar
+futuramente estados de objetos, estações e outros elementos da arena.

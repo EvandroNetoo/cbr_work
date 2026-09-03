@@ -24,7 +24,6 @@ from interfaces.action import (
     StoreObject,
 )
 from interfaces.msg import CargoSlotState, ManipulationResult, ManipulationState
-from interfaces.srv import ManageManipulationState
 from nav2_msgs.action import NavigateToPose
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
@@ -43,7 +42,7 @@ from .models import (
     TableObservation,
     TagObservation,
 )
-from .world_state import WorldState
+from .world_state import EMPTY, WorldState
 
 
 class MissionManager(Node):
@@ -51,9 +50,13 @@ class MissionManager(Node):
 
     def __init__(self) -> None:
         super().__init__('mission_manager')
-        if not hasattr(PickObject.Result(), 'observed_detections'):
+        if (
+            not hasattr(PickObject.Result(), 'observed_detections')
+            or not hasattr(StoreObject.Goal(), 'object_tag_id')
+            or not hasattr(PrepareManipulator.Goal(), 'gripper_loaded')
+        ):
             raise ConfigurationError(
-                'A interface PickObject instalada está desatualizada; '
+                'As interfaces de manipulação instaladas estão desatualizadas; '
                 'recompile interfaces antes de iniciar o mission_manager.'
             )
         share = Path(get_package_share_directory('mission_manager'))
@@ -61,7 +64,6 @@ class MissionManager(Node):
             'arena_file': str(share / 'config' / 'arena.yaml'),
             'plans_directory': str(share / 'config' / 'plans'),
             'execute_action': '/mission/execute',
-            'state_service': '/mission/manipulation_state',
             'state_topic': '/mission/state',
             'state_frame_id': 'arm_base_link',
             'cargo_slot_ids': ['left', 'right'],
@@ -113,12 +115,6 @@ class MissionManager(Node):
             ManipulationState,
             str(self.get_parameter('state_topic').value),
             state_qos,
-        )
-        self._state_service = self.create_service(
-            ManageManipulationState,
-            str(self.get_parameter('state_service').value),
-            self._manage_manipulation_state,
-            callback_group=self._callback_group,
         )
 
         def client(action_type, parameter_name):
@@ -175,53 +171,6 @@ class MissionManager(Node):
 
     def _publish_world_state(self) -> None:
         self._state_publisher.publish(self._state_message())
-
-    def _manage_manipulation_state(
-        self,
-        request: ManageManipulationState.Request,
-        response: ManageManipulationState.Response,
-    ) -> ManageManipulationState.Response:
-        """Validate and commit physical transitions in the mission-owned state."""
-        operations = {
-            request.GET_STATE: lambda: None,
-            request.VALIDATE_PICK: lambda: self._world_state.validate_pick(
-                int(request.object_tag_id)
-            ),
-            request.COMMIT_PICK: lambda: self._world_state.commit_pick(
-                int(request.object_tag_id)
-            ),
-            request.VALIDATE_STORE: lambda: self._world_state.validate_store(
-                int(request.object_tag_id), str(request.slot_id)
-            ),
-            request.COMMIT_STORE: lambda: self._world_state.commit_store(
-                int(request.object_tag_id), str(request.slot_id)
-            ),
-            request.VALIDATE_RETRIEVE: lambda: self._world_state.validate_retrieve(
-                int(request.object_tag_id), str(request.slot_id)
-            ),
-            request.COMMIT_RETRIEVE: lambda: self._world_state.commit_retrieve(
-                int(request.object_tag_id), str(request.slot_id)
-            ),
-            request.VALIDATE_PLACE: lambda: self._world_state.validate_place(
-                int(request.object_tag_id)
-            ),
-            request.COMMIT_PLACE: self._world_state.commit_place,
-            request.MARK_UNKNOWN: self._world_state.mark_unknown,
-        }
-        operation = operations.get(int(request.command))
-        if operation is None:
-            response.success = False
-            response.message = f'Comando de estado desconhecido: {request.command}.'
-        else:
-            try:
-                operation()
-                response.success = True
-            except StateConflict as error:
-                response.success = False
-                response.message = str(error)
-        response.state = self._state_message()
-        self._state_publisher.publish(response.state)
-        return response
 
     def _goal_callback(self, goal_request: ExecuteMission.Goal) -> GoalResponse:
         plan_id = str(goal_request.plan_id)
@@ -284,6 +233,7 @@ class MissionManager(Node):
         validate_result: Callable[[Any], str | None] | None = None,
         *,
         allow_unsuccessful_status: bool = False,
+        on_goal_accepted: Callable[[], None] | None = None,
     ) -> Any:
         self._check_canceled()
         if not math.isfinite(timeout_s) or timeout_s <= 0.0:
@@ -299,6 +249,8 @@ class MissionManager(Node):
                 raise StepFailed(f'Goal rejeitado: {description}.')
             with self._lock:
                 self._active_child = child
+            if on_goal_accepted is not None:
+                on_goal_accepted()
             self._check_canceled()
             result_wrapper = self._wait_future(
                 child.get_result_async(), timeout_s
@@ -354,6 +306,101 @@ class MissionManager(Node):
         if result.outcome.code == result.outcome.SUCCESS:
             return None
         return result.outcome.message or f'código {result.outcome.code}'
+
+    def _mark_world_unknown(self) -> None:
+        self._world_state.mark_unknown()
+        self._publish_world_state()
+
+    def _reconcile_manipulation_result(
+        self,
+        operation: str,
+        tag_id: int,
+        slot_id: str,
+        result: Any,
+    ) -> None:
+        """Apply only a physical effect explicitly confirmed by an action result."""
+        outcome = result.outcome
+        if not bool(outcome.effect_known):
+            self._mark_world_unknown()
+            return
+        if int(outcome.object_tag_id) != int(tag_id):
+            self._mark_world_unknown()
+            raise StepFailed(
+                'Action de manipulação respondeu por um objeto diferente do '
+                f'solicitado: esperado {tag_id}, recebido '
+                f'{outcome.object_tag_id}.'
+            )
+
+        expected_locations = {
+            'pick': ManipulationResult.LOCATION_GRIPPER,
+            'store': ManipulationResult.LOCATION_CARGO,
+            'retrieve': ManipulationResult.LOCATION_GRIPPER,
+            'place': ManipulationResult.LOCATION_DESTINATION,
+        }
+        expected = expected_locations[operation]
+        location = int(outcome.final_object_location)
+        effect_reported = location == expected
+        success = int(outcome.code) == int(ManipulationResult.SUCCESS)
+        if success and not effect_reported:
+            self._mark_world_unknown()
+            raise StepFailed(
+                'Action de manipulação declarou sucesso sem confirmar o efeito '
+                f'físico esperado para {operation}.'
+            )
+        if not effect_reported:
+            if location not in (
+                ManipulationResult.LOCATION_UNKNOWN,
+                ManipulationResult.LOCATION_SOURCE,
+            ):
+                self._mark_world_unknown()
+            return
+
+        if operation == 'pick':
+            self._world_state.commit_pick(tag_id)
+        elif operation == 'store':
+            self._world_state.commit_store(tag_id, slot_id)
+        elif operation == 'retrieve':
+            self._world_state.commit_retrieve(tag_id, slot_id)
+        else:
+            self._world_state.commit_place()
+        self._publish_world_state()
+
+    def _call_manipulation_action(
+        self,
+        client: ActionClient,
+        goal: Any,
+        description: str,
+        timeout_s: float,
+        operation: str,
+        tag_id: int,
+        slot_id: str = '',
+    ) -> Any:
+        """Call a physical action and conservatively own its logical transition."""
+        goal_accepted = False
+
+        def note_acceptance() -> None:
+            nonlocal goal_accepted
+            goal_accepted = True
+
+        try:
+            result = self._call_action(
+                client,
+                goal,
+                description,
+                timeout_s,
+                allow_unsuccessful_status=True,
+                on_goal_accepted=note_acceptance,
+            )
+        except (MissionCanceled, StepFailed):
+            # Without a result, the manager cannot know whether the gripper crossed
+            # the irreversible point of the requested operation.
+            if goal_accepted:
+                self._mark_world_unknown()
+            raise
+        self._reconcile_manipulation_result(
+            operation, tag_id, slot_id, result
+        )
+        return result
 
     @staticmethod
     def _navigation_failure(result: NavigateToPose.Result) -> str | None:
@@ -432,8 +479,14 @@ class MissionManager(Node):
         return float(self.get_parameter('manipulation_timeout_s').value)
 
     def _prepare_for_navigation(self) -> None:
+        known, gripper, _ = self._world_state.snapshot()
+        if not known:
+            raise StepFailed(
+                'Estado da carga incerto; navegação automática bloqueada.'
+            )
         goal = PrepareManipulator.Goal()
         goal.mode = PrepareManipulator.Goal.NAVIGATION
+        goal.gripper_loaded = gripper != EMPTY
         self._call_action(
             self._prepare_client,
             goal,
@@ -445,6 +498,7 @@ class MissionManager(Node):
     def _prepare_for_pick_observation(self) -> None:
         goal = PrepareManipulator.Goal()
         goal.mode = PrepareManipulator.Goal.OBSERVATION
+        goal.gripper_loaded = False
         self._call_action(
             self._prepare_client,
             goal,
@@ -783,6 +837,12 @@ class MissionManager(Node):
 
     def _execute_pick(self, step: Step, timeout: float) -> None:
         assert self._arena is not None
+        try:
+            self._world_state.validate_pick(int(step.tag_id))
+        except StateConflict as error:
+            raise StepFailed(
+                f"passo '{step.step_id}' (pick) bloqueado pelo estado: {error}"
+            ) from error
         config = self._arena.pickup_recovery
         original_observation = None
         if config.enabled:
@@ -809,18 +869,24 @@ class MissionManager(Node):
             goal = PickObject.Goal()
             goal.tag_id = int(step.tag_id)
             goal.profile = ''
-            result = self._call_action(
+            result = self._call_manipulation_action(
                 self._pick_client,
                 goal,
                 f"passo '{step.step_id}' (pick)",
                 timeout,
-                allow_unsuccessful_status=True,
+                'pick',
+                int(step.tag_id),
             )
             self._remember_pick_observations(result)
             failure = self._manipulation_failure(result)
             if failure is None:
                 self._forget_picked_tag(int(step.tag_id))
                 return
+            if not result.outcome.effect_known:
+                raise StepFailed(
+                    f"passo '{step.step_id}' (pick) deixou o estado físico "
+                    f'incerto: {failure}'
+                )
             recoverable = (
                 config.enabled
                 and result.has_detected_pose
@@ -858,45 +924,80 @@ class MissionManager(Node):
         if step.action == 'pick':
             self._execute_pick(step, timeout)
             return
-        elif step.action == 'store':
-            goal = StoreObject.Goal()
-            goal.slot_id = str(step.slot_id)
-            client = self._store_client
-        elif step.action == 'retrieve':
-            goal = RetrieveObject.Goal()
-            goal.slot_id = str(step.slot_id)
-            client = self._retrieve_client
-        elif step.action == 'place_on_table':
-            goal = PlaceOnTable.Goal()
-            goal.ws_height_cm = float(area.height_cm)
-            goal.analyze_apriltags = step.analyze_apriltags
-            goal.analyze_containers = step.analyze_containers
-            client = self._place_table_client
-        elif step.action == 'place_in_container':
-            goal = PlaceInContainer.Goal()
-            goal.ws_height_cm = float(area.height_cm)
-            goal.container_color = (
-                PlaceInContainer.Goal.RED
-                if step.container_color == 'red'
-                else PlaceInContainer.Goal.BLUE
-            )
-            client = self._place_container_client
-        elif step.action == 'stack':
-            goal = StackObject.Goal()
-            goal.support_tag_id = int(step.support_tag_id)
-            client = self._stack_client
-        elif step.action == 'place_on_shelf':
-            goal = PlaceOnShelf.Goal()
-            client = self._place_shelf_client
-        else:
-            raise ConfigurationError(f'Operação não implementada: {step.action}.')
-        self._call_action(
+        try:
+            if step.action == 'store':
+                tag_id = self._world_state.require_gripper_object()
+                slot_id = str(step.slot_id)
+                self._world_state.validate_store(tag_id, slot_id)
+                goal = StoreObject.Goal()
+                goal.object_tag_id = tag_id
+                goal.slot_id = slot_id
+                client = self._store_client
+                transition = 'store'
+            elif step.action == 'retrieve':
+                slot_id = str(step.slot_id)
+                tag_id = self._world_state.require_slot_object(slot_id)
+                self._world_state.validate_retrieve(tag_id, slot_id)
+                goal = RetrieveObject.Goal()
+                goal.object_tag_id = tag_id
+                goal.slot_id = slot_id
+                client = self._retrieve_client
+                transition = 'retrieve'
+            else:
+                slot_id = ''
+                tag_id = self._world_state.require_gripper_object()
+                self._world_state.validate_place(tag_id)
+                transition = 'place'
+                if step.action == 'place_on_table':
+                    goal = PlaceOnTable.Goal()
+                    goal.object_tag_id = tag_id
+                    goal.ws_height_cm = float(area.height_cm)
+                    goal.analyze_apriltags = step.analyze_apriltags
+                    goal.analyze_containers = step.analyze_containers
+                    client = self._place_table_client
+                elif step.action == 'place_in_container':
+                    goal = PlaceInContainer.Goal()
+                    goal.object_tag_id = tag_id
+                    goal.ws_height_cm = float(area.height_cm)
+                    goal.container_color = (
+                        PlaceInContainer.Goal.RED
+                        if step.container_color == 'red'
+                        else PlaceInContainer.Goal.BLUE
+                    )
+                    client = self._place_container_client
+                elif step.action == 'stack':
+                    goal = StackObject.Goal()
+                    goal.object_tag_id = tag_id
+                    goal.support_tag_id = int(step.support_tag_id)
+                    client = self._stack_client
+                elif step.action == 'place_on_shelf':
+                    goal = PlaceOnShelf.Goal()
+                    goal.object_tag_id = tag_id
+                    client = self._place_shelf_client
+                else:
+                    raise ConfigurationError(
+                        f'Operação não implementada: {step.action}.'
+                    )
+        except StateConflict as error:
+            raise StepFailed(
+                f"passo '{step.step_id}' ({step.action}) bloqueado pelo estado: "
+                f'{error}'
+            ) from error
+
+        result = self._call_manipulation_action(
             client,
             goal,
             f"passo '{step.step_id}' ({step.action})",
             timeout,
-            self._manipulation_failure,
+            transition,
+            tag_id,
+            slot_id,
         )
+        failure = self._manipulation_failure(result)
+        if failure is not None:
+            raise StepFailed(
+                f"passo '{step.step_id}' ({step.action}) falhou: {failure}"
+            )
 
     def _execute_step(self, step: Step) -> None:
         if step.action == 'navigate':
@@ -1047,7 +1148,6 @@ class MissionManager(Node):
         self._cancel_event.set()
         self._cancel_active_child()
         self._server.destroy()
-        self.destroy_service(self._state_service)
         return super().destroy_node()
 
 

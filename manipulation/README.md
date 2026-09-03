@@ -28,9 +28,11 @@ Situação atual dos depósitos:
 - `place_in_container`: interface pronta, aguardando o detector de contêineres;
 - mesa de precisão: deliberadamente fora do escopo atual.
 
-Somente `pick` recebe o ID do objeto carregado. `store`, `retrieve` e os
-depósitos inferem o objeto pelo estado mantido pelo `mission_manager`, acessado
-transacionalmente pelo serviço `/mission/manipulation_state`.
+Todas as actions que movem um objeto recebem seu ID explicitamente.
+`manipulation` não consulta, valida nem altera o estado da missão: executa o
+comando físico recebido e informa no resultado se o efeito sobre a carga ficou
+conhecido. O `mission_manager` é responsável por autorizar a operação antes do
+envio e atualizar seu inventário depois do resultado.
 No empilhamento, `support_tag_id` identifica apenas o cubo de apoio.
 As coordenadas X, Y e Z do apoio são obtidas da pose 3D dessa AprilTag; a
 altura da WS não faz parte da interface de empilhamento.
@@ -74,14 +76,15 @@ iniciar o depósito.
 O servidor aceita somente uma operação por vez e propaga cancelamento para o
 goal ativo do MoveIt ou do detector. Após cancelar, o braço permanece parado;
 nenhum movimento automático de recuperação é iniciado. O servidor não possui
-mais inventário próprio: validações e commits físicos são enviados ao estado da
-missão. O tópico `/mission/state`, publicado pelo `mission_manager`, usa
-durabilidade `transient_local`.
+inventário nem cliente do `mission_manager`. O tópico `/mission/state` é uma
+saída exclusiva do gerenciador e usa durabilidade `transient_local`.
 
 ## Execução
 
-Inicie antes o `mission_manager`, o MoveIt, a câmera e o detector de AprilTags.
-Depois:
+O servidor também pode ser iniciado sem o `mission_manager`; nesse caso o
+chamador assume integralmente as verificações de segurança e deve preencher
+todos os campos das actions. Inicie o MoveIt, a câmera e o detector de
+AprilTags. Depois:
 
 ```bash
 ros2 launch manipulation manipulation.launch.py
@@ -98,18 +101,18 @@ Armazenamento e retirada dos compartimentos calibrados:
 
 ```bash
 ros2 action send_goal manipulation/store interfaces/action/StoreObject \
-  "{slot_id: left}" --feedback
+  "{object_tag_id: 5, slot_id: left}" --feedback
 ros2 action send_goal manipulation/retrieve interfaces/action/RetrieveObject \
-  "{slot_id: left}" --feedback
+  "{object_tag_id: 5, slot_id: left}" --feedback
 ```
 
 Para o compartimento direito, use os mesmos comandos com `slot_id: right`:
 
 ```bash
 ros2 action send_goal manipulation/store interfaces/action/StoreObject \
-  "{slot_id: right}" --feedback
+  "{object_tag_id: 5, slot_id: right}" --feedback
 ros2 action send_goal manipulation/retrieve interfaces/action/RetrieveObject \
-  "{slot_id: right}" --feedback
+  "{object_tag_id: 5, slot_id: right}" --feedback
 ```
 
 Na retirada, `store_state` é a pose segura de armazenamento e `retrieve_state`
@@ -124,7 +127,7 @@ Depósito em uma pose explícita do TCP (`arm_base_link`):
 
 ```bash
 ros2 action send_goal manipulation/place_at_pose interfaces/action/PlaceAtPose \
-  "{release_pose: {header: {frame_id: arm_base_link}, pose: \
+  "{object_tag_id: 5, release_pose: {header: {frame_id: arm_base_link}, pose: \
     {position: {x: 0.20, y: 0.0, z: 0.10}, orientation: {w: 1.0}}}}" \
   --feedback
 ```
@@ -133,7 +136,7 @@ Interface para depósito automático em mesa:
 
 ```bash
 ros2 action send_goal manipulation/place_on_table interfaces/action/PlaceOnTable \
-  "{ws_height_cm: 12.5, analyze_apriltags: true, \
+  "{object_tag_id: 5, ws_height_cm: 12.5, analyze_apriltags: true, \
     analyze_containers: false}" --feedback
 ```
 
@@ -142,21 +145,21 @@ Interface para depósito em contêiner:
 ```bash
 ros2 action send_goal manipulation/place_in_container \
   interfaces/action/PlaceInContainer \
-  "{ws_height_cm: 12.5, container_color: 1}" --feedback
+  "{object_tag_id: 5, ws_height_cm: 12.5, container_color: 1}" --feedback
 ```
 
 Empilhamento sobre o cubo cuja AprilTag é 5:
 
 ```bash
 ros2 action send_goal manipulation/stack interfaces/action/StackObject \
-  "{support_tag_id: 5}" --feedback
+  "{object_tag_id: 3, support_tag_id: 5}" --feedback
 ```
 
 Depósito na prateleira fixa:
 
 ```bash
 ros2 action send_goal manipulation/place_on_shelf interfaces/action/PlaceOnShelf \
-  "{}" --feedback
+  "{object_tag_id: 5}" --feedback
 ```
 
 O pacote não contém valores inventados para destinos ainda não medidos. Os

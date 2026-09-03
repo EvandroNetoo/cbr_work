@@ -55,7 +55,3 @@ class PickRecoveryRequired(MotionFailed):
 
 class ObjectOutOfReach(PickRecoveryRequired):
     pass
-
-
-class StateConflict(ManipulationError):
-    pass

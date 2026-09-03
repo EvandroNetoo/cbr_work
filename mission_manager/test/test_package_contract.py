@@ -27,7 +27,10 @@ def test_package_stays_minimal_and_uses_existing_actions():
     assert 'self._current_location' in source
     assert 'WorldState' in source
     assert 'self._world_state.reset()' in source
-    assert 'ManageManipulationState' in source
+    assert '_reconcile_manipulation_result' in source
+    assert 'goal.object_tag_id = tag_id' in source
+    assert 'ManageManipulationState' not in source
+    assert not (SOURCE_ROOT / 'manipulation' / 'manipulation' / 'state_client.py').exists()
     assert not (PACKAGE / 'mission_manager' / 'planners').exists()
 
 

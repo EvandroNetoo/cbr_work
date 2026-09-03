@@ -40,13 +40,18 @@ def test_actions_cover_pick_cargo_and_semantic_placements():
     assert '\nint32 tag_id\n' in pick
     for name in (
         'StoreObject.action', 'RetrieveObject.action', 'PlaceOnTable.action',
-        'PlaceInContainer.action', 'PlaceOnShelf.action', 'PlaceAtPose.action',
+        'PlaceInContainer.action', 'StackObject.action', 'PlaceOnShelf.action',
+        'PlaceAtPose.action',
     ):
-        assert '\nint32 tag_id\n' not in (actions / name).read_text()
-    assert '\nint32 tag_id\n' not in stack
+        assert 'int32 object_tag_id' in (actions / name).read_text()
+
+    prepare = (actions / 'PrepareManipulator.action').read_text()
+    assert 'bool gripper_loaded' in prepare
 
     result = (SOURCE_ROOT / 'interfaces' / 'msg' / 'ManipulationResult.msg').read_text()
     assert 'int32 object_tag_id' in result
+    assert 'bool effect_known' in result
+    assert 'bool state_known' not in result
 
 
 def test_server_serializes_actions_and_propagates_cancellation():
@@ -57,7 +62,9 @@ def test_server_serializes_actions_and_propagates_cancellation():
     assert 'MultiThreadedExecutor(num_threads=4)' in source
     assert 'spin_until_future_complete' not in source
     assert 'PlaceObject' not in source
-    assert 'MissionStateClient' in source
+    assert 'MissionStateClient' not in source
+    assert '_inventory' not in source
+    assert 'state_service' not in source
     assert 'create_publisher' not in source
     for callback in (
         '_execute_place_on_table', '_execute_place_in_container',

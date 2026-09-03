@@ -1,4 +1,5 @@
 # Deposit the object currently held by the gripper on a work surface.
+int32 object_tag_id
 # Surface height above the floor, in centimeters. Arbitrary values are accepted.
 float32 ws_height_cm
 # Run a fresh AprilTag analysis and consider tagged objects during placement.

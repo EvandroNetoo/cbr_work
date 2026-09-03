@@ -1,4 +1,5 @@
 # Deposit the object currently held by the gripper on the calibrated shelf.
+int32 object_tag_id
 ---
 interfaces/ManipulationResult outcome
 geometry_msgs/PoseStamped placed_pose

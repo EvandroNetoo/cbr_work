@@ -3,6 +3,8 @@ uint8 OBSERVATION=2
 uint8 SAFE_HOLD=3
 
 uint8 mode
+# Select the collision-safe transport pose explicitly; ignored in OBSERVATION mode.
+bool gripper_loaded
 ---
 interfaces/ManipulationResult outcome
 ---

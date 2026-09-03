@@ -17,7 +17,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ManipulationResult.msg"
   "msg/ManipulationState.msg"
   "msg/WheelCommand.msg"
-  "srv/ManageManipulationState.srv"
   "action/AnalyzeAprilTags.action"
   "action/ExecuteMission.action"
   "action/FollowWall.action"

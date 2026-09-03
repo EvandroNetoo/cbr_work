@@ -1,4 +1,5 @@
 # Stack the object currently held by the gripper on a tagged support object.
+int32 object_tag_id
 int32 support_tag_id
 ---
 interfaces/ManipulationResult outcome

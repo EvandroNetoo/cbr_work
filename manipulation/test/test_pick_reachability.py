@@ -7,7 +7,6 @@ from interfaces.msg import AprilTagStampedDetection, ManipulationResult
 from manipulation.errors import ObjectOutOfReach, PickRecoveryRequired
 from manipulation.node import ManipulationServer
 from manipulation.profiles import load_profiles
-from mission_manager.world_state import WorldState
 import pytest
 from so_arm_101_moveit_config.movimento import FalhaDoMoveIt
 
@@ -36,7 +35,6 @@ def test_pick_rejects_out_of_reach_tag_before_target_motion_or_retry():
             )
         },
     )
-    server._inventory = WorldState([])
     server._feedback = lambda *_args: None
     server._gripper = lambda *_args: None
     server._arm_state = lambda *_args: None
@@ -86,7 +84,6 @@ def test_pick_exposes_detected_pose_when_moveit_returns_99999():
         PACKAGE / 'config' / 'profiles.yaml',
         PACKAGE / 'config' / 'cargo_slots.yaml',
     )
-    server._inventory = WorldState([])
     server._feedback = lambda *_args: None
     server._gripper = lambda *_args: None
     server._arm_state = lambda *_args: None
@@ -122,7 +119,6 @@ def test_pick_exposes_detected_pose_when_moveit_returns_99999():
 
 def test_pick_result_returns_all_observed_detections():
     server = ManipulationServer.__new__(ManipulationServer)
-    server._inventory = WorldState([])
     statuses = []
     goal_handle = SimpleNamespace(
         succeed=lambda: statuses.append('succeeded'),

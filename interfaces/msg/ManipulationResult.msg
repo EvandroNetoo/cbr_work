@@ -24,5 +24,6 @@ int32 EMPTY=-1
 int32 object_tag_id
 uint16 code
 uint8 final_object_location
-bool state_known
+# False when the action cannot determine whether its physical load change completed.
+bool effect_known
 string message

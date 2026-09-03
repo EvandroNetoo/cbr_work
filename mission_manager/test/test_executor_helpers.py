@@ -17,6 +17,7 @@ from mission_manager.models import (
     TagObservation,
 )
 from mission_manager.node import MissionManager
+from mission_manager.world_state import WorldState
 from nav2_msgs.action import NavigateToPose
 import pytest
 
@@ -55,6 +56,25 @@ def _arena():
             ),
         },
     )
+
+
+def _attach_world_state(manager):
+    manager._world_state = WorldState(['left', 'right'])
+    manager._publish_world_state = lambda: None
+
+
+def _pick_result(tag_id, code, message=''):
+    result = PickObject.Result()
+    result.outcome.object_tag_id = tag_id
+    result.outcome.code = code
+    result.outcome.message = message
+    result.outcome.effect_known = True
+    result.outcome.final_object_location = (
+        ManipulationResult.LOCATION_GRIPPER
+        if code == ManipulationResult.SUCCESS
+        else ManipulationResult.LOCATION_UNKNOWN
+    )
+    return result
 
 
 def test_navigation_result_validator_preserves_nav2_error_message():
@@ -108,6 +128,64 @@ def test_manipulation_validator_uses_semantic_outcome():
 
     assert MissionManager._manipulation_failure(success) is None
     assert MissionManager._manipulation_failure(failure) == 'garra vazia'
+
+
+def test_manager_commits_pick_only_from_confirmed_action_effect():
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    result = _pick_result(5, ManipulationResult.SUCCESS)
+
+    manager._reconcile_manipulation_result('pick', 5, '', result)
+
+    assert manager._world_state.snapshot() == (
+        True, 5, {'left': -1, 'right': -1}
+    )
+
+
+def test_manager_marks_world_unknown_when_action_effect_is_ambiguous():
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    result = _pick_result(5, ManipulationResult.MOTION_FAILED, 'falha na garra')
+    result.outcome.effect_known = False
+    result.outcome.final_object_location = ManipulationResult.LOCATION_LOST
+
+    manager._reconcile_manipulation_result('pick', 5, '', result)
+
+    assert manager._world_state.snapshot()[0] is False
+
+
+def test_manager_marks_world_unknown_when_action_returns_no_result():
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+
+    def fail_after_acceptance(*_args, **kwargs):
+        kwargs['on_goal_accepted']()
+        raise StepFailed('timeout')
+
+    manager._call_action = fail_after_acceptance
+
+    with pytest.raises(StepFailed, match='timeout'):
+        manager._call_manipulation_action(
+            object(), object(), 'pick', 10.0, 'pick', 5
+        )
+
+    assert manager._world_state.snapshot()[0] is False
+
+
+def test_manager_blocks_store_before_sending_action_when_gripper_is_empty():
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._manipulation_timeout = lambda: 120.0
+    manager._call_action = lambda *_args, **_kwargs: pytest.fail(
+        'action física não deveria ser enviada'
+    )
+
+    with pytest.raises(StepFailed, match='garra está vazia'):
+        manager._execute_manipulation(
+            Step('store_empty', 'store', slot_id='left')
+        )
 
 
 def test_aborted_action_cannot_be_mistaken_for_semantic_success():
@@ -179,6 +257,7 @@ def test_pickup_recovery_stops_at_absolute_lateral_limit():
 
 def test_pick_retries_after_one_recoverable_result():
     manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
     manager._arena = _arena()
     manager._pick_client = object()
     manager._current_location = 'ws_1'
@@ -189,13 +268,10 @@ def test_pick_retries_after_one_recoverable_result():
     calls = []
     recoveries = []
 
-    failure = PickObject.Result()
-    failure.outcome.code = failure.outcome.MOTION_FAILED
-    failure.outcome.message = 'fora do alcance'
+    failure = _pick_result(1, ManipulationResult.MOTION_FAILED, 'fora do alcance')
     failure.has_detected_pose = True
     failure.recovery_reason = failure.RECOVERY_OUT_OF_REACH
-    success = PickObject.Result()
-    success.outcome.code = success.outcome.SUCCESS
+    success = _pick_result(1, ManipulationResult.SUCCESS)
 
     results = iter((failure, success))
 
@@ -334,6 +410,7 @@ def test_search_selects_nearest_unvisited_absolute_position():
 
 def test_unknown_pick_skips_detection_at_last_observed_adjusted_position():
     manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
     manager._current_wall_distance_mm = 136.0
@@ -359,8 +436,7 @@ def test_unknown_pick_skips_detection_at_last_observed_adjusted_position():
 
     def call_action(*_args, **_kwargs):
         action_positions.append(manager._current_lateral_position_mm)
-        result = PickObject.Result()
-        result.outcome.code = ManipulationResult.SUCCESS
+        result = _pick_result(2, ManipulationResult.SUCCESS)
         result.observed_detections = [_detection(2, 0.0, -0.22)]
         return result
 
@@ -395,6 +471,7 @@ def test_adjusted_wall_distance_does_not_mark_fixed_search_position_visited():
 
 def test_missing_tag_scans_every_position_once_and_then_fails():
     manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
     manager._current_wall_distance_mm = 200.0
@@ -409,10 +486,9 @@ def test_missing_tag_scans_every_position_once_and_then_fails():
 
     def call_action(*_args, **_kwargs):
         action_calls.append(True)
-        result = PickObject.Result()
-        result.outcome.code = ManipulationResult.OBJECT_NOT_FOUND
-        result.outcome.message = 'não encontrada'
-        return result
+        return _pick_result(
+            9, ManipulationResult.OBJECT_NOT_FOUND, 'não encontrada'
+        )
 
     def control_wall(distance, *_args, **kwargs):
         travel = kwargs['travel_distance_mm']
@@ -437,6 +513,7 @@ def test_missing_tag_scans_every_position_once_and_then_fails():
 
 def test_cached_pick_falls_back_to_original_observation_before_search():
     manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
     manager._current_wall_distance_mm = 180.0
@@ -461,11 +538,10 @@ def test_cached_pick_falls_back_to_original_observation_before_search():
         manager._current_lateral_position_mm = float(lateral)
         return True
 
-    missing = PickObject.Result()
-    missing.outcome.code = ManipulationResult.OBJECT_NOT_FOUND
-    missing.outcome.message = 'não encontrada'
-    success = PickObject.Result()
-    success.outcome.code = ManipulationResult.SUCCESS
+    missing = _pick_result(
+        3, ManipulationResult.OBJECT_NOT_FOUND, 'não encontrada'
+    )
+    success = _pick_result(3, ManipulationResult.SUCCESS)
     results = iter((missing, success))
     manager._move_to_table_position = move
     manager._call_action = lambda *_args, **_kwargs: next(results)
@@ -518,8 +594,26 @@ def test_pick_recovery_prepares_arm_in_apriltag_observation_pose():
     assert calls[0][1].mode == PrepareManipulator.Goal.OBSERVATION
 
 
+def test_navigation_preparation_explicitly_reports_loaded_gripper():
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._world_state.commit_pick(5)
+    manager._prepare_client = object()
+    manager._manipulation_timeout = lambda: 120.0
+    calls = []
+    manager._call_action = lambda client, goal, *_args: calls.append(
+        (client, goal)
+    )
+
+    manager._prepare_for_navigation()
+
+    assert calls[0][1].mode == PrepareManipulator.Goal.NAVIGATION
+    assert calls[0][1].gripper_loaded is True
+
+
 def test_executor_maps_sequential_steps_to_semantic_action_goals():
     manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
     manager._current_wall_distance_mm = 200.0
@@ -538,37 +632,62 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
 
     def call_action(client, goal, *_args, **_kwargs):
         calls.append((client, goal))
+        tag_id = int(
+            goal.tag_id if client is manager._pick_client else goal.object_tag_id
+        )
+        locations = {
+            manager._pick_client: ManipulationResult.LOCATION_GRIPPER,
+            manager._store_client: ManipulationResult.LOCATION_CARGO,
+            manager._retrieve_client: ManipulationResult.LOCATION_GRIPPER,
+            manager._place_table_client: ManipulationResult.LOCATION_DESTINATION,
+            manager._place_container_client: ManipulationResult.LOCATION_DESTINATION,
+            manager._stack_client: ManipulationResult.LOCATION_DESTINATION,
+            manager._place_shelf_client: ManipulationResult.LOCATION_DESTINATION,
+        }
         return SimpleNamespace(
-            outcome=SimpleNamespace(SUCCESS=0, code=0, message='ok'),
+            outcome=SimpleNamespace(
+                SUCCESS=0,
+                code=0,
+                message='ok',
+                object_tag_id=tag_id,
+                effect_known=True,
+                final_object_location=locations[client],
+            ),
             observed_detections=[],
         )
 
     manager._call_action = call_action
 
-    steps = (
-        Step('pick', 'pick', tag_id=7),
-        Step('store', 'store', slot_id='left'),
-        Step('retrieve', 'retrieve', slot_id='right'),
+    manager._execute_manipulation(Step('pick', 'pick', tag_id=7))
+    manager._execute_manipulation(Step('store', 'store', slot_id='left'))
+    manager._execute_manipulation(Step('retrieve', 'retrieve', slot_id='left'))
+    manager._execute_manipulation(
         Step(
-            'table', 'place_on_table',
-            analyze_apriltags=True,
-            analyze_containers=False,
-        ),
-        Step('container', 'place_in_container', container_color='blue'),
-        Step('stack', 'stack', support_tag_id=3),
-        Step('shelf', 'place_on_shelf'),
+                'table', 'place_on_table',
+                analyze_apriltags=True,
+                analyze_containers=False,
+        )
     )
-    for step in steps:
+    for tag_id, step in (
+        (8, Step('container', 'place_in_container', container_color='blue')),
+        (9, Step('stack', 'stack', support_tag_id=3)),
+        (10, Step('shelf', 'place_on_shelf')),
+    ):
+        manager._world_state.reset()
+        manager._world_state.commit_pick(tag_id)
         manager._execute_manipulation(step)
 
     assert calls[0][1].tag_id == 7
     assert calls[0][1].profile == ''
     assert calls[1][1].slot_id == 'left'
-    assert calls[2][1].slot_id == 'right'
+    assert calls[1][1].object_tag_id == 7
+    assert calls[2][1].slot_id == 'left'
+    assert calls[2][1].object_tag_id == 7
     assert calls[3][1].ws_height_cm == 12.5
     assert calls[3][1].analyze_apriltags is True
     assert calls[3][1].analyze_containers is False
     assert calls[4][1].ws_height_cm == 12.5
     assert calls[4][1].container_color == calls[4][1].BLUE
     assert calls[5][1].support_tag_id == 3
+    assert calls[5][1].object_tag_id == 9
     assert not hasattr(calls[5][1], 'ws_height_cm')

@@ -5,8 +5,6 @@ manipulation_server:
     move_group_action: /move_action
     apriltag_action: /apriltags/analyze
     joint_states_topic: /joint_states
-    state_service: /mission/manipulation_state
-    state_service_timeout_s: 2.0
     pick_action: manipulation/pick
     store_action: manipulation/store
     retrieve_action: manipulation/retrieve

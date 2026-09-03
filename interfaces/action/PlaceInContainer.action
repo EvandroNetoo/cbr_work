@@ -2,6 +2,7 @@ uint8 RED=1
 uint8 BLUE=2
 
 # Deposit the object currently held by the gripper in a detected container.
+int32 object_tag_id
 # Work-surface height above the floor, in centimeters.
 float32 ws_height_cm
 uint8 container_color

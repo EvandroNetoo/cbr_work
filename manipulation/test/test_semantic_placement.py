@@ -1,8 +1,9 @@
 import math
 from types import SimpleNamespace
 
-import pytest
 from geometry_msgs.msg import PoseStamped
+from interfaces.action import PlaceInContainer, PlaceOnTable
+from interfaces.msg import AprilTagStampedDetection, ManipulationResult
 
 from manipulation.errors import (
     ConfigurationError,
@@ -12,9 +13,7 @@ from manipulation.errors import (
 )
 from manipulation.node import ManipulationServer
 from manipulation.profiles import PlacementProfile
-from mission_manager.world_state import EMPTY, WorldState
-from interfaces.action import PlaceInContainer, PlaceOnTable
-from interfaces.msg import AprilTagStampedDetection
+import pytest
 
 
 def _pose():
@@ -79,10 +78,10 @@ def _detection(tag_id, x, y):
     return detection
 
 
-def test_common_release_commits_inventory_only_after_opening_gripper():
+def test_common_release_reports_physical_effect_only_after_opening_gripper():
     server = ManipulationServer.__new__(ManipulationServer)
-    server._inventory = WorldState(['left'])
-    server._inventory.commit_pick(5)
+    server._effect_known = True
+    server._effect_location = ManipulationResult.LOCATION_UNKNOWN
     motions = []
     gripper = []
     server._motion = SimpleNamespace(
@@ -90,17 +89,14 @@ def test_common_release_commits_inventory_only_after_opening_gripper():
     )
     server._feedback = lambda *args: None
     server._gripper = lambda state, description: gripper.append(state)
-    server._publish_state = lambda: None
-    server._safe = lambda: None
+    server._safe = lambda _loaded: None
 
     message, location, placed_pose = server._release_at_pose(
         object(), PlaceOnTable, 5, _pose(), _cartesian_profile(), 'teste'
     )
 
-    known, held, slots = server._inventory.snapshot()
-    assert known is True
-    assert held == EMPTY
-    assert slots == {'left': EMPTY}
+    assert server._effect_known is True
+    assert server._effect_location == ManipulationResult.LOCATION_DESTINATION
     assert gripper == ['open']
     assert len(motions) == 3
     assert placed_pose.pose.position.z == pytest.approx(0.10)
@@ -108,27 +104,25 @@ def test_common_release_commits_inventory_only_after_opening_gripper():
     assert location > 0
 
 
-def test_gripper_failure_marks_inventory_unknown():
+def test_gripper_failure_reports_physical_effect_as_unknown():
     server = ManipulationServer.__new__(ManipulationServer)
-    server._inventory = WorldState(['left'])
-    server._inventory.commit_pick(5)
+    server._effect_known = True
+    server._effect_location = ManipulationResult.LOCATION_UNKNOWN
     server._motion = SimpleNamespace(executar_objetivo=lambda *args: None)
     server._feedback = lambda *args: None
     server._gripper = lambda *args: (_ for _ in ()).throw(RuntimeError('falha'))
-    server._publish_state = lambda: None
 
     with pytest.raises(RuntimeError, match='falha'):
         server._release_at_pose(
             object(), PlaceOnTable, 5, _pose(), _cartesian_profile(), 'teste'
         )
 
-    assert server._inventory.snapshot()[0] is False
+    assert server._effect_known is False
+    assert server._effect_location == ManipulationResult.LOCATION_LOST
 
 
 def _operation_only_server(tag_id=5):
     server = ManipulationServer.__new__(ManipulationServer)
-    server._inventory = WorldState(['left'])
-    server._inventory.commit_pick(tag_id)
     server._feedback = lambda *args: None
     server._profiles = SimpleNamespace(
         placements={
@@ -156,6 +150,7 @@ def _operation_only_server(tag_id=5):
 def test_table_container_analysis_fails_before_motion_while_detector_is_absent():
     server = _operation_only_server()
     goal = PlaceOnTable.Goal()
+    goal.object_tag_id = 5
     goal.ws_height_cm = 12.5
     goal.analyze_containers = True
 
@@ -166,6 +161,7 @@ def test_table_container_analysis_fails_before_motion_while_detector_is_absent()
 def test_table_without_detectors_requires_nominal_pose_calibration():
     server = _operation_only_server()
     goal = PlaceOnTable.Goal()
+    goal.object_tag_id = 5
     goal.ws_height_cm = -200.25
 
     with pytest.raises(FeatureUnavailable, match='release_x_m'):
@@ -198,6 +194,7 @@ def test_table_without_detectors_uses_fixed_xy_and_height_plus_tcp_offset():
 
     server._release_at_pose = release
     goal = PlaceOnTable.Goal()
+    goal.object_tag_id = 5
     goal.ws_height_cm = 12.5
 
     server._execute_place_on_table(SimpleNamespace(request=goal))
@@ -328,6 +325,7 @@ def test_table_apriltag_analysis_ignores_object_held_by_gripper():
 
     server._release_at_pose = release
     goal = PlaceOnTable.Goal()
+    goal.object_tag_id = 5
     goal.ws_height_cm = 10.0
     goal.analyze_apriltags = True
 
@@ -342,6 +340,7 @@ def test_table_apriltag_analysis_requires_complete_search_bounds_before_motion()
     server._profiles.placements['table'] = _search_profile(search_x_min_m=None)
     server._arm_state = lambda *_args: pytest.fail('não deveria mover o braço')
     goal = PlaceOnTable.Goal()
+    goal.object_tag_id = 5
     goal.ws_height_cm = 10.0
     goal.analyze_apriltags = True
 
@@ -352,6 +351,7 @@ def test_table_apriltag_analysis_requires_complete_search_bounds_before_motion()
 def test_container_rejects_color_outside_enum_before_detection():
     server = _operation_only_server()
     goal = PlaceInContainer.Goal()
+    goal.object_tag_id = 5
     goal.ws_height_cm = 10.0
     goal.container_color = 99
 
