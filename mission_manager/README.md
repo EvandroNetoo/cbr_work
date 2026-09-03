@@ -59,8 +59,11 @@ wall_mm = current_wall_mm + 1000 * (tag_y_m - preferred_tag_y_m)
 ```
 
 `wall_mm` é limitado por `minimum_wall_distance_mm` e
-`maximum_wall_distance_mm`. Deslocamento lateral positivo significa direita e
-negativo significa esquerda.
+`maximum_wall_distance_mm`. O destino lateral absoluto é limitado por
+`minimum_lateral_position_mm` e `maximum_lateral_position_mm`, relativos à
+posição `0`. Assim, se a centralização desejada ultrapassar uma extremidade, o
+robô avança somente até o limite e repete a detecção nessa posição.
+Deslocamento lateral positivo significa direita e negativo significa esquerda.
 
 O deslocamento realmente medido pela action é acumulado na coordenada lateral,
 em vez do valor comandado. Para uma tag vista anteriormente, o destino salvo é
@@ -72,6 +75,7 @@ detecção. Se ainda não encontrá-la, ou se a tag nunca foi observada na área
 atual, o robô visita a posição de busca ainda não observada mais próxima. As
 posições são coordenadas absolutas em milímetros, configuradas em
 `pickup_recovery.search_positions_mm`; o padrão da arena é `[0, 250, -250]`.
+Todas as posições de busca precisam estar dentro dos limites laterais.
 Em cada posição, todas as outras tags encontradas também atualizam a memória.
 Uma tag coletada é removida, sem apagar as demais observações. Se a próxima tag
 não apareceu na última análise e a base continua na mesma posição, essa análise

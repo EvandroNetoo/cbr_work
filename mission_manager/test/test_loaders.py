@@ -24,6 +24,8 @@ pickup_recovery:
   enabled: true
   minimum_wall_distance_mm: 30
   maximum_wall_distance_mm: 250
+  minimum_lateral_position_mm: -275
+  maximum_lateral_position_mm: 275
   preferred_tag_x_m: 0.0
   preferred_tag_y_m: -0.22
   wall_tolerance_mm: 5
@@ -73,6 +75,8 @@ def test_arena_merges_partial_alignment_override(tmp_path):
     assert departure.tolerance_mm == 15
     assert departure.timeout_s == pytest.approx(8.0)
     assert arena.pickup_recovery.minimum_wall_distance_mm == 30
+    assert arena.pickup_recovery.minimum_lateral_position_mm == -275
+    assert arena.pickup_recovery.maximum_lateral_position_mm == 275
     assert arena.pickup_recovery.preferred_tag_y_m == pytest.approx(-0.22)
     assert arena.pickup_recovery.search_positions_mm == (0, 250, -250)
 
@@ -86,6 +90,16 @@ def test_arena_rejects_unknown_fields(tmp_path):
     source = VALID_ARENA.replace('height_cm: 10.0', 'height_cm: 10.0\n    typo: 1')
 
     with pytest.raises(ConfigurationError, match='campos desconhecidos'):
+        load_arena(_write(tmp_path, 'arena.yaml', source))
+
+
+def test_arena_rejects_search_position_outside_lateral_limits(tmp_path):
+    source = VALID_ARENA.replace(
+        'search_positions_mm: [0, 250, -250]',
+        'search_positions_mm: [0, 300, -250]',
+    )
+
+    with pytest.raises(ConfigurationError, match='fora dos limites laterais'):
         load_arena(_write(tmp_path, 'arena.yaml', source))
 
 

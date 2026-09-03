@@ -34,6 +34,8 @@ def _arena():
             enabled=True,
             minimum_wall_distance_mm=30,
             maximum_wall_distance_mm=250,
+            minimum_lateral_position_mm=-275,
+            maximum_lateral_position_mm=275,
             preferred_tag_x_m=0.0,
             preferred_tag_y_m=-0.22,
             wall_tolerance_mm=5,
@@ -150,6 +152,31 @@ def test_pickup_recovery_moves_closer_for_far_tag_respecting_minimum():
     assert travel == 0
 
 
+def test_pickup_recovery_stops_at_absolute_lateral_limit():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 250.0
+    warnings = []
+    manager.get_logger = lambda: SimpleNamespace(
+        warning=lambda message: warnings.append(message)
+    )
+    destinations = []
+    manager._move_to_table_position = (
+        lambda wall, lateral, description: destinations.append(
+            (wall, lateral, description)
+        ) or True
+    )
+    result = PickObject.Result()
+    result.detected_pose.pose.position.x = -0.10
+    result.detected_pose.pose.position.y = -0.22
+
+    manager._recover_pick(result, Step('pick_3', 'pick', tag_id=3))
+
+    assert destinations[0][:2] == (200, 275.0)
+    assert 'limitada para 25 mm' in warnings[0]
+
+
 def test_pick_retries_after_one_recoverable_result():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
@@ -196,6 +223,67 @@ def _detection(tag_id, x, y):
     detection.pose.position.y = y
     detection.pose.position.z = 0.10
     return detection
+
+
+@pytest.mark.parametrize(
+    ('current_lateral', 'requested_lateral', 'expected_travel'),
+    (
+        (250.0, 330.0, 25),
+        (-250.0, -330.0, -25),
+    ),
+)
+def test_table_movement_clamps_absolute_lateral_destination(
+    current_lateral,
+    requested_lateral,
+    expected_travel,
+):
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = current_lateral
+    manager._prepare_for_pick_observation = lambda: None
+    warnings = []
+    manager.get_logger = lambda: SimpleNamespace(
+        warning=lambda message: warnings.append(message)
+    )
+    commands = []
+
+    def control_wall(distance, *_args, **kwargs):
+        commands.append(kwargs['travel_distance_mm'])
+        result = FollowWall.Result()
+        result.final_average_distance_mm = float(distance)
+        result.traveled_distance_mm = float(kwargs['travel_distance_mm'])
+        return result
+
+    manager._control_wall = control_wall
+
+    assert manager._move_to_table_position(
+        200, requested_lateral, 'movimento limitado'
+    )
+
+    assert commands == [expected_travel]
+    assert manager._current_lateral_position_mm == pytest.approx(
+        275.0 if current_lateral > 0 else -275.0
+    )
+    assert 'limitado' in warnings[0]
+
+
+def test_remembered_pickup_position_respects_lateral_limit():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 250.0
+    manager._tag_observations = {}
+    manager._visited_search_positions = {}
+
+    result = PickObject.Result()
+    result.observed_detections = [_detection(3, -0.10, -0.22)]
+
+    manager._remember_pick_observations(result)
+
+    observation = manager._tag_observations[('ws_1', 3)]
+    assert observation.pickup_lateral_position_mm == pytest.approx(275.0)
 
 
 def test_pick_observations_are_updated_individually_and_survive_area_changes():

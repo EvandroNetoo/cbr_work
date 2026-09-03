@@ -151,10 +151,10 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
         raw,
         {
             'enabled', 'minimum_wall_distance_mm',
-            'maximum_wall_distance_mm', 'preferred_tag_x_m',
-            'preferred_tag_y_m', 'wall_tolerance_mm',
-            'travel_tolerance_mm', 'timeout_s',
-            'max_reposition_attempts', 'search_positions_mm',
+            'maximum_wall_distance_mm', 'minimum_lateral_position_mm',
+            'maximum_lateral_position_mm', 'preferred_tag_x_m',
+            'preferred_tag_y_m', 'wall_tolerance_mm', 'travel_tolerance_mm',
+            'timeout_s', 'max_reposition_attempts', 'search_positions_mm',
         },
         context,
     )
@@ -167,6 +167,14 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
         raw.get('maximum_wall_distance_mm'),
         f'{context}.maximum_wall_distance_mm',
         nonnegative=True,
+    )
+    minimum_lateral = _integer(
+        raw.get('minimum_lateral_position_mm'),
+        f'{context}.minimum_lateral_position_mm',
+    )
+    maximum_lateral = _integer(
+        raw.get('maximum_lateral_position_mm'),
+        f'{context}.maximum_lateral_position_mm',
     )
     wall_tolerance = _integer(
         raw.get('wall_tolerance_mm'),
@@ -209,12 +217,29 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
             f'{context}.maximum_wall_distance_mm deve ser maior ou igual '
             'ao mínimo.'
         )
+    if maximum_lateral < minimum_lateral:
+        raise ConfigurationError(
+            f'{context}.maximum_lateral_position_mm deve ser maior ou igual '
+            'ao mínimo lateral.'
+        )
+    outside_lateral_limits = [
+        position for position in search_positions
+        if not minimum_lateral <= position <= maximum_lateral
+    ]
+    if outside_lateral_limits:
+        raise ConfigurationError(
+            f'{context}.search_positions_mm contém posições fora dos limites '
+            f'laterais [{minimum_lateral}, {maximum_lateral}]: '
+            f'{outside_lateral_limits}.'
+        )
     if wall_tolerance == 0 or travel_tolerance == 0:
         raise ConfigurationError(f'{context}.tolerâncias devem ser positivas.')
     return PickupRecoveryConfig(
         enabled=_boolean(raw.get('enabled'), f'{context}.enabled'),
         minimum_wall_distance_mm=minimum,
         maximum_wall_distance_mm=maximum,
+        minimum_lateral_position_mm=minimum_lateral,
+        maximum_lateral_position_mm=maximum_lateral,
         preferred_tag_x_m=_number(
             raw.get('preferred_tag_x_m'), f'{context}.preferred_tag_x_m'
         ),

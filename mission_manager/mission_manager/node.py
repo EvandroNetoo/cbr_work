@@ -511,7 +511,7 @@ class MissionManager(Node):
                 wall_distance_mm=self._current_wall_distance_mm,
                 lateral_position_mm=self._current_lateral_position_mm,
                 pickup_wall_distance_mm=pickup_wall,
-                pickup_lateral_position_mm=(
+                pickup_lateral_position_mm=self._clamp_lateral_position(
                     self._current_lateral_position_mm + pickup_travel
                 ),
                 detection=copy.deepcopy(detection),
@@ -523,6 +523,14 @@ class MissionManager(Node):
     def _forget_picked_tag(self, tag_id: int) -> None:
         for key in [key for key in self._tag_observations if key[1] == tag_id]:
             del self._tag_observations[key]
+
+    def _clamp_lateral_position(self, position_mm: float) -> float:
+        assert self._arena is not None
+        config = self._arena.pickup_recovery
+        return max(
+            float(config.minimum_lateral_position_mm),
+            min(float(config.maximum_lateral_position_mm), position_mm),
+        )
 
     def _current_observation_excludes(self, tag_id: int) -> bool:
         if self._current_wall_distance_mm is None:
@@ -564,8 +572,19 @@ class MissionManager(Node):
                 'Não há uma distância atual válida da parede para '
                 'reposicionar a coleta.'
             )
+        requested_lateral_position_mm = float(lateral_position_mm)
+        bounded_lateral_position_mm = self._clamp_lateral_position(
+            requested_lateral_position_mm
+        )
+        if bounded_lateral_position_mm != requested_lateral_position_mm:
+            self.get_logger().warning(
+                f'Destino lateral {requested_lateral_position_mm:.0f} mm '
+                f'limitado para {bounded_lateral_position_mm:.0f} mm; limites '
+                f'permitidos: [{config.minimum_lateral_position_mm}, '
+                f'{config.maximum_lateral_position_mm}] mm.'
+            )
         travel = round(
-            float(lateral_position_mm) - self._current_lateral_position_mm
+            bounded_lateral_position_mm - self._current_lateral_position_mm
         )
         wall = int(wall_distance_mm)
         wall_is_current = (
@@ -721,25 +740,39 @@ class MissionManager(Node):
             float(pose.y),
             config,
         )
+        requested_lateral_position = self._current_lateral_position_mm + travel
+        target_lateral_position = self._clamp_lateral_position(
+            requested_lateral_position
+        )
+        bounded_travel = round(
+            target_lateral_position - self._current_lateral_position_mm
+        )
+        lateral_limit_message = ''
+        if target_lateral_position != requested_lateral_position:
+            lateral_limit_message = (
+                f' A correção lateral desejada de {travel} mm foi limitada '
+                f'para {bounded_travel} mm pelo destino absoluto permitido '
+                f'[{config.minimum_lateral_position_mm}, '
+                f'{config.maximum_lateral_position_mm}] mm.'
+            )
         if (
-            travel == 0
+            bounded_travel == 0
             and target_wall == round(self._current_wall_distance_mm)
         ):
             raise StepFailed(
                 f"passo '{step.step_id}' (pick) continua fora do alcance, "
-                'mas a correção calculada já está dentro das tolerâncias ou '
-                'limitada pela distância mínima/máxima da parede.'
+                'mas a correção calculada não produziria movimento dentro das '
+                'tolerâncias e dos limites configurados.'
             )
-
         self.get_logger().warning(
             f'Coleta da AprilTag {step.tag_id} fora do alcance em '
             f'x={pose.x:.3f}, y={pose.y:.3f} m. Reposicionando a base para '
-            f'{target_wall} mm da parede e deslocando {travel} mm '
-            '(positivo=direita, negativo=esquerda).'
+            f'{target_wall} mm da parede e deslocando {bounded_travel} mm '
+            f'(positivo=direita, negativo=esquerda).{lateral_limit_message}'
         )
         moved = self._move_to_table_position(
             target_wall,
-            self._current_lateral_position_mm + travel,
+            target_lateral_position,
             f"reposicionamento para repetir o passo '{step.step_id}'",
         )
         if not moved:

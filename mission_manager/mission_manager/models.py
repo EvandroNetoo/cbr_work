@@ -38,6 +38,8 @@ class PickupRecoveryConfig:
     enabled: bool
     minimum_wall_distance_mm: int
     maximum_wall_distance_mm: int
+    minimum_lateral_position_mm: int
+    maximum_lateral_position_mm: int
     preferred_tag_x_m: float
     preferred_tag_y_m: float
     wall_tolerance_mm: int
