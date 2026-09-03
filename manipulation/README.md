@@ -43,6 +43,9 @@ flag preserva o envio direto da pose ao MoveIt.
 Nos bloqueios do filtro e nas falhas MoveIt de código `99999`, o resultado de
 `PickObject` informa `recovery_reason` e `detected_pose` para que o gerenciador
 de missão possa reposicionar a base antes de repetir a detecção.
+O mesmo resultado sempre inclui `observed_detections`, com a melhor observação
+de cada ID encontrado nas tentativas executadas sem movimentar a base. Isso
+também vale para coleta bem-sucedida e para alvo não encontrado.
 
 Quando `analyze_apriltags` e `analyze_containers` são falsos,
 `place_on_table` usa `release_x_m`, `release_y_m` e `release_yaw_deg` fixos do

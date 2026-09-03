@@ -30,6 +30,7 @@ pickup_recovery:
   travel_tolerance_mm: 10
   timeout_s: 15.0
   max_reposition_attempts: 1
+  search_positions_mm: [0, 250, -250]
 start: {x_m: 0.0, y_m: 0.0, yaw_rad: 0.0}
 finish: {x_m: 3.0, y_m: 0.0, yaw_rad: 3.14}
 service_areas:
@@ -73,6 +74,7 @@ def test_arena_merges_partial_alignment_override(tmp_path):
     assert departure.timeout_s == pytest.approx(8.0)
     assert arena.pickup_recovery.minimum_wall_distance_mm == 30
     assert arena.pickup_recovery.preferred_tag_y_m == pytest.approx(-0.22)
+    assert arena.pickup_recovery.search_positions_mm == (0, 250, -250)
 
 
 def test_package_arena_refuses_uncalibrated_poses():

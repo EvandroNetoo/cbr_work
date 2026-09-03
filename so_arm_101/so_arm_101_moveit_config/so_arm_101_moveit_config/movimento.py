@@ -216,13 +216,19 @@ class ExecutorDoMoveIt:
         return deteccoes
 
     def obter_pose_da_april_tag(
-        self, tag_id: int, duracao_da_analise: float
+        self,
+        tag_id: int,
+        duracao_da_analise: float,
+        *,
+        deteccoes_observadas: list[AprilTagStampedDetection] | None = None,
     ) -> tuple[float, float, float, float]:
         """Devolve posição e yaw da tag no referencial da base."""
         if tag_id < 0:
             raise ValueError("O ID da AprilTag não pode ser negativo.")
 
         deteccoes = self.obter_deteccoes_de_april_tags(duracao_da_analise)
+        if deteccoes_observadas is not None:
+            deteccoes_observadas.extend(deteccoes)
         deteccao = self._selecionar_april_tag(deteccoes, tag_id)
         if deteccao is None:
             ids_encontrados = sorted({item.id for item in deteccoes})

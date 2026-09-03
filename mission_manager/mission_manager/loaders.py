@@ -11,16 +11,16 @@ import yaml
 
 from .errors import ConfigurationError
 from .models import (
-    Arena,
     AlignmentConfig,
+    Arena,
     DepartureConfig,
     MapPose,
-    Plan,
     PickupRecoveryConfig,
+    Plan,
     SERVICE_AREA_TYPES,
-    STEP_ACTIONS,
     ServiceArea,
     Step,
+    STEP_ACTIONS,
 )
 
 
@@ -154,7 +154,7 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
             'maximum_wall_distance_mm', 'preferred_tag_x_m',
             'preferred_tag_y_m', 'wall_tolerance_mm',
             'travel_tolerance_mm', 'timeout_s',
-            'max_reposition_attempts',
+            'max_reposition_attempts', 'search_positions_mm',
         },
         context,
     )
@@ -183,6 +183,23 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
         f'{context}.max_reposition_attempts',
         nonnegative=True,
     )
+    search_raw = raw.get('search_positions_mm', [0, 250, -250])
+    if not isinstance(search_raw, list) or not search_raw:
+        raise ConfigurationError(
+            f'{context}.search_positions_mm deve ser uma lista não vazia.'
+        )
+    search_positions = tuple(
+        _integer(value, f'{context}.search_positions_mm[{index}]')
+        for index, value in enumerate(search_raw)
+    )
+    if len(set(search_positions)) != len(search_positions):
+        raise ConfigurationError(
+            f'{context}.search_positions_mm não pode conter posições repetidas.'
+        )
+    if 0 not in search_positions:
+        raise ConfigurationError(
+            f'{context}.search_positions_mm deve conter a origem 0.'
+        )
     if minimum == 0:
         raise ConfigurationError(
             f'{context}.minimum_wall_distance_mm deve ser positivo.'
@@ -210,6 +227,7 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
             raw.get('timeout_s'), f'{context}.timeout_s', positive=True
         ),
         max_reposition_attempts=attempts,
+        search_positions_mm=search_positions,
     )
 
 

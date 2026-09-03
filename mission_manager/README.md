@@ -36,9 +36,16 @@ Para `start` e `finish`, o alinhamento de chegada é omitido. Os blocos
 
 ## Recuperação de coleta fora do alcance
 
+Cada resultado de `PickObject`, bem-sucedido ou não, inclui todas as AprilTags
+observadas enquanto a base permaneceu parada. O mission manager associa cada
+detecção à distância atual da parede e a uma coordenada lateral, cuja origem é
+o alinhamento de chegada à área. A memória é separada por área e permanece
+válida durante toda a missão, inclusive depois de navegar para outra área.
+
 Quando o filtro de alcance bloqueia a AprilTag, ou o MoveIt devolve o código
-`99999` antes de fechar a garra, o resultado de `PickObject` inclui a pose
-detectada. Se `pickup_recovery.enabled` estiver ativo, o mission manager:
+`99999` antes de fechar a garra, o resultado também inclui a pose específica
+usada para recuperar a coleta. Se `pickup_recovery.enabled` estiver ativo, o
+mission manager:
 
 ```text
 PrepareManipulator(OBSERVATION) → FollowWall → PickObject (nova detecção)
@@ -54,6 +61,23 @@ wall_mm = current_wall_mm + 1000 * (tag_y_m - preferred_tag_y_m)
 `wall_mm` é limitado por `minimum_wall_distance_mm` e
 `maximum_wall_distance_mm`. Deslocamento lateral positivo significa direita e
 negativo significa esquerda.
+
+O deslocamento realmente medido pela action é acumulado na coordenada lateral,
+em vez do valor comandado. Para uma tag vista anteriormente, o destino salvo é
+convertido novamente em um deslocamento relativo à posição atual.
+
+Se uma tag com posição salva não reaparecer no destino estimado de coleta, o
+robô retorna uma vez ao ponto original onde ela foi observada e repete a
+detecção. Se ainda não encontrá-la, ou se a tag nunca foi observada na área
+atual, o robô visita a posição de busca ainda não observada mais próxima. As
+posições são coordenadas absolutas em milímetros, configuradas em
+`pickup_recovery.search_positions_mm`; o padrão da arena é `[0, 250, -250]`.
+Em cada posição, todas as outras tags encontradas também atualizam a memória.
+Uma tag coletada é removida, sem apagar as demais observações. Se a próxima tag
+não apareceu na última análise e a base continua na mesma posição, essa análise
+não é repetida: o robô segue diretamente para o ponto de busca não examinado
+mais próximo. Um ponto fixo só é marcado como examinado quando a distância da
+parede também corresponde à distância de observação da área.
 
 ## Execução
 

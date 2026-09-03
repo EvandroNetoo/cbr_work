@@ -44,6 +44,25 @@ class PickupRecoveryConfig:
     travel_tolerance_mm: int
     timeout_s: float
     max_reposition_attempts: int
+    search_positions_mm: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class TagObservation:
+    area_id: str
+    wall_distance_mm: float
+    lateral_position_mm: float
+    pickup_wall_distance_mm: int
+    pickup_lateral_position_mm: float
+    detection: object
+
+
+@dataclass(frozen=True)
+class TableObservation:
+    area_id: str
+    wall_distance_mm: float
+    lateral_position_mm: float
+    detected_tag_ids: frozenset[int]
 
 
 @dataclass(frozen=True)

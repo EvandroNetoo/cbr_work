@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import math
 from pathlib import Path
 import threading
@@ -22,7 +23,7 @@ from interfaces.action import (
     StackObject,
     StoreObject,
 )
-from interfaces.msg import CargoSlotState, ManipulationState
+from interfaces.msg import CargoSlotState, ManipulationResult, ManipulationState
 from interfaces.srv import ManageManipulationState
 from nav2_msgs.action import NavigateToPose
 import rclpy
@@ -34,7 +35,14 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 from .errors import ConfigurationError, MissionCanceled, StateConflict, StepFailed
 from .loaders import load_arena, load_plan, PLAN_ID_PATTERN, validate_plan
-from .models import Arena, PickupRecoveryConfig, Plan, Step
+from .models import (
+    Arena,
+    PickupRecoveryConfig,
+    Plan,
+    Step,
+    TableObservation,
+    TagObservation,
+)
 from .world_state import WorldState
 
 
@@ -43,6 +51,11 @@ class MissionManager(Node):
 
     def __init__(self) -> None:
         super().__init__('mission_manager')
+        if not hasattr(PickObject.Result(), 'observed_detections'):
+            raise ConfigurationError(
+                'A interface PickObject instalada está desatualizada; '
+                'recompile interfaces antes de iniciar o mission_manager.'
+            )
         share = Path(get_package_share_directory('mission_manager'))
         defaults = {
             'arena_file': str(share / 'config' / 'arena.yaml'),
@@ -78,6 +91,10 @@ class MissionManager(Node):
         self._current_step_index = 0
         self._current_location = 'start'
         self._current_wall_distance_mm: float | None = None
+        self._current_lateral_position_mm = 0.0
+        self._tag_observations: dict[tuple[str, int], TagObservation] = {}
+        self._visited_search_positions: dict[str, set[int]] = {}
+        self._last_table_observation: TableObservation | None = None
         self._active_child = None
         self._arena: Arena | None = None
 
@@ -300,20 +317,37 @@ class MissionManager(Node):
                 self._active_child = None
         if result_wrapper is None:
             raise StepFailed(f'{description} falhou sem resultado.')
-        if (
-            result_wrapper.status != GoalStatus.STATUS_SUCCEEDED
-            and not allow_unsuccessful_status
-        ):
-            status = (
-                result_wrapper.status if result_wrapper is not None else 'sem resultado'
-            )
-            raise StepFailed(f'{description} falhou com estado {status}.')
         result = result_wrapper.result
+        self._validate_action_status(
+            result_wrapper.status,
+            result,
+            description,
+            allow_unsuccessful_status=allow_unsuccessful_status,
+        )
         if validate_result is not None:
             failure = validate_result(result)
             if failure:
                 raise StepFailed(f'{description} falhou: {failure}')
         return result
+
+    @staticmethod
+    def _validate_action_status(
+        status: int,
+        result: Any,
+        description: str,
+        *,
+        allow_unsuccessful_status: bool,
+    ) -> None:
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            return
+        if allow_unsuccessful_status:
+            outcome = getattr(result, 'outcome', None)
+            if (
+                outcome is not None
+                and int(outcome.code) != int(outcome.SUCCESS)
+            ):
+                return
+        raise StepFailed(f'{description} falhou com estado {status}.')
 
     @staticmethod
     def _manipulation_failure(result: Any) -> str | None:
@@ -419,6 +453,210 @@ class MissionManager(Node):
             self._manipulation_failure,
         )
 
+    def _update_table_position(self, result: FollowWall.Result) -> None:
+        self._current_wall_distance_mm = float(
+            result.final_average_distance_mm
+        )
+        self._current_lateral_position_mm += float(
+            result.traveled_distance_mm
+        )
+
+    def _remember_pick_observations(self, result: PickObject.Result) -> None:
+        assert self._arena is not None
+        if self._current_wall_distance_mm is None:
+            return
+        config = self._arena.pickup_recovery
+        observation_completed = bool(result.observed_detections) or (
+            result.outcome.code
+            in {ManipulationResult.SUCCESS, ManipulationResult.OBJECT_NOT_FOUND}
+        )
+        if observation_completed:
+            self._last_table_observation = TableObservation(
+                area_id=self._current_location,
+                wall_distance_mm=self._current_wall_distance_mm,
+                lateral_position_mm=self._current_lateral_position_mm,
+                detected_tag_ids=frozenset(
+                    int(detection.id)
+                    for detection in result.observed_detections
+                ),
+            )
+            visited = self._visited_search_positions.setdefault(
+                self._current_location, set()
+            )
+            area = self._arena.service_areas[self._current_location]
+            if (
+                abs(
+                    area.alignment.distance_mm
+                    - self._current_wall_distance_mm
+                )
+                <= config.wall_tolerance_mm
+            ):
+                for position in config.search_positions_mm:
+                    if (
+                        abs(position - self._current_lateral_position_mm)
+                        <= config.travel_tolerance_mm
+                    ):
+                        visited.add(position)
+
+        for detection in result.observed_detections:
+            pose = detection.pose.position
+            pickup_wall, pickup_travel = self._pickup_recovery_correction(
+                self._current_wall_distance_mm,
+                float(pose.x),
+                float(pose.y),
+                config,
+            )
+            observation = TagObservation(
+                area_id=self._current_location,
+                wall_distance_mm=self._current_wall_distance_mm,
+                lateral_position_mm=self._current_lateral_position_mm,
+                pickup_wall_distance_mm=pickup_wall,
+                pickup_lateral_position_mm=(
+                    self._current_lateral_position_mm + pickup_travel
+                ),
+                detection=copy.deepcopy(detection),
+            )
+            self._tag_observations[
+                (self._current_location, int(detection.id))
+            ] = observation
+
+    def _forget_picked_tag(self, tag_id: int) -> None:
+        for key in [key for key in self._tag_observations if key[1] == tag_id]:
+            del self._tag_observations[key]
+
+    def _current_observation_excludes(self, tag_id: int) -> bool:
+        if self._current_wall_distance_mm is None:
+            return False
+        observation = getattr(self, '_last_table_observation', None)
+        if observation is None or observation.area_id != self._current_location:
+            return False
+        config = self._arena.pickup_recovery
+        same_wall_distance = (
+            abs(
+                observation.wall_distance_mm
+                - self._current_wall_distance_mm
+            )
+            <= config.wall_tolerance_mm
+        )
+        same_lateral_position = (
+            abs(
+                observation.lateral_position_mm
+                - self._current_lateral_position_mm
+            )
+            <= config.travel_tolerance_mm
+        )
+        return (
+            same_wall_distance
+            and same_lateral_position
+            and tag_id not in observation.detected_tag_ids
+        )
+
+    def _move_to_table_position(
+        self,
+        wall_distance_mm: int,
+        lateral_position_mm: float,
+        description: str,
+    ) -> bool:
+        assert self._arena is not None
+        config = self._arena.pickup_recovery
+        if self._current_wall_distance_mm is None:
+            raise StepFailed(
+                'Não há uma distância atual válida da parede para '
+                'reposicionar a coleta.'
+            )
+        travel = round(
+            float(lateral_position_mm) - self._current_lateral_position_mm
+        )
+        wall = int(wall_distance_mm)
+        wall_is_current = (
+            abs(wall - self._current_wall_distance_mm)
+            <= config.wall_tolerance_mm
+        )
+        if abs(travel) <= config.travel_tolerance_mm:
+            travel = 0
+        if wall_is_current and travel == 0:
+            return False
+
+        self._prepare_for_pick_observation()
+        follow_result = self._control_wall(
+            wall,
+            config.wall_tolerance_mm,
+            config.timeout_s,
+            description,
+            travel_distance_mm=travel,
+            travel_tolerance_mm=config.travel_tolerance_mm,
+        )
+        self._update_table_position(follow_result)
+        return True
+
+    def _position_from_memory(
+        self, tag_id: int
+    ) -> TagObservation | None:
+        observation = self._tag_observations.get(
+            (self._current_location, tag_id)
+        )
+        if observation is None:
+            return None
+        self.get_logger().info(
+            f'AprilTag {tag_id} já observada em {self._current_location}; '
+            f'indo para parede={observation.pickup_wall_distance_mm} mm, '
+            f'lateral={observation.pickup_lateral_position_mm:.0f} mm.'
+        )
+        self._move_to_table_position(
+            observation.pickup_wall_distance_mm,
+            observation.pickup_lateral_position_mm,
+            f'retorno à posição armazenada da AprilTag {tag_id}',
+        )
+        return observation
+
+    def _return_to_original_observation(
+        self,
+        tag_id: int,
+        observation: TagObservation,
+    ) -> bool:
+        self.get_logger().info(
+            f'AprilTag {tag_id} não reapareceu na posição estimada de '
+            'coleta; retornando ao ponto original da observação: '
+            f'parede={observation.wall_distance_mm:.0f} mm, '
+            f'lateral={observation.lateral_position_mm:.0f} mm.'
+        )
+        return self._move_to_table_position(
+            round(observation.wall_distance_mm),
+            observation.lateral_position_mm,
+            f'retorno ao ponto original da observação da AprilTag {tag_id}',
+        )
+
+    def _move_to_next_search_position(self, tag_id: int) -> bool:
+        assert self._arena is not None
+        config = self._arena.pickup_recovery
+        visited = self._visited_search_positions.setdefault(
+            self._current_location, set()
+        )
+        candidates = [
+            position for position in config.search_positions_mm
+            if position not in visited
+        ]
+        if not candidates:
+            return False
+        destination = min(
+            candidates,
+            key=lambda position: (
+                abs(position - self._current_lateral_position_mm),
+                config.search_positions_mm.index(position),
+            ),
+        )
+        area = self._arena.service_areas[self._current_location]
+        self.get_logger().info(
+            f'AprilTag {tag_id} ainda não localizada; buscando em '
+            f'lateral={destination} mm de {self._current_location}.'
+        )
+        self._move_to_table_position(
+            area.alignment.distance_mm,
+            destination,
+            f'busca lateral da AprilTag {tag_id} em {destination} mm',
+        )
+        return True
+
     def _navigate(self, target: str) -> None:
         assert self._arena is not None
         pose = self._arena.pose_for(target)
@@ -436,6 +674,7 @@ class MissionManager(Node):
                 f'recuo para sair de {self._current_location}',
             )
             self._current_wall_distance_mm = None
+            self._current_lateral_position_mm = 0.0
         self._prepare_for_navigation()
         goal = NavigateToPose.Goal()
         goal.pose.header.frame_id = self._arena.frame_id
@@ -452,6 +691,7 @@ class MissionManager(Node):
             self._navigation_failure,
         )
         self._current_wall_distance_mm = None
+        self._current_lateral_position_mm = 0.0
         if target in self._arena.service_areas:
             alignment = self._arena.service_areas[target].alignment
             result = self._control_wall(
@@ -463,6 +703,7 @@ class MissionManager(Node):
             self._current_wall_distance_mm = float(
                 result.final_average_distance_mm
             )
+            self._current_lateral_position_mm = 0.0
         self._current_location = target
 
     def _recover_pick(self, result: PickObject.Result, step: Step) -> None:
@@ -496,23 +737,42 @@ class MissionManager(Node):
             f'{target_wall} mm da parede e deslocando {travel} mm '
             '(positivo=direita, negativo=esquerda).'
         )
-        self._prepare_for_pick_observation()
-        follow_result = self._control_wall(
+        moved = self._move_to_table_position(
             target_wall,
-            config.wall_tolerance_mm,
-            config.timeout_s,
+            self._current_lateral_position_mm + travel,
             f"reposicionamento para repetir o passo '{step.step_id}'",
-            travel_distance_mm=travel,
-            travel_tolerance_mm=config.travel_tolerance_mm,
         )
-        self._current_wall_distance_mm = float(
-            follow_result.final_average_distance_mm
-        )
+        if not moved:
+            raise StepFailed(
+                f"passo '{step.step_id}' (pick) não produziu um novo "
+                'reposicionamento.'
+            )
 
     def _execute_pick(self, step: Step, timeout: float) -> None:
         assert self._arena is not None
         config = self._arena.pickup_recovery
-        for reposition_count in range(config.max_reposition_attempts + 1):
+        original_observation = None
+        if config.enabled:
+            original_observation = self._position_from_memory(
+                int(step.tag_id)
+            )
+            if (
+                original_observation is None
+                and self._current_observation_excludes(int(step.tag_id))
+            ):
+                self.get_logger().info(
+                    f'AprilTag {step.tag_id} ausente na última observação da '
+                    'posição atual; evitando uma nova detecção no mesmo local.'
+                )
+                if not self._move_to_next_search_position(int(step.tag_id)):
+                    raise StepFailed(
+                        f"passo '{step.step_id}' (pick) falhou: AprilTag "
+                        f'{step.tag_id} não apareceu na última observação e '
+                        'todas as posições de busca já foram examinadas.'
+                    )
+        original_fallback_pending = original_observation is not None
+        reposition_count = 0
+        while True:
             goal = PickObject.Goal()
             goal.tag_id = int(step.tag_id)
             goal.profile = ''
@@ -523,22 +783,40 @@ class MissionManager(Node):
                 timeout,
                 allow_unsuccessful_status=True,
             )
+            self._remember_pick_observations(result)
             failure = self._manipulation_failure(result)
             if failure is None:
+                self._forget_picked_tag(int(step.tag_id))
                 return
             recoverable = (
                 config.enabled
                 and result.has_detected_pose
                 and result.recovery_reason != PickObject.Result.RECOVERY_NONE
             )
+            if recoverable:
+                if reposition_count >= config.max_reposition_attempts:
+                    raise StepFailed(
+                        f"passo '{step.step_id}' (pick) falhou: {failure}"
+                    )
+                self._recover_pick(result, step)
+                reposition_count += 1
+                continue
             if (
-                not recoverable
-                or reposition_count >= config.max_reposition_attempts
+                config.enabled
+                and result.outcome.code == ManipulationResult.OBJECT_NOT_FOUND
             ):
-                raise StepFailed(
-                    f"passo '{step.step_id}' (pick) falhou: {failure}"
-                )
-            self._recover_pick(result, step)
+                if original_fallback_pending:
+                    original_fallback_pending = False
+                    assert original_observation is not None
+                    if self._return_to_original_observation(
+                        int(step.tag_id), original_observation
+                    ):
+                        continue
+                if self._move_to_next_search_position(int(step.tag_id)):
+                    continue
+            raise StepFailed(
+                f"passo '{step.step_id}' (pick) falhou: {failure}"
+            )
 
     def _execute_manipulation(self, step: Step) -> None:
         assert self._arena is not None
@@ -655,6 +933,10 @@ class MissionManager(Node):
         self._status = 'running'
         self._current_location = 'start'
         self._current_wall_distance_mm = None
+        self._current_lateral_position_mm = 0.0
+        self._tag_observations.clear()
+        self._visited_search_positions.clear()
+        self._last_table_observation = None
         completed = 0
         failed_step = ''
         try:

@@ -7,6 +7,8 @@ uint8 RECOVERY_OUT_OF_REACH=1
 uint8 RECOVERY_MOVEIT_UNREACHABLE=2
 interfaces/ManipulationResult outcome
 uint8 recovery_reason
+# Best detection of every AprilTag observed while the base remained stationary.
+interfaces/AprilTagStampedDetection[] observed_detections
 bool has_detected_pose
 geometry_msgs/PoseStamped detected_pose
 int32 moveit_error_code

@@ -36,6 +36,7 @@ def test_actions_cover_pick_cargo_and_semantic_placements():
     assert 'uint8 RECOVERY_OUT_OF_REACH=1' in pick
     assert 'uint8 RECOVERY_MOVEIT_UNREACHABLE=2' in pick
     assert 'geometry_msgs/PoseStamped detected_pose' in pick
+    assert 'interfaces/AprilTagStampedDetection[] observed_detections' in pick
     assert '\nint32 tag_id\n' in pick
     for name in (
         'StoreObject.action', 'RetrieveObject.action', 'PlaceOnTable.action',

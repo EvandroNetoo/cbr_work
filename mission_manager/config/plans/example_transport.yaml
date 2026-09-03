@@ -30,7 +30,7 @@ steps:
 
   # - id: go_destination
   #   action: navigate
-  #   target: ws_2
+  #   target: ws_2mission_manager
 
   # - id: place_3
   #   action: place_on_table

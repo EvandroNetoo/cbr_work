@@ -82,6 +82,11 @@ class ManipulationServer(Node):
     def __init__(self) -> None:
         """Load calibrated profiles and create the serialized action servers."""
         super().__init__('manipulation_server')
+        if not hasattr(PickObject.Result(), 'observed_detections'):
+            raise ConfigurationError(
+                'A interface PickObject instalada está desatualizada; '
+                'recompile interfaces antes de iniciar manipulation.'
+            )
         share = Path(get_package_share_directory('manipulation'))
         defaults = {
             'profiles_file': str(share / 'config' / 'profiles.yaml'),
@@ -314,6 +319,7 @@ class ManipulationServer(Node):
         final_location: int | None = None,
         placed_pose: Any | None = None,
         failure: Exception | None = None,
+        observed_detections: list[Any] | None = None,
     ) -> Any:
         result = action_type.Result()
         result.outcome.object_tag_id = int(tag_id)
@@ -342,6 +348,8 @@ class ManipulationServer(Node):
             result.has_detected_pose = True
             result.detected_pose = copy.deepcopy(failure.detected_pose)
             result.moveit_error_code = failure.moveit_error_code
+        if action_type is PickObject and observed_detections is not None:
+            result.observed_detections = copy.deepcopy(observed_detections)
         if code == ManipulationResult.SUCCESS:
             goal_handle.succeed()
         elif code == ManipulationResult.CANCELED:
@@ -359,6 +367,7 @@ class ManipulationServer(Node):
         operation: Callable[[], tuple[str, int] | tuple[str, int, Any]],
         *,
         requires_moveit: bool = True,
+        observed_detections: list[Any] | None = None,
     ) -> Any:
         self._set_active(operation_name)
         try:
@@ -370,12 +379,14 @@ class ManipulationServer(Node):
             return self._make_result(
                 action_type, goal_handle, ManipulationResult.SUCCESS,
                 message, tag_id, location, placed_pose,
+                observed_detections=observed_detections,
             )
         except OperacaoCancelada as error:
             self._cancel_event.clear()
             return self._make_result(
                 action_type, goal_handle, ManipulationResult.CANCELED,
                 f'{error} O braço foi mantido na posição em que parou.', tag_id,
+                observed_detections=observed_detections,
             )
         except Exception as error:
             code = ManipulationResult.MOTION_FAILED
@@ -391,7 +402,7 @@ class ManipulationServer(Node):
             self.get_logger().error(f'{operation_name} falhou: {error}')
             return self._make_result(
                 action_type, goal_handle, code, str(error), tag_id,
-                failure=error,
+                failure=error, observed_detections=observed_detections,
             )
         finally:
             self._cancel_event.clear()
@@ -401,6 +412,14 @@ class ManipulationServer(Node):
 
     def _execute_pick(self, goal_handle: Any) -> PickObject.Result:
         tag_id = int(goal_handle.request.tag_id)
+        observed_detections: list[Any] = []
+
+        def remember(detections: list[Any]) -> None:
+            by_id = {int(item.id): item for item in observed_detections}
+            by_id.update({int(item.id): item for item in detections})
+            observed_detections[:] = [
+                by_id[item_id] for item_id in sorted(by_id)
+            ]
 
         def operation() -> tuple[str, int]:
             self._inventory.validate_pick(tag_id)
@@ -423,9 +442,15 @@ class ManipulationServer(Node):
                     duration = float(
                         self.get_parameter('apriltag_analysis_duration_s').value
                     )
-                    x, y, tag_z, yaw = self._motion.obter_pose_da_april_tag(
-                        tag_id, duration
-                    )
+                    attempt_detections: list[Any] = []
+                    try:
+                        x, y, tag_z, yaw = self._motion.obter_pose_da_april_tag(
+                            tag_id,
+                            duration,
+                            deteccoes_observadas=attempt_detections,
+                        )
+                    finally:
+                        remember(attempt_detections)
                     detected_pose = criar_pose(x, y, tag_z, yaw)
                     if profile.reachability_filter_enabled:
                         reach_filter = self._pickup_reach_filter(profile)
@@ -528,7 +553,14 @@ class ManipulationServer(Node):
                 raise ObjectNotFound(str(last_error)) from last_error
             raise last_error
 
-        return self._run(PickObject, goal_handle, 'pick', tag_id, operation)
+        return self._run(
+            PickObject,
+            goal_handle,
+            'pick',
+            tag_id,
+            operation,
+            observed_detections=observed_detections,
+        )
 
     def _execute_store(self, goal_handle: Any) -> StoreObject.Result:
         slot_id = str(goal_handle.request.slot_id)
