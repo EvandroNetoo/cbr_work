@@ -9,7 +9,8 @@ diretamente: ele compõe Nav2, alinhamento VL53 e as actions semânticas do paco
 - `config/arena.yaml`: poses fixas, alturas, tipos, alinhamento, recuo e
   recuperação de coleta;
 - `config/plans/*.yaml`: passos sequenciais selecionados por `plan_id`;
-- `config/mission_manager.yaml`: nomes das actions e timeouts ROS.
+- `config/mission_manager.yaml`: nomes das actions, serviço/tópico de estado,
+  compartimentos disponíveis e timeouts ROS.
 
 As poses vazias de `arena.yaml` devem ser medidas antes da execução. O nó inicia
 normalmente, mas um goal retorna `CONFIGURATION_ERROR` sem movimentar o robô se
@@ -66,6 +67,18 @@ ros2 action send_goal /mission/execute interfaces/action/ExecuteMission \
 ```
 
 Somente uma missão é aceita por vez. Qualquer passo que falhar encerra a missão,
-e o cancelamento é propagado para o goal filho ativo. O mission manager mantém
-apenas o passo atual e a localização lógica; a garra e os slots continuam sob
-responsabilidade de `manipulation`.
+e o cancelamento é propagado para o goal filho ativo.
+
+## Estado do mundo
+
+O `mission_manager` é o dono do estado lógico da garra e dos compartimentos.
+Depois de validar o plano e a arena, cada nova missão reinicia esse estado como
+conhecido, com garra e slots vazios. O pacote `manipulation` solicita validações
+e confirma transições somente nos pontos em que o movimento físico foi
+efetivado; em falhas ambíguas, marca o estado como desconhecido.
+
+O snapshot atual é publicado em `/mission/state` com QoS `transient_local`. A
+API interna `/mission/manipulation_state` atende as transações usadas pelo
+servidor de manipulação. `WorldState`, no pacote de missão, é o ponto de extensão
+para incorporar futuramente estados de objetos, estações e outros elementos da
+arena.

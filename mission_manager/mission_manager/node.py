@@ -22,16 +22,20 @@ from interfaces.action import (
     StackObject,
     StoreObject,
 )
+from interfaces.msg import CargoSlotState, ManipulationState
+from interfaces.srv import ManageManipulationState
 from nav2_msgs.action import NavigateToPose
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
-from .errors import ConfigurationError, MissionCanceled, StepFailed
-from .loaders import PLAN_ID_PATTERN, load_arena, load_plan, validate_plan
+from .errors import ConfigurationError, MissionCanceled, StateConflict, StepFailed
+from .loaders import load_arena, load_plan, PLAN_ID_PATTERN, validate_plan
 from .models import Arena, PickupRecoveryConfig, Plan, Step
+from .world_state import WorldState
 
 
 class MissionManager(Node):
@@ -44,6 +48,10 @@ class MissionManager(Node):
             'arena_file': str(share / 'config' / 'arena.yaml'),
             'plans_directory': str(share / 'config' / 'plans'),
             'execute_action': '/mission/execute',
+            'state_service': '/mission/manipulation_state',
+            'state_topic': '/mission/state',
+            'state_frame_id': 'arm_base_link',
+            'cargo_slot_ids': ['left', 'right'],
             'navigate_action': '/navigate_to_pose',
             'wall_control_action': '/vl53/follow_wall',
             'prepare_action': '/manipulation/prepare',
@@ -66,11 +74,35 @@ class MissionManager(Node):
         self._lock = threading.RLock()
         self._busy = False
         self._status = 'idle'
+        self._active_world_operation = ''
         self._current_step_index = 0
         self._current_location = 'start'
         self._current_wall_distance_mm: float | None = None
         self._active_child = None
         self._arena: Arena | None = None
+
+        slot_ids = [
+            str(value) for value in self.get_parameter('cargo_slot_ids').value
+        ]
+        try:
+            self._world_state = WorldState(slot_ids)
+        except ValueError as error:
+            raise ConfigurationError(str(error)) from error
+
+        state_qos = QoSProfile(depth=1)
+        state_qos.reliability = ReliabilityPolicy.RELIABLE
+        state_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+        self._state_publisher = self.create_publisher(
+            ManipulationState,
+            str(self.get_parameter('state_topic').value),
+            state_qos,
+        )
+        self._state_service = self.create_service(
+            ManageManipulationState,
+            str(self.get_parameter('state_service').value),
+            self._manage_manipulation_state,
+            callback_group=self._callback_group,
+        )
 
         def client(action_type, parameter_name):
             return ActionClient(
@@ -102,9 +134,77 @@ class MissionManager(Node):
             execute_callback=self._execute_callback,
             callback_group=self._callback_group,
         )
+        self._publish_world_state()
         self.get_logger().info(
-            'Mission manager pronto; arena e plano serão validados ao executar.'
+            'Mission manager pronto; estado do mundo, arena e planos sob gestão.'
         )
+
+    def _state_message(self) -> ManipulationState:
+        known, gripper, slots = self._world_state.snapshot()
+        message = ManipulationState()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.header.frame_id = str(
+            self.get_parameter('state_frame_id').value
+        )
+        message.state_known = known
+        message.gripper_object_id = gripper
+        message.active_operation = self._active_world_operation
+        for slot_id in sorted(slots):
+            slot = CargoSlotState()
+            slot.slot_id = slot_id
+            slot.object_id = slots[slot_id]
+            message.cargo_slots.append(slot)
+        return message
+
+    def _publish_world_state(self) -> None:
+        self._state_publisher.publish(self._state_message())
+
+    def _manage_manipulation_state(
+        self,
+        request: ManageManipulationState.Request,
+        response: ManageManipulationState.Response,
+    ) -> ManageManipulationState.Response:
+        """Validate and commit physical transitions in the mission-owned state."""
+        operations = {
+            request.GET_STATE: lambda: None,
+            request.VALIDATE_PICK: lambda: self._world_state.validate_pick(
+                int(request.object_tag_id)
+            ),
+            request.COMMIT_PICK: lambda: self._world_state.commit_pick(
+                int(request.object_tag_id)
+            ),
+            request.VALIDATE_STORE: lambda: self._world_state.validate_store(
+                int(request.object_tag_id), str(request.slot_id)
+            ),
+            request.COMMIT_STORE: lambda: self._world_state.commit_store(
+                int(request.object_tag_id), str(request.slot_id)
+            ),
+            request.VALIDATE_RETRIEVE: lambda: self._world_state.validate_retrieve(
+                int(request.object_tag_id), str(request.slot_id)
+            ),
+            request.COMMIT_RETRIEVE: lambda: self._world_state.commit_retrieve(
+                int(request.object_tag_id), str(request.slot_id)
+            ),
+            request.VALIDATE_PLACE: lambda: self._world_state.validate_place(
+                int(request.object_tag_id)
+            ),
+            request.COMMIT_PLACE: self._world_state.commit_place,
+            request.MARK_UNKNOWN: self._world_state.mark_unknown,
+        }
+        operation = operations.get(int(request.command))
+        if operation is None:
+            response.success = False
+            response.message = f'Comando de estado desconhecido: {request.command}.'
+        else:
+            try:
+                operation()
+                response.success = True
+            except StateConflict as error:
+                response.success = False
+                response.message = str(error)
+        response.state = self._state_message()
+        self._state_publisher.publish(response.state)
+        return response
 
     def _goal_callback(self, goal_request: ExecuteMission.Goal) -> GoalResponse:
         plan_id = str(goal_request.plan_id)
@@ -560,10 +660,14 @@ class MissionManager(Node):
         try:
             arena, plan = self._load_goal_files(str(goal_handle.request.plan_id))
             self._arena = arena
+            self._world_state.reset()
+            self._publish_world_state()
             total = len(plan.steps)
             for index, step in enumerate(plan.steps):
                 failed_step = step.step_id
                 self._current_step_index = index
+                self._active_world_operation = step.action
+                self._publish_world_state()
                 self._feedback(
                     goal_handle, index, total, step,
                     f'Executando {step.action}',
@@ -618,6 +722,8 @@ class MissionManager(Node):
         finally:
             self._cancel_event.clear()
             self._arena = None
+            self._active_world_operation = ''
+            self._publish_world_state()
             with self._lock:
                 self._busy = False
                 self._active_child = None
@@ -626,6 +732,7 @@ class MissionManager(Node):
         self._cancel_event.set()
         self._cancel_active_child()
         self._server.destroy()
+        self.destroy_service(self._state_service)
         return super().destroy_node()
 
 

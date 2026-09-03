@@ -25,7 +25,9 @@ def test_package_stays_minimal_and_uses_existing_actions():
     assert 'PrepareManipulator.Goal.NAVIGATION' in source
     assert 'self._current_step_index' in source
     assert 'self._current_location' in source
-    assert 'world_state' not in source
+    assert 'WorldState' in source
+    assert 'self._world_state.reset()' in source
+    assert 'ManageManipulationState' in source
     assert not (PACKAGE / 'mission_manager' / 'planners').exists()
 
 

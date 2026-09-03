@@ -17,6 +17,9 @@ def test_robot_profile_is_headless_and_always_starts_vision():
     assert "FindPackageShare('base_hardware')" in source
     assert "FindPackageShare('lidar')" in source
     assert "FindPackageShare('imu')" in source
+    assert "FindPackageShare('manipulation')" in source
+    assert "'manipulation.launch.py'" in source
+    assert '[vl53_distance, manipulation] + move_group_entities' in source
     assert '--remap ~/odometry:=/wheel/odom' in source
     assert "FindPackageShare('robot_description')" in source
     assert "'base_frame', default_value='arm_base_link'" in source

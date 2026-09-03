@@ -1,0 +1,19 @@
+# Transactional access to the mission-owned gripper and cargo state.
+uint8 GET_STATE=0
+uint8 VALIDATE_PICK=1
+uint8 COMMIT_PICK=2
+uint8 VALIDATE_STORE=3
+uint8 COMMIT_STORE=4
+uint8 VALIDATE_RETRIEVE=5
+uint8 COMMIT_RETRIEVE=6
+uint8 VALIDATE_PLACE=7
+uint8 COMMIT_PLACE=8
+uint8 MARK_UNKNOWN=9
+
+uint8 command
+int32 object_tag_id
+string slot_id
+---
+bool success
+interfaces/ManipulationState state
+string message

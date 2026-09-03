@@ -38,8 +38,8 @@ source install/setup.bash
 
 ## Banana Pi
 
-O perfil embarcado inicia hardware, `ros2_control`, controllers e `move_group`,
-sem RViz, Gazebo ou teleop:
+O perfil embarcado inicia hardware, `ros2_control`, controllers, `move_group` e
+o servidor de manipulação, sem RViz, Gazebo ou teleop:
 
 ```bash
 ros2 launch bringup robot.launch.py \

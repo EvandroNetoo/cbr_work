@@ -12,7 +12,7 @@ from manipulation.errors import (
 )
 from manipulation.node import ManipulationServer
 from manipulation.profiles import PlacementProfile
-from manipulation.state import EMPTY, ManipulationInventory
+from mission_manager.world_state import EMPTY, WorldState
 from interfaces.action import PlaceInContainer, PlaceOnTable
 from interfaces.msg import AprilTagStampedDetection
 
@@ -81,7 +81,7 @@ def _detection(tag_id, x, y):
 
 def test_common_release_commits_inventory_only_after_opening_gripper():
     server = ManipulationServer.__new__(ManipulationServer)
-    server._inventory = ManipulationInventory(['left'])
+    server._inventory = WorldState(['left'])
     server._inventory.commit_pick(5)
     motions = []
     gripper = []
@@ -110,7 +110,7 @@ def test_common_release_commits_inventory_only_after_opening_gripper():
 
 def test_gripper_failure_marks_inventory_unknown():
     server = ManipulationServer.__new__(ManipulationServer)
-    server._inventory = ManipulationInventory(['left'])
+    server._inventory = WorldState(['left'])
     server._inventory.commit_pick(5)
     server._motion = SimpleNamespace(executar_objetivo=lambda *args: None)
     server._feedback = lambda *args: None
@@ -127,7 +127,7 @@ def test_gripper_failure_marks_inventory_unknown():
 
 def _operation_only_server(tag_id=5):
     server = ManipulationServer.__new__(ManipulationServer)
-    server._inventory = ManipulationInventory(['left'])
+    server._inventory = WorldState(['left'])
     server._inventory.commit_pick(tag_id)
     server._feedback = lambda *args: None
     server._profiles = SimpleNamespace(

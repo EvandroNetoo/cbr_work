@@ -72,6 +72,10 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('vl53_distance'), 'launch',
             'vl53_distance.launch.py'])))
+    manipulation = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('manipulation'), 'launch',
+            'manipulation.launch.py'])))
     readiness = Node(
         package='bringup', executable='wait_for_hardware_states',
         parameters=[{'timeout_sec': hardware_timeout}], output='screen')
@@ -122,8 +126,11 @@ def generate_launch_description():
 
     def start_move_group(event, context):
         del context
-        return ([vl53_distance] + move_group_entities) if event.returncode == 0 else shutdown(
-            'Falha ao ativar base_controller.')
+        return (
+            [vl53_distance, manipulation] + move_group_entities
+            if event.returncode == 0
+            else shutdown('Falha ao ativar base_controller.')
+        )
 
     return LaunchDescription([
         DeclareLaunchArgument('port', default_value=CONFIG_DEFAULT),

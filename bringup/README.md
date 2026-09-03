@@ -2,10 +2,10 @@
 
 `robot.launch.py` é o perfil embarcado do robô composto. Ele executa os
 drivers do braço e da base, um único `controller_manager`, um único
-`joint_state_broadcaster`, os controllers e o `move_group` na Banana Pi, sem
-iniciar RViz, Gazebo ou teleop. Ele também inicia sempre o driver da câmera, a
-retificação calibrada e o detector AprilTag. O notebook é usado apenas para
-visualização.
+`joint_state_broadcaster`, os controllers, o `move_group` e o servidor de
+manipulação semântica na Banana Pi, sem iniciar RViz, Gazebo ou teleop. Ele
+também inicia sempre o driver da câmera, a retificação calibrada e o detector
+AprilTag. O notebook é usado apenas para visualização.
 
 O perfil otimizado usa câmera a 15 FPS, detector AprilTag limitado a 10 Hz e
 `controller_manager` a 30 Hz. O braço amostra o setpoint mais recente a 60 Hz,
@@ -17,9 +17,10 @@ As poses cartesianas e as detecções usadas pela manipulação são expressas e
 `arm_base_link`. No perfil composto, `base_link` pertence ao chassi e difere da
 base do braço pelo yaw físico de 90 graus do suporte.
 
-A futura lógica autônoma deve ser incluída neste perfil depois que os
-controllers e o `/move_action` estiverem prontos; o notebook não é requisito
-para essa inicialização.
+O servidor `manipulation_server` é iniciado depois da ativação dos controllers,
+junto ao MoveIt. O gerenciador de missão continua podendo ser iniciado
+separadamente conforme a execução desejada; o notebook não é requisito para
+essa inicialização.
 
 No notebook, a workstation consome os tópicos publicados pelo robô sem iniciar
 drivers, controllers ou outro `robot_state_publisher`:

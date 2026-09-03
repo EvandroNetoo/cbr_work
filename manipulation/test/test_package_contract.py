@@ -56,6 +56,8 @@ def test_server_serializes_actions_and_propagates_cancellation():
     assert 'MultiThreadedExecutor(num_threads=4)' in source
     assert 'spin_until_future_complete' not in source
     assert 'PlaceObject' not in source
+    assert 'MissionStateClient' in source
+    assert 'create_publisher' not in source
     for callback in (
         '_execute_place_on_table', '_execute_place_in_container',
         '_execute_stack', '_execute_place_on_shelf', '_execute_place_at_pose',

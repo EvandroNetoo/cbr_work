@@ -3,6 +3,10 @@ mission_manager:
     arena_file: ""
     plans_directory: ""
     execute_action: /mission/execute
+    state_service: /mission/manipulation_state
+    state_topic: /mission/state
+    state_frame_id: arm_base_link
+    cargo_slot_ids: [left, right]
     navigate_action: /navigate_to_pose
     wall_control_action: /vl53/follow_wall
     prepare_action: /manipulation/prepare

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import copy
 import math
-import threading
 from pathlib import Path
+import threading
 from typing import Any, Callable
 
 from ament_index_python.packages import get_package_share_directory
@@ -20,18 +20,12 @@ from interfaces.action import (
     StackObject,
     StoreObject,
 )
-from interfaces.msg import (
-    CargoSlotState,
-    ManipulationFeedback,
-    ManipulationResult,
-    ManipulationState,
-)
+from interfaces.msg import ManipulationFeedback, ManipulationResult
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from so_arm_101_moveit_config.configuracao import (
     ACELERACAO_MAXIMA,
     ACELERACAO_MAXIMA_DA_GARRA,
@@ -67,8 +61,8 @@ from .errors import (
     ServerUnavailable,
     StateConflict,
 )
-from .profiles import PickupProfile, PlacementProfile, ProfileSet, load_profiles
-from .state import EMPTY, ManipulationInventory
+from .profiles import load_profiles, PickupProfile, PlacementProfile, ProfileSet
+from .state_client import EMPTY, MissionStateClient
 
 
 _ERROR_CODES = {
@@ -95,7 +89,8 @@ class ManipulationServer(Node):
             'move_group_action': '/move_action',
             'apriltag_action': '/apriltags/analyze',
             'joint_states_topic': '/joint_states',
-            'state_topic': 'manipulation/state',
+            'state_service': '/mission/manipulation_state',
+            'state_service_timeout_s': 2.0,
             'pick_action': 'manipulation/pick',
             'store_action': 'manipulation/store',
             'retrieve_action': 'manipulation/retrieve',
@@ -121,9 +116,14 @@ class ManipulationServer(Node):
         )
         self._profiles = load_profiles(profiles_path, cargo_path)
         self._validate_named_states(self._profiles)
-        self._inventory = ManipulationInventory(list(self._profiles.cargo_slots))
 
         self._callback_group = ReentrantCallbackGroup()
+        self._inventory = MissionStateClient(
+            self,
+            str(self.get_parameter('state_service').value),
+            float(self.get_parameter('state_service_timeout_s').value),
+            self._callback_group,
+        )
         self._busy = False
         self._active_operation = ''
         self._lock = threading.RLock()
@@ -135,13 +135,6 @@ class ManipulationServer(Node):
             move_group_action=str(self.get_parameter('move_group_action').value),
             apriltag_action=str(self.get_parameter('apriltag_action').value),
             joint_states_topic=str(self.get_parameter('joint_states_topic').value),
-        )
-
-        qos = QoSProfile(depth=1)
-        qos.reliability = ReliabilityPolicy.RELIABLE
-        qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
-        self._state_publisher = self.create_publisher(
-            ManipulationState, str(self.get_parameter('state_topic').value), qos
         )
 
         common = {
@@ -191,9 +184,8 @@ class ManipulationServer(Node):
                 execute_callback=self._execute_prepare, **common,
             ),
         ]
-        self._publish_state()
         self.get_logger().info(
-            'Manipulação pronta: coleta, carga e depósitos semânticos.'
+            'Manipulação pronta; estado lógico fornecido pelo mission manager.'
         )
 
     @staticmethod
@@ -234,7 +226,6 @@ class ManipulationServer(Node):
             self._busy = True
             self._active_operation = 'accepted'
             self._cancel_event.clear()
-        self._publish_state()
         return GoalResponse.ACCEPT
 
     def _cancel_callback(self, _goal_handle: Any) -> CancelResponse:
@@ -245,22 +236,6 @@ class ManipulationServer(Node):
     def _set_active(self, operation: str) -> None:
         with self._lock:
             self._active_operation = operation
-        self._publish_state()
-
-    def _publish_state(self) -> None:
-        known, gripper, slots = self._inventory.snapshot()
-        message = ManipulationState()
-        message.header.stamp = self.get_clock().now().to_msg()
-        message.header.frame_id = REFERENCIAL_BASE
-        message.state_known = known
-        message.gripper_object_id = gripper
-        message.active_operation = self._active_operation
-        for slot_id in sorted(slots):
-            slot = CargoSlotState()
-            slot.slot_id = slot_id
-            slot.object_id = slots[slot_id]
-            message.cargo_slots.append(slot)
-        self._state_publisher.publish(message)
 
     def _feedback(
         self,
@@ -316,10 +291,13 @@ class ManipulationServer(Node):
             )
 
     @staticmethod
-    def _location_for_inventory(tag_id: int, inventory: ManipulationInventory) -> int:
+    def _location_for_snapshot(
+        tag_id: int,
+        snapshot: tuple[bool, int, dict[str, int]],
+    ) -> int:
         if tag_id == EMPTY:
             return ManipulationResult.LOCATION_UNKNOWN
-        _, gripper, slots = inventory.snapshot()
+        _, gripper, slots = snapshot
         if gripper == tag_id:
             return ManipulationResult.LOCATION_GRIPPER
         if tag_id in slots.values():
@@ -340,12 +318,21 @@ class ManipulationServer(Node):
         result = action_type.Result()
         result.outcome.object_tag_id = int(tag_id)
         result.outcome.code = int(code)
-        known, _, _ = self._inventory.snapshot()
+        try:
+            snapshot = self._inventory.snapshot()
+        except ServerUnavailable:
+            cached_snapshot = getattr(self._inventory, 'cached_snapshot', None)
+            snapshot = (
+                cached_snapshot()
+                if cached_snapshot is not None
+                else (False, EMPTY, {})
+            )
+        known, _, _ = snapshot
         result.outcome.state_known = known
         result.outcome.final_object_location = int(
             final_location
             if final_location is not None
-            else self._location_for_inventory(tag_id, self._inventory)
+            else self._location_for_snapshot(tag_id, snapshot)
         )
         result.outcome.message = message
         if placed_pose is not None and hasattr(result, 'placed_pose'):
@@ -411,7 +398,6 @@ class ManipulationServer(Node):
             with self._lock:
                 self._busy = False
                 self._active_operation = ''
-            self._publish_state()
 
     def _execute_pick(self, goal_handle: Any) -> PickObject.Result:
         tag_id = int(goal_handle.request.tag_id)
@@ -483,10 +469,8 @@ class ManipulationServer(Node):
                         self._gripper('grip', 'Fechando a garra')
                     except Exception:
                         self._inventory.mark_unknown()
-                        self._publish_state()
                         raise
                     self._inventory.commit_pick(tag_id)
-                    self._publish_state()
                     grasp_committed = True
                     self._feedback(
                         goal_handle, PickObject, ManipulationFeedback.RETREATING,
@@ -523,7 +507,6 @@ class ManipulationServer(Node):
                         raise
                     if grasp_committed:
                         self._inventory.mark_unknown()
-                        self._publish_state()
                         raise
                     if attempt < profile.attempts:
                         self.get_logger().warning(
@@ -535,7 +518,6 @@ class ManipulationServer(Node):
                         raise
                     if grasp_committed:
                         self._inventory.mark_unknown()
-                        self._publish_state()
                         raise
                     if attempt < profile.attempts:
                         self.get_logger().warning(
@@ -571,10 +553,8 @@ class ManipulationServer(Node):
                 self._gripper('open', 'Abrindo a garra')
             except Exception:
                 self._inventory.mark_unknown()
-                self._publish_state()
                 raise
             self._inventory.commit_store(object_tag_id, slot_id)
-            self._publish_state()
             self._safe()
             return (
                 f"Objeto {object_tag_id} armazenado em '{slot_id}'.",
@@ -617,10 +597,8 @@ class ManipulationServer(Node):
                 self._gripper('grip', 'Fechando a garra')
             except Exception:
                 self._inventory.mark_unknown()
-                self._publish_state()
                 raise
             self._inventory.commit_retrieve(object_tag_id, slot_id)
-            self._publish_state()
             try:
                 self._feedback(
                     goal_handle, RetrieveObject, ManipulationFeedback.RETREATING,
@@ -630,7 +608,6 @@ class ManipulationServer(Node):
                 self._safe()
             except Exception:
                 self._inventory.mark_unknown()
-                self._publish_state()
                 raise
             return (
                 f"Objeto {object_tag_id} retirado de '{slot_id}'.",
@@ -846,7 +823,7 @@ class ManipulationServer(Node):
             raise ConfigurationError(f"Perfil de depósito ausente: '{name}'.")
         if not profile.enabled:
             raise FeatureUnavailable(
-                f"{capability} ainda não está habilitado/calibrado."
+                f'{capability} ainda não está habilitado/calibrado.'
             )
         return profile
 
@@ -885,10 +862,8 @@ class ManipulationServer(Node):
             self._gripper('open', 'Abrindo a garra no destino')
         except Exception:
             self._inventory.mark_unknown()
-            self._publish_state()
             raise
         self._inventory.commit_place()
-        self._publish_state()
         self._feedback(
             goal_handle, action_type, ManipulationFeedback.RETREATING,
             0.86, 'Recuando do destino',
@@ -1095,10 +1070,8 @@ class ManipulationServer(Node):
                 self._gripper('open', 'Abrindo a garra na prateleira')
             except Exception:
                 self._inventory.mark_unknown()
-                self._publish_state()
                 raise
             self._inventory.commit_place()
-            self._publish_state()
             self._safe()
             return (
                 f'Objeto {object_tag_id} depositado na prateleira.',

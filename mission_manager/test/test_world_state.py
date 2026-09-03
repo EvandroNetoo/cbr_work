@@ -1,11 +1,10 @@
+from mission_manager.errors import StateConflict
+from mission_manager.world_state import EMPTY, WorldState
 import pytest
-
-from manipulation.errors import StateConflict
-from manipulation.state import EMPTY, ManipulationInventory
 
 
 def test_complete_pick_store_retrieve_place_transition():
-    state = ManipulationInventory(['left'])
+    state = WorldState(['left'])
 
     state.validate_pick(5)
     state.commit_pick(5)
@@ -20,8 +19,23 @@ def test_complete_pick_store_retrieve_place_transition():
     assert state.snapshot() == (True, EMPTY, {'left': EMPTY})
 
 
+def test_new_mission_reset_clears_gripper_slots_and_uncertainty():
+    state = WorldState(['left', 'right'])
+    state.commit_pick(7)
+    state.commit_store(7, 'left')
+    state.mark_unknown()
+
+    state.reset()
+
+    assert state.snapshot() == (
+        True,
+        EMPTY,
+        {'left': EMPTY, 'right': EMPTY},
+    )
+
+
 def test_left_and_right_slots_keep_independent_objects():
-    state = ManipulationInventory(['left', 'right'])
+    state = WorldState(['left', 'right'])
     state.commit_pick(1)
     state.validate_store(1, 'left')
     state.commit_store(1, 'left')
@@ -45,7 +59,7 @@ def test_left_and_right_slots_keep_independent_objects():
 
 
 def test_cannot_overwrite_an_occupied_slot():
-    state = ManipulationInventory(['left'])
+    state = WorldState(['left'])
     state.commit_pick(1)
     state.commit_store(1, 'left')
     state.commit_pick(5)
@@ -55,7 +69,7 @@ def test_cannot_overwrite_an_occupied_slot():
 
 
 def test_actions_can_infer_objects_from_gripper_and_slot():
-    state = ManipulationInventory(['left'])
+    state = WorldState(['left'])
     state.commit_pick(7)
     assert state.require_gripper_object() == 7
     state.commit_store(7, 'left')
@@ -63,7 +77,7 @@ def test_actions_can_infer_objects_from_gripper_and_slot():
 
 
 def test_inference_rejects_empty_gripper_and_slot():
-    state = ManipulationInventory(['left'])
+    state = WorldState(['left'])
     with pytest.raises(StateConflict, match='garra está vazia'):
         state.require_gripper_object()
     with pytest.raises(StateConflict, match='está vazio'):
@@ -71,7 +85,7 @@ def test_inference_rejects_empty_gripper_and_slot():
 
 
 def test_cannot_retrieve_the_wrong_object():
-    state = ManipulationInventory(['left'])
+    state = WorldState(['left'])
     state.commit_pick(1)
     state.commit_store(1, 'left')
 
@@ -80,7 +94,7 @@ def test_cannot_retrieve_the_wrong_object():
 
 
 def test_unknown_state_is_explicit_and_persistent():
-    state = ManipulationInventory(['left'])
+    state = WorldState(['left'])
     state.mark_unknown()
     assert state.snapshot()[0] is False
     with pytest.raises(StateConflict, match='incerto'):
@@ -89,7 +103,7 @@ def test_unknown_state_is_explicit_and_persistent():
 
 @pytest.mark.parametrize('operation', ['pick', 'store', 'retrieve', 'place'])
 def test_negative_object_id_is_rejected_for_every_operation(operation):
-    state = ManipulationInventory(['left'])
+    state = WorldState(['left'])
     arguments = {
         'pick': (-1,),
         'store': (-1, 'left'),

@@ -15,3 +15,7 @@ class StepFailed(MissionError):
 
 class MissionCanceled(MissionError):
     """The parent ExecuteMission goal was canceled."""
+
+
+class StateConflict(MissionError):
+    """A requested transition conflicts with the mission-owned world state."""

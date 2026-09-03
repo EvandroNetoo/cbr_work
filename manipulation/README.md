@@ -29,7 +29,8 @@ Situação atual dos depósitos:
 - mesa de precisão: deliberadamente fora do escopo atual.
 
 Somente `pick` recebe o ID do objeto carregado. `store`, `retrieve` e os
-depósitos inferem o objeto pelo inventário publicado em `manipulation/state`.
+depósitos inferem o objeto pelo estado mantido pelo `mission_manager`, acessado
+transacionalmente pelo serviço `/mission/manipulation_state`.
 No empilhamento, `support_tag_id` identifica apenas o cubo de apoio.
 As coordenadas X, Y e Z do apoio são obtidas da pose 3D dessa AprilTag; a
 altura da WS não faz parte da interface de empilhamento.
@@ -64,13 +65,15 @@ iniciar o depósito.
 
 O servidor aceita somente uma operação por vez e propaga cancelamento para o
 goal ativo do MoveIt ou do detector. Após cancelar, o braço permanece parado;
-nenhum movimento automático de recuperação é iniciado. O estado lógico da garra e dos
-compartimentos é publicado em `manipulation/state` com durabilidade
-`transient_local`.
+nenhum movimento automático de recuperação é iniciado. O servidor não possui
+mais inventário próprio: validações e commits físicos são enviados ao estado da
+missão. O tópico `/mission/state`, publicado pelo `mission_manager`, usa
+durabilidade `transient_local`.
 
 ## Execução
 
-Inicie antes o MoveIt, a câmera e o detector de AprilTags. Depois:
+Inicie antes o `mission_manager`, o MoveIt, a câmera e o detector de AprilTags.
+Depois:
 
 ```bash
 ros2 launch manipulation manipulation.launch.py
