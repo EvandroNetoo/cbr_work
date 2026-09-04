@@ -277,7 +277,7 @@
       <plugin>base_hardware_interface/MariolaSystem</plugin>
       <param name="state_topic">/base_hardware/raw_joint_states</param>
       <param name="command_topic">/base_hardware/command_velocities</param>
-      <param name="max_wheel_velocity_rad_s">7.0</param>
+      <param name="max_wheel_velocity_rad_s">11.0</param>
       <!-- At 30 Hz, 0.50 s tolerates a short scheduling stall on the SBC.
            Command freshness is guarded separately by the 0.30 s watchdog in
            base_hardware, so this does not prolong a stale wheel command. -->

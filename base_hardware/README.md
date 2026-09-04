@@ -7,12 +7,12 @@ o `/joint_states` público pertence ao `joint_state_broadcaster`.
 
 Porta da expansão, IDs, inversões, escala de velocidade e ticks por volta ficam
 todos em `config/hardware.yaml`. O brick permanece na SERIAL0, como no exemplo
-validado. Com os valores atuais, `100 = 7 rad/s`; com raio de 0,034 m, isso
-corresponde a 0,238 m/s na borda da roda.
+validado. Com os valores atuais, `100 = 11 rad/s`; com raio de 0,034 m, isso
+corresponde a aproximadamente 0,37 m/s na borda da roda.
 
-O bridge limita proporcionalmente as quatro rodas a `7 rad/s`, preservando a
+O bridge limita proporcionalmente as quatro rodas a `11 rad/s`, preservando a
 direção do comando mecanum. Zero permanece uma parada inequívoca; qualquer
-alvo não nulo recebe pelo menos magnitude `2` na escala física para compensar
+alvo não nulo recebe pelo menos magnitude `4` na escala física para compensar
 a zona morta dos motores.
 
 As leituras de encoder permanecem a 30 Hz. Alvos que resultam no mesmo comando

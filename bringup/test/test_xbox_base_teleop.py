@@ -27,15 +27,15 @@ def test_invalid_or_nonfinite_input_is_safe():
 
 
 def test_diagonal_velocity_is_scaled_without_changing_direction():
-    x, y = limit_planar_velocity(0.2, 0.2, 0.238)
+    x, y = limit_planar_velocity(0.3, 0.3, 0.370)
     assert x == pytest.approx(y)
-    assert abs(x) + abs(y) == pytest.approx(0.238)
+    assert abs(x) + abs(y) == pytest.approx(0.370)
 
 
 def test_turbo_combination_keeps_translation_and_rotation():
-    x, y, yaw = limit_mecanum_command(0.2, 0.2, 1.2, 0.238, 0.2225)
+    x, y, yaw = limit_mecanum_command(0.3, 0.3, 1.8, 0.370, 0.2225)
     assert x > 0.0 and y > 0.0 and yaw > 0.0
-    assert abs(x) + abs(y) + 0.2225 * abs(yaw) == pytest.approx(0.238)
+    assert abs(x) + abs(y) + 0.2225 * abs(yaw) == pytest.approx(0.370)
 
 
 def test_default_mapping_requires_deadman_and_has_conservative_speeds():
@@ -48,7 +48,7 @@ def test_default_mapping_requires_deadman_and_has_conservative_speeds():
     assert params['cmd_vel_topic'] == '/cmd_vel'
     assert params['joy_timeout_sec'] <= 0.30
     assert params['max_linear_x'] < params['turbo_linear_x']
-    assert params['max_linear_speed'] == pytest.approx(0.238)
+    assert params['max_linear_speed'] == pytest.approx(0.370)
 
 
 def test_workstation_starts_joy_only_when_explicitly_enabled():

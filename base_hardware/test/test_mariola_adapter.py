@@ -24,10 +24,10 @@ class FakeControle:
         self.nomes = WHEEL_NAMES
         self.commands = []
         self.ticks = {
-            'front_left_wheel_joint': 3288,
-            'front_right_wheel_joint': 3288,
-            'rear_left_wheel_joint': 1644,
-            'rear_right_wheel_joint': 1644,
+            'front_left_wheel_joint': 1972,
+            'front_right_wheel_joint': 1972,
+            'rear_left_wheel_joint': 986,
+            'rear_right_wheel_joint': 986,
         }
         self.reset_calls = 0
         self.brake_calls = 0
@@ -57,7 +57,7 @@ class FakeBrick:
     def __init__(self):
         self.commands = []
         self.mode = None
-        self.angles = {1: 1644, 2: 1644}
+        self.angles = {1: 986, 2: 986}
 
     def velocidade_motores(self, left, right):
         self.commands.append((left, right))
@@ -84,7 +84,7 @@ class FakeExpansion:
 
     def __init__(self):
         self.commands = []
-        self.angle = 3288
+        self.angle = 1972
         self.brake = None
 
     def velocidade_motor(self, value):
@@ -103,24 +103,24 @@ class FakeExpansion:
 
 
 def test_one_revolution_uses_backend_specific_resolution():
-    assert ticks_to_radians(1644, BRICK_TICKS_PER_REVOLUTION) == pytest.approx(2 * math.pi)
-    assert ticks_to_radians(3288, EXPANSION_TICKS_PER_REVOLUTION) == pytest.approx(2 * math.pi)
+    assert ticks_to_radians(986, BRICK_TICKS_PER_REVOLUTION) == pytest.approx(2 * math.pi)
+    assert ticks_to_radians(1972, EXPANSION_TICKS_PER_REVOLUTION) == pytest.approx(2 * math.pi)
 
 
 def test_linear_velocity_conversion_and_bounds():
-    assert MIN_EFFECTIVE_WHEEL_COMMAND == 2
+    assert MIN_EFFECTIVE_WHEEL_COMMAND == 4
     assert radians_per_second_to_command(0.0) == 0
-    assert radians_per_second_to_command(0.001) == 2
-    assert radians_per_second_to_command(-0.001) == -2
-    assert radians_per_second_to_command(7.0) == 100
-    assert radians_per_second_to_command(math.nextafter(7.0, math.inf)) == 100
-    assert radians_per_second_to_command(3.5) == 50
-    assert radians_per_second_to_command(-7.0) == -100
+    assert radians_per_second_to_command(0.001) == 4
+    assert radians_per_second_to_command(-0.001) == -4
+    assert radians_per_second_to_command(11.0) == 100
+    assert radians_per_second_to_command(math.nextafter(11.0, math.inf)) == 100
+    assert radians_per_second_to_command(5.5) == 50
+    assert radians_per_second_to_command(-11.0) == -100
     with pytest.raises(ValueError):
         radians_per_second_to_command(
-            math.nextafter(math.nextafter(7.0, math.inf), math.inf))
+            math.nextafter(math.nextafter(11.0, math.inf), math.inf))
     with pytest.raises(ValueError):
-        radians_per_second_to_command(7.01)
+        radians_per_second_to_command(11.01)
     with pytest.raises(ValueError):
         radians_per_second_to_command(float('nan'))
     with pytest.raises(ValueError):
@@ -153,7 +153,7 @@ def test_adapter_uses_controle_motores_for_commands_and_encoders():
     base = MariolaBase(controle=controle)
     assert controle.reset_calls == 1
 
-    base.write({name: 3.5 for name in WHEEL_NAMES})
+    base.write({name: 5.5 for name in WHEEL_NAMES})
     assert controle.commands[-1] == {name: 50 for name in WHEEL_NAMES}
 
     states = base.read(now=1.0)

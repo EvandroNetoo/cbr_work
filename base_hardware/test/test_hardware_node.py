@@ -65,7 +65,10 @@ def test_performance_defaults_are_explicit():
     assert parameters['io_rate_hz'] == 30.0
     assert parameters['deduplicate_commands'] is True
     assert parameters['command_heartbeat_hz'] == 5.0
-    assert parameters['hardware.min_effective_wheel_command'] == 2
+    assert parameters['hardware.max_wheel_velocity_rad_s'] == 11.0
+    assert parameters['hardware.min_effective_wheel_command'] == 4
+    assert parameters['hardware.brick_ticks_per_revolution'] == 986
+    assert parameters['hardware.expansion_ticks_per_revolution'] == 1972
 
     launch_source = (PACKAGE_ROOT / 'launch' / 'driver.launch.py').read_text()
     assert "'deduplicate_commands', default_value='true'" in launch_source
@@ -139,7 +142,7 @@ def test_io_failure_invalidates_write_cache(node_and_backend):
 @pytest.mark.parametrize('message', [
     command_message(WHEEL_NAMES[:-1]),
     command_message(WHEEL_NAMES, [0.0, 0.0, float('nan'), 0.0]),
-    command_message(WHEEL_NAMES, [0.0, 0.0, 7.01, 0.0]),
+    command_message(WHEEL_NAMES, [0.0, 0.0, 11.01, 0.0]),
 ])
 def test_invalid_command_is_rejected_and_stops(message, node_and_backend):
     node, backend = node_and_backend

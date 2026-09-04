@@ -29,7 +29,7 @@ def _wall_controller():
         _pid(0.8, limit=0.1),
         _pid(0.8, limit=0.1),
         _pid(4.0, limit=0.5),
-        wheel_linear_speed=0.238,
+        wheel_linear_speed=0.370,
         kinematic_lever=0.2225,
     )
 
@@ -69,10 +69,10 @@ def test_follow_wall_stops_only_when_wall_and_travel_are_inside_tolerance():
 
 
 def test_mecanum_limit_scales_three_axes_together():
-    command = limit_mecanum_command(0.2, -0.2, 1.0, 0.238, 0.2225)
+    command = limit_mecanum_command(0.3, -0.3, 1.5, 0.370, 0.2225)
     assert command[0] > 0.0
     assert command[1] < 0.0
     assert command[2] > 0.0
     assert (
         abs(command[0]) + abs(command[1]) + 0.2225 * abs(command[2])
-    ) == pytest.approx(0.238)
+    ) == pytest.approx(0.370)

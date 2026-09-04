@@ -101,24 +101,24 @@ TEST_F(MariolaSystemTest, lifecycle_interfaces_and_stale_state)
   EXPECT_EQ(
     system.read(rclcpp::Time(0), rclcpp::Duration(0, 0)),
     hardware_interface::return_type::OK);
-  MariolaSystemTestPeer::set_commands(system, {14.0, 7.0, -14.0, -3.5});
+  MariolaSystemTestPeer::set_commands(system, {22.0, 11.0, -22.0, -5.5});
   EXPECT_EQ(
     system.write(rclcpp::Time(0), rclcpp::Duration(0, 0)),
     hardware_interface::return_type::OK);
   executor->spin_some();
   ASSERT_EQ(commands.size(), 1u);
   EXPECT_EQ(commands.front().name, state.name);
-  EXPECT_EQ(commands.front().velocity, std::vector<double>({7.0, 3.5, -7.0, -1.75}));
+  EXPECT_EQ(commands.front().velocity, std::vector<double>({11.0, 5.5, -11.0, -2.75}));
 
-  // 8.41 * (7.0 / 8.41) arredonda para 7.000000000000001 sem o clamp final.
-  MariolaSystemTestPeer::set_commands(system, {8.41, 4.205, -8.41, -4.205});
+  // 16.16 * (11.0 / 16.16) arredonda acima de 11.0 sem o clamp final.
+  MariolaSystemTestPeer::set_commands(system, {16.16, 8.08, -16.16, -8.08});
   EXPECT_EQ(
     system.write(rclcpp::Time(0), rclcpp::Duration(0, 0)),
     hardware_interface::return_type::OK);
   executor->spin_some();
   ASSERT_EQ(commands.size(), 2u);
   for (const double velocity : commands.back().velocity) {
-    EXPECT_LE(std::abs(velocity), 7.0);
+    EXPECT_LE(std::abs(velocity), 11.0);
   }
 
   std::this_thread::sleep_for(110ms);

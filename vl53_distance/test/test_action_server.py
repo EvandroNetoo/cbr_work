@@ -118,7 +118,7 @@ def _bare_server(pair):
     server._odom_freshness_timeout = 0.2
     server._settle_time = 0.0
     server._failure_limit = 3
-    server._wheel_linear_speed = 0.238
+    server._wheel_linear_speed = 0.370
     server._kinematic_lever = 0.2225
     server._follow_wall_controller = FakeFollowWallController()
     server._owns_sensor_pair = False

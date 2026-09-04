@@ -58,7 +58,7 @@ hardware_interface::CallbackReturn MariolaSystem::on_init(
   command_topic_ = parameter("command_topic", "/base_hardware/command_velocities");
   try {
     state_timeout_ = std::chrono::duration<double>(std::stod(parameter("state_timeout_sec", "0.25")));
-    max_wheel_velocity_rad_s_ = std::stod(parameter("max_wheel_velocity_rad_s", "7.0"));
+    max_wheel_velocity_rad_s_ = std::stod(parameter("max_wheel_velocity_rad_s", "11.0"));
   } catch (const std::exception &) {
     return hardware_interface::CallbackReturn::ERROR;
   }

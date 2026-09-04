@@ -36,7 +36,7 @@ def test_physical_defaults_match_the_validated_example():
     assert parameters['odom_topic'] == '/odom'
     assert parameters['odom_start_timeout_sec'] > 0.0
     assert parameters['odom_freshness_timeout_sec'] > 0.0
-    assert parameters['wheel_linear_speed_limit'] == 0.238
+    assert parameters['wheel_linear_speed_limit'] == 0.370
     assert parameters['kinematic_lever'] == 0.2225
     assert parameters['linear_pid.ki'] == 0.0
     assert parameters['linear_pid.kd'] == 0.0

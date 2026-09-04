@@ -24,10 +24,10 @@ WHEEL_NAMES = (
     'rear_left_wheel_joint',
     'rear_right_wheel_joint',
 )
-MAX_WHEEL_VELOCITY = 7.0
-MIN_EFFECTIVE_WHEEL_COMMAND = 2
-BRICK_TICKS_PER_REVOLUTION = 1644
-EXPANSION_TICKS_PER_REVOLUTION = 3288
+MAX_WHEEL_VELOCITY = 11.0
+MIN_EFFECTIVE_WHEEL_COMMAND = 4
+BRICK_TICKS_PER_REVOLUTION = 986
+EXPANSION_TICKS_PER_REVOLUTION = 1972
 
 
 class MotorCommunicationError(RuntimeError):
@@ -41,10 +41,10 @@ class MariolaConfig:
     expansion_timeout_sec: float = 0.005
     front_left_motor_id: int = 0
     front_right_motor_id: int = 7
-    front_left_inverted: bool = True
-    front_right_inverted: bool = False
-    rear_left_inverted: bool = False
-    rear_right_inverted: bool = True
+    front_left_inverted: bool = False
+    front_right_inverted: bool = True
+    rear_left_inverted: bool = True
+    rear_right_inverted: bool = False
     brick_ticks_per_revolution: int = BRICK_TICKS_PER_REVOLUTION
     expansion_ticks_per_revolution: int = EXPANSION_TICKS_PER_REVOLUTION
     max_wheel_velocity_rad_s: float = MAX_WHEEL_VELOCITY
@@ -87,8 +87,8 @@ def radians_per_second_to_command(
         raise ValueError('O comando mínimo efetivo deve estar entre 0 e 100.')
     magnitude = abs(value)
     # A normalização proporcional feita pela interface ros2_control pode
-    # terminar um ULP acima do limite (por exemplo, 7.000000000000001 para
-    # 7.0). Isso ainda representa o próprio limite, não um excesso físico.
+    # terminar um ULP acima do limite (por exemplo, 11.000000000000002 para
+    # 11.0). Isso ainda representa o próprio limite, não um excesso físico.
     if magnitude > math.nextafter(max_velocity, math.inf):
         raise ValueError(
             f'Velocidade {value} rad/s excede o limite de {max_velocity} rad/s.')

@@ -23,7 +23,7 @@ bt_navigator:
 controller_server:
   ros__parameters:
     enable_stamped_cmd_vel: true
-    # 10 Hz e suficiente para a velocidade maxima de 0,238 m/s da base e
+    # 10 Hz e suficiente para a velocidade maxima de 0,37 m/s da base e
     # reduz pela metade a frequencia de otimizacoes do MPPI.
     controller_frequency: 10.0
     costmap_update_timeout: 0.50
@@ -54,19 +54,19 @@ controller_server:
       batch_size: 800
       iteration_count: 1
       motion_model: "Omni"
-      vx_max: 0.238
-      vx_min: -0.238
-      vy_max: 0.238
-      vy_min: -0.238
-      wz_max: 1.00
-      ax_max: 2.00
-      ax_min: -2.00
-      ay_max: 2.00
-      ay_min: -2.00
-      az_max: 4.00
-      vx_std: 0.12
-      vy_std: 0.12
-      wz_std: 0.50
+      vx_max: 0.370
+      vx_min: -0.370
+      vy_max: 0.370
+      vy_min: -0.370
+      wz_max: 1.555
+      ax_max: 3.109
+      ax_min: -3.109
+      ay_max: 3.109
+      ay_min: -3.109
+      az_max: 6.218
+      vx_std: 0.187
+      vy_std: 0.187
+      wz_std: 0.777
       prune_distance: 0.80
       transform_tolerance: 0.2
       temperature: 0.3
@@ -237,10 +237,10 @@ velocity_smoother:
     stamp_smoothed_velocity_with_smoothing_time: false
     scale_velocities: true
     feedback: OPEN_LOOP
-    max_velocity: [0.238, 0.238, 1.00]
-    min_velocity: [-0.238, -0.238, -1.00]
-    max_accel: [2.00, 2.00, 4.00]
-    max_decel: [-2.00, -2.00, -4.00]
+    max_velocity: [0.370, 0.370, 1.555]
+    min_velocity: [-0.370, -0.370, -1.555]
+    max_accel: [3.109, 3.109, 6.218]
+    max_decel: [-3.109, -3.109, -6.218]
     odom_topic: /odom
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

@@ -87,14 +87,14 @@ xbox_base_teleop:
     # B cancela goals Nav2; RB continua sendo o deadman do movimento manual.
     cancel_button: 1
     deadzone: 0.10
-    max_linear_x: 0.1
-    max_linear_y: 0.1
-    max_angular_z: 0.6
-    max_linear_speed: 0.238
-    wheel_linear_speed_limit: 0.238
+    max_linear_x: 0.155
+    max_linear_y: 0.155
+    max_angular_z: 0.933
+    max_linear_speed: 0.370
+    wheel_linear_speed_limit: 0.370
     kinematic_lever: 0.2225
-    turbo_linear_x: 0.23
-    turbo_linear_y: 0.23
-    turbo_angular_z: 1.0
+    turbo_linear_x: 0.358
+    turbo_linear_y: 0.358
+    turbo_angular_z: 1.555
     publish_rate_hz: 20.0
     joy_timeout_sec: 0.30
