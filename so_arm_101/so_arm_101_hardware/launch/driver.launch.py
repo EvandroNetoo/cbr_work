@@ -67,14 +67,6 @@ def _optional_parameter_overrides(context) -> dict:
         if value != CONFIG_DEFAULT:
             overrides[argument] = value
 
-    disable_torque = LaunchConfiguration('disable_torque').perform(context)
-    if disable_torque != CONFIG_DEFAULT:
-        normalized = disable_torque.strip().lower()
-        if normalized not in ('true', 'false'):
-            raise ValueError(
-                "disable_torque deve ser 'true' ou 'false'.")
-        overrides['disable_torque'] = normalized == 'true'
-
     return overrides
 
 
@@ -117,13 +109,6 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('port', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument('robot_id', default_value=CONFIG_DEFAULT),
-        DeclareLaunchArgument(
-            'disable_torque',
-            default_value=CONFIG_DEFAULT,
-            description=(
-                'Set true to disable all servo torque, ignore movement '
-                'commands, and allow manual arm positioning.'),
-        ),
         DeclareLaunchArgument(
             'python_executable',
             default_value=_default_python_executable(),

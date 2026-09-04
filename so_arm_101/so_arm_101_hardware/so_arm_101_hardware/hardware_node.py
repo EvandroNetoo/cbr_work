@@ -13,11 +13,10 @@ from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 
 from .lerobot_adapter import (
     LEROBOT_TO_ROS,
-    connect_follower,
     make_follower,
     observation_to_ros,
     ros_to_action,
@@ -47,7 +46,6 @@ class SO101HardwareNode(Node):
         self.declare_parameter('port', '')
         self.declare_parameter('robot_id', 'so101_follower')
         self.declare_parameter('calibration_file', '')
-        self.declare_parameter('disable_torque', False)
         self.declare_parameter('use_degrees', False)
         # O controller_manager interpola a 30 Hz. Amostrar o último alvo a uma
         # taxa maior evita alias de fase entre dois timers de 30 Hz: um alvo
@@ -94,8 +92,7 @@ class SO101HardwareNode(Node):
         self._calibration_file = resolve_calibration_file(
             self.get_parameter('calibration_file').value)
         self._use_degrees = bool(self.get_parameter('use_degrees').value)
-        self._disable_torque = bool(
-            self.get_parameter('disable_torque').value)
+        self._torque_enabled = True
         self._latest_command = None
         self._last_received_command = None
         self._last_sent_command = None
@@ -130,29 +127,22 @@ class SO101HardwareNode(Node):
         )
         self.state_pub = self.create_publisher(
             JointState, self.get_parameter('state_topic').value, latest_qos)
-        self.command_sub = None
-        if not self._disable_torque:
-            self.command_sub = self.create_subscription(
-                Float64MultiArray,
-                self.get_parameter('command_topic').value,
-                self._command_callback,
-                latest_qos,
-            )
+        self.command_sub = self.create_subscription(
+            Float64MultiArray,
+            self.get_parameter('command_topic').value,
+            self._command_callback,
+            latest_qos,
+        )
         self.calibrate_srv = self.create_service(Trigger, '~/calibrate', self._calibrate)
+        self.torque_srv = self.create_service(
+            SetBool, '~/set_torque', self._set_torque)
         self.follower = None
 
         try:
             self.follower = self._create_follower()
-            connect_follower(
-                self.follower, disable_torque=self._disable_torque)
-            if self._disable_torque:
-                self.get_logger().warning(
-                    'SO-101 conectado com torque desabilitado; comandos de '
-                    'movimento serão ignorados e o braço pode ser movido '
-                    'manualmente.')
-            else:
-                self.get_logger().info(
-                    'SO-101 conectado via LeRobot/Feetech.')
+            self.follower.connect(calibrate=False)
+            self.get_logger().info(
+                'SO-101 conectado via LeRobot/Feetech.')
         except Exception as error:
             self._force_close_follower(self.follower)
             self.get_logger().fatal(f'Falha ao conectar o SO-101: {error}')
@@ -259,7 +249,7 @@ class SO101HardwareNode(Node):
             return None
 
     def _command_callback(self, message: Float64MultiArray):
-        if self._disable_torque:
+        if not self._torque_enabled:
             return
         if len(message.data) != len(ROS_JOINT_ORDER):
             self.get_logger().error(
@@ -333,8 +323,16 @@ class SO101HardwareNode(Node):
             with self._serial_lock:
                 self._force_close_follower(self.follower)
                 candidate = self._create_follower()
-                connect_follower(
-                    candidate, disable_torque=self._disable_torque)
+                if self._torque_enabled:
+                    candidate.connect(calibrate=False)
+                else:
+                    # connect() configura os motores e termina habilitando o
+                    # torque. No modo manual, reconecte só o barramento para
+                    # nunca energizar o braço de forma transitória.
+                    candidate.bus.connect()
+                    candidate.bus.disable_torque(num_retry=5)
+                    for camera in candidate.cameras.values():
+                        camera.connect()
                 self.follower = candidate
         except Exception as error:
             self._force_close_follower(candidate)
@@ -351,7 +349,7 @@ class SO101HardwareNode(Node):
         self._last_sent_command = None
         self._next_reconnect_time = 0.0
         self._set_reading_active(True)
-        if not self._disable_torque and self._latest_command is not None:
+        if self._torque_enabled and self._latest_command is not None:
             self._wake_write_timer()
         self.get_logger().info('SO-101 reconectado após falha de comunicação.')
         return True
@@ -366,6 +364,52 @@ class SO101HardwareNode(Node):
         except Exception as error:
             response.success = False
             response.message = str(error)
+        return response
+
+    def _set_torque(
+        self, request: SetBool.Request, response: SetBool.Response
+    ):
+        enable = bool(request.data)
+        if enable == self._torque_enabled:
+            response.success = True
+            response.message = (
+                'Torque já está habilitado.' if enable
+                else 'Torque já está desabilitado.')
+            return response
+
+        try:
+            with self._serial_lock:
+                if enable:
+                    # Atualiza o alvo dos servos para a pose física atual antes
+                    # de energizá-los, evitando um salto para o alvo antigo.
+                    observation = self.follower.get_observation()
+                    positions = observation_to_ros(
+                        observation, use_degrees=self._use_degrees)
+                    if not all(name in positions for name in ROS_JOINT_ORDER):
+                        raise RuntimeError(
+                            'Não foi possível ler todas as juntas antes de '
+                            'habilitar o torque.')
+                    self.follower.send_action(ros_to_action(
+                        positions, use_degrees=self._use_degrees))
+                    self.follower.bus.enable_torque(num_retry=5)
+                else:
+                    self.follower.bus.disable_torque(num_retry=5)
+        except Exception as error:
+            response.success = False
+            response.message = f'Falha ao alterar o torque: {error}'
+            return response
+
+        self._torque_enabled = enable
+        with self._command_lock:
+            self._latest_command = None
+            self._last_received_command = None
+        self._last_sent_command = None
+        self.write_timer.cancel()
+        response.success = True
+        response.message = (
+            'Torque habilitado; o braço manterá a pose atual.' if enable
+            else 'Torque desabilitado; sustente o braço antes de movê-lo.')
+        self.get_logger().info(response.message)
         return response
 
     def destroy_node(self):

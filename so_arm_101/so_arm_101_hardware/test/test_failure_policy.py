@@ -12,6 +12,7 @@ from so_arm_101_hardware.hardware_node import (
     SO101HardwareNode,
 )
 from std_msgs.msg import Float64MultiArray
+from std_srvs.srv import SetBool
 import yaml
 
 
@@ -37,9 +38,25 @@ class _Logger:
 class _Follower:
     def __init__(self):
         self.actions = []
+        self.bus = SimpleNamespace(
+            enable_torque_calls=[],
+            disable_torque_calls=[],
+        )
+        self.bus.enable_torque = lambda **kwargs: (
+            self.bus.enable_torque_calls.append(kwargs))
+        self.bus.disable_torque = lambda **kwargs: (
+            self.bus.disable_torque_calls.append(kwargs))
 
     def send_action(self, action):
         self.actions.append(dict(action))
+
+    def get_observation(self):
+        return {
+            f'{name}.pos': 0.1
+            for name in (
+                'shoulder_pan', 'shoulder_lift', 'elbow_flex',
+                'wrist_flex', 'wrist_roll', 'gripper')
+        }
 
 
 class _Timer:
@@ -76,7 +93,7 @@ def _io_node():
     node._robot_id = 'test_follower'
     node._calibration_file = ''
     node._use_degrees = False
-    node._disable_torque = False
+    node._torque_enabled = True
     node._write_rate_hz = 30.0
     node._active_read_rate_hz = 10.0
     node._idle_read_rate_hz = 2.0
@@ -159,7 +176,7 @@ def test_io_performance_defaults_are_explicit():
     assert 'command_heartbeat_hz' not in parameters
     assert parameters['reconnect_interval_sec'] == 1.0
     assert parameters['reconnect_timeout_sec'] == 5.0
-    assert parameters['disable_torque'] is False
+    assert 'disable_torque' not in parameters
     assert 'max_consecutive_io_failures' not in parameters
 
     launch_source = (PACKAGE_ROOT / 'launch' / 'driver.launch.py').read_text()
@@ -194,12 +211,40 @@ def test_command_callback_does_not_touch_serial_and_keeps_latest():
 
 def test_manual_positioning_mode_ignores_commands():
     node = _io_node()
-    node._disable_torque = True
+    node._torque_enabled = False
 
     node._command_callback(_command(0.2))
 
     assert node._latest_command is None
     assert node.write_timer.is_canceled() is True
+
+
+def test_service_disables_torque_and_discards_pending_command():
+    node = _io_node()
+    node._command_callback(_command(0.2))
+    request = SetBool.Request(data=False)
+
+    response = node._set_torque(request, SetBool.Response())
+
+    assert response.success is True
+    assert node._torque_enabled is False
+    assert node.follower.bus.disable_torque_calls == [{'num_retry': 5}]
+    assert node._latest_command is None
+    assert node.write_timer.is_canceled() is True
+
+
+def test_service_holds_current_pose_before_enabling_torque():
+    node = _io_node()
+    node._torque_enabled = False
+    request = SetBool.Request(data=True)
+
+    response = node._set_torque(request, SetBool.Response())
+
+    assert response.success is True
+    assert node._torque_enabled is True
+    assert len(node.follower.actions) == 1
+    assert node.follower.bus.enable_torque_calls == [{'num_retry': 5}]
+    assert node._latest_command is None
 
 
 def test_command_is_not_resent_while_unchanged():
@@ -320,6 +365,38 @@ def test_read_failure_replaces_stale_follower_and_resets_timeout(monkeypatch):
     assert node._last_sent_command is None
     assert node.write_timer.is_canceled() is False
     assert node._logger.info_messages
+
+
+def test_reconnect_while_torque_is_disabled_never_enables_it(monkeypatch):
+    node = _io_node()
+    node._torque_enabled = False
+    old_port_handler = SimpleNamespace(
+        is_open=True,
+        is_using=True,
+        closePort=lambda: setattr(old_port_handler, 'is_open', False),
+    )
+    node.follower.bus.port_handler = old_port_handler
+    bus = SimpleNamespace(
+        connect_calls=0,
+        disable_calls=[],
+        port_handler=SimpleNamespace(is_open=True, is_using=False),
+    )
+    bus.connect = lambda: setattr(bus, 'connect_calls', bus.connect_calls + 1)
+    bus.disable_torque = lambda **kwargs: bus.disable_calls.append(kwargs)
+    candidate = SimpleNamespace(
+        bus=bus,
+        cameras={},
+        connect=lambda *, calibrate: pytest.fail(
+            'connect() não pode ser usado com torque desabilitado'),
+    )
+    monkeypatch.setattr(
+        'so_arm_101_hardware.hardware_node.make_follower',
+        lambda *_args, **_kwargs: candidate,
+    )
+
+    assert node._try_reconnect() is True
+    assert bus.connect_calls == 1
+    assert bus.disable_calls == [{'num_retry': 5}]
 
 
 def test_failed_reconnect_keeps_timeout_and_is_rate_limited(monkeypatch):

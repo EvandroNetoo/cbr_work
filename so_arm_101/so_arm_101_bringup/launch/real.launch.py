@@ -43,7 +43,6 @@ def generate_launch_description() -> LaunchDescription:
         launch_arguments={
             'port': LaunchConfiguration('port'),
             'robot_id': LaunchConfiguration('robot_id'),
-            'disable_torque': LaunchConfiguration('disable_torque'),
             'calibration_file': LaunchConfiguration('calibration_file'),
         }.items())
 
@@ -108,7 +107,6 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('port', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument('robot_id', default_value=CONFIG_DEFAULT),
-        DeclareLaunchArgument('disable_torque', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument(
             'hardware_state_timeout',
             default_value='45.0',

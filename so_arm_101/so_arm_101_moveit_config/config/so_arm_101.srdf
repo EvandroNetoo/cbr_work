@@ -103,6 +103,7 @@
   <disable_collisions link1="link1_1" link2="link2_1" reason="Adjacent"/>
   <disable_collisions link1="link2_1" link2="link3_1" reason="Adjacent"/>
   <disable_collisions link1="link3_1" link2="link4_1" reason="Adjacent"/>
+  <disable_collisions link1="link3_1" link2="link1_1" reason="Adjacent"/>
   <disable_collisions link1="link4_1" link2="link5_1" reason="Adjacent"/>
   <disable_collisions link1="link5_1" link2="clamp_1" reason="Adjacent"/>
   <disable_collisions link1="link5_1" link2="clamp_2" reason="Adjacent"/>

@@ -37,7 +37,6 @@ def generate_launch_description():
         launch_arguments={
             'port': LaunchConfiguration('port'),
             'robot_id': LaunchConfiguration('robot_id'),
-            'disable_torque': LaunchConfiguration('disable_torque'),
             'calibration_file': LaunchConfiguration('calibration_file'),
         }.items())
     base_driver = IncludeLaunchDescription(
@@ -135,7 +134,6 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('port', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument('robot_id', default_value=CONFIG_DEFAULT),
-        DeclareLaunchArgument('disable_torque', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument('hardware_state_timeout', default_value='45.0'),
         DeclareLaunchArgument('camera_framerate', default_value='15.0'),
         DeclareLaunchArgument('controller_update_rate', default_value='30'),

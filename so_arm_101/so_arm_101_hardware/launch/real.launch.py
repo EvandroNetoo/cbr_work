@@ -19,7 +19,6 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('port', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument('robot_id', default_value=CONFIG_DEFAULT),
-        DeclareLaunchArgument('disable_torque', default_value=CONFIG_DEFAULT),
         DeclareLaunchArgument(
             'calibration_file',
             default_value=CONFIG_DEFAULT),
@@ -30,7 +29,6 @@ def generate_launch_description():
             launch_arguments={
                 'port': LaunchConfiguration('port'),
                 'robot_id': LaunchConfiguration('robot_id'),
-                'disable_torque': LaunchConfiguration('disable_torque'),
                 'calibration_file': LaunchConfiguration('calibration_file'),
             }.items()),
     ])

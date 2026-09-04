@@ -56,19 +56,24 @@ Sem esses argumentos, `config/real.yaml` é a fonte dos parâmetros físicos.
 Os argumentos `port`, `robot_id` e `calibration_file` só sobrescrevem o YAML
 quando são informados explicitamente na linha de comando.
 
-Para soltar todas as juntas e posicionar o braço manualmente, use a feature
-flag `disable_torque:=true`:
+O torque inicia habilitado. Para soltar todas as juntas a qualquer momento,
+sustente o braço e chame o serviço:
 
 ```bash
-ros2 launch so_arm_101_bringup real.launch.py \
-  port:=/dev/ttyUSB0 disable_torque:=true
+ros2 service call /so101_hardware_node/set_torque std_srvs/srv/SetBool \
+  "{data: false}"
 ```
 
-Nesse modo o driver continua publicando as posições medidas, mas não cria a
-assinatura de comandos e não executa a configuração do LeRobot que reabilita o
-torque. Reinicie o launch sem a flag (ou com `disable_torque:=false`) para voltar
-ao controle normal. Sustente o braço antes de desabilitar o torque, pois ele
-pode cair sob o próprio peso.
+O driver continua publicando as posições medidas e ignora comandos enquanto o
+torque está desligado. Para reativá-lo sem reiniciar o launch:
+
+```bash
+ros2 service call /so101_hardware_node/set_torque std_srvs/srv/SetBool \
+  "{data: true}"
+```
+
+Antes de energizar os servos, o driver define a pose física atual como alvo
+para evitar um salto para um comando antigo.
 
 Os arquivos `config/so101_follower.json` e
 `config/gripper_calibration.yaml` são calibrações de referência. Confirme IDs,
@@ -76,7 +81,7 @@ offsets, faixas e endpoints no hardware antes de comandar. A calibração manual
 quando necessária, é solicitada por:
 
 ```bash
-ros2 service call /so101_hardware/calibrate std_srvs/srv/Trigger '{}'
+ros2 service call /so101_hardware_node/calibrate std_srvs/srv/Trigger '{}'
 ```
 
 O nó Python não publica actions nem recebe trajetórias. O plugin
