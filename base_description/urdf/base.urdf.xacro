@@ -42,9 +42,9 @@
   <xacro:property name="lidar_orange_radius" value="0.039"/>
   <xacro:property name="lidar_orange_height" value="0.017"/>
   <xacro:property name="lidar_mass" value="0.12"/>
-  <xacro:property name="lidar_center_x" value="0.075"/>
+  <xacro:property name="lidar_center_x" value="0.002"/>
   <xacro:property name="lidar_center_y" value="0.0"/>
-  <xacro:property name="lidar_center_height_above_ground" value="0.035"/>
+  <xacro:property name="lidar_center_height_above_ground" value="0.07"/>
   <!-- Correção atual de montagem: aproximadamente 3,4° à esquerda do eixo
        frontal da base. -->
   <xacro:property name="lidar_yaw" value="-0.06"/>

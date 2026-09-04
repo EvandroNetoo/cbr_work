@@ -97,6 +97,18 @@ class SequencePair:
         return value
 
 
+class FakeTimer:
+    def __init__(self):
+        self.reset_count = 0
+        self.cancel_count = 0
+
+    def reset(self):
+        self.reset_count += 1
+
+    def cancel(self):
+        self.cancel_count += 1
+
+
 def _bare_server(pair):
     server = object.__new__(VL53DistanceAction)
     server._sensor_config = SensorPairConfig()
@@ -109,8 +121,13 @@ def _bare_server(pair):
     server._wheel_linear_speed = 0.238
     server._kinematic_lever = 0.2225
     server._follow_wall_controller = FakeFollowWallController()
+    server._owns_sensor_pair = False
     server._sensor_pair = pair
+    server._sensor_pair_factory = lambda: pair
+    server._odom_topic = '/odom'
+    server._odom_subscription = None
     server._lock = threading.RLock()
+    server._resource_lock = threading.RLock()
     server._state = 'idle'
     server._desired_command = (0.0, 0.0, 0.0)
     server._desired_updated = float('-inf')
@@ -118,9 +135,44 @@ def _bare_server(pair):
     server._shutdown_event = threading.Event()
     server._goal_wakeup = threading.Event()
     server._worker_thread = None
+    server._command_timer = FakeTimer()
+    server.create_subscription = lambda *_args: object()
+    server.destroy_subscription = lambda _subscription: True
     server._publish_twist = lambda *_args: None
     server.get_logger = lambda: FakeLogger()
     return server
+
+
+def test_goal_resources_are_active_only_during_execution():
+    server = _bare_server(None)
+    pair = SimpleNamespace(
+        close_count=0,
+        close=lambda: None,
+    )
+    closed = []
+    pair.close = lambda: closed.append(True)
+    subscriptions = []
+    destroyed = []
+    server._owns_sensor_pair = True
+    server._sensor_pair_factory = lambda: pair
+    server.create_subscription = lambda *_args: subscriptions.append(
+        object()) or subscriptions[-1]
+    server.destroy_subscription = lambda subscription: destroyed.append(
+        subscription) or True
+
+    server._activate_goal_resources()
+
+    assert server._sensor_pair is pair
+    assert server._odom_subscription is subscriptions[0]
+    assert server._command_timer.reset_count == 1
+
+    server._deactivate_goal_resources()
+
+    assert server._sensor_pair is None
+    assert server._odom_subscription is None
+    assert destroyed == subscriptions
+    assert closed == [True]
+    assert server._command_timer.cancel_count == 1
 
 
 def _follow_request(

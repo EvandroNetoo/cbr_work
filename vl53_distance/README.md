@@ -4,6 +4,12 @@ Servidor da action `/vl53/follow_wall`. O nó usa
 diretamente dois sensores VL53L0X atrás de um TCA9548A e envia `TwistStamped`
 para `/cmd_vel`; não existe um nó ou tópico intermediário de distância.
 
+Enquanto não existe um goal, o timer de comandos fica cancelado, o nó não
+assina `/odom` e o barramento/sensores VL53L0X permanecem fechados. Esses
+recursos são ativados ao iniciar cada goal e liberados em qualquer término
+(sucesso, cancelamento, timeout ou erro). A inicialização e calibração dos
+sensores, portanto, fazem parte da latência inicial de cada execução.
+
 ```bash
 ros2 launch vl53_distance vl53_distance.launch.py
 ```

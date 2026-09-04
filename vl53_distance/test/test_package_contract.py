@@ -59,6 +59,15 @@ def test_action_uses_watchdog_and_stops_on_every_terminal_path():
     assert 'rightward_displacement_mm' in source
 
 
+def test_goal_resources_remain_inactive_during_standby():
+    source = (PACKAGE / 'vl53_distance' / 'action_server.py').read_text()
+    assert 'autostart=False' in source
+    assert 'self._odom_subscription = None' in source
+    assert 'def _activate_goal_resources' in source
+    assert 'def _deactivate_goal_resources' in source
+    assert 'self._sensor_pair_factory()' in source
+
+
 def test_both_physical_launches_start_action_after_base_controller():
     base_launch = (
         WORKSPACE_SOURCE / 'base_bringup' / 'launch' / 'real.launch.py'

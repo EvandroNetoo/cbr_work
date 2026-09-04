@@ -115,20 +115,21 @@ class VL53DistanceAction(Node):
             wheel_linear_speed=self._wheel_linear_speed,
             kinematic_lever=self._kinematic_lever,
         )
-        self._sensor_pair = sensor_pair or VL53SensorPair(self._sensor_config)
+        # Hardware, odometria e watchdog permanecem inativos enquanto nao ha
+        # goal. Isso evita inicializar o I2C e acordar o executor em standby.
+        self._owns_sensor_pair = sensor_pair is None
+        self._sensor_pair = sensor_pair
+        self._sensor_pair_factory = lambda: VL53SensorPair(self._sensor_config)
         self._command_frame = str(self.get_parameter('command_frame').value)
+        self._odom_topic = str(self.get_parameter('odom_topic').value)
 
         self._lock = threading.RLock()
+        self._resource_lock = threading.RLock()
         self._latest_odom: OdometryPose | None = None
         self._odom_updated = float('-inf')
         self._publisher = self.create_publisher(
             TwistStamped, str(self.get_parameter('cmd_vel_topic').value), 1)
-        self._odom_subscription = self.create_subscription(
-            Odometry,
-            str(self.get_parameter('odom_topic').value),
-            self._odom_callback,
-            qos_profile_sensor_data,
-        )
+        self._odom_subscription = None
 
         self._state = 'idle'
         self._desired_command = (0.0, 0.0, 0.0)
@@ -138,7 +139,10 @@ class VL53DistanceAction(Node):
         self._goal_wakeup = threading.Event()
         self._worker_thread: threading.Thread | None = None
         self._command_timer = self.create_timer(
-            1.0 / command_rate, self._publish_command_cycle)
+            1.0 / command_rate,
+            self._publish_command_cycle,
+            autostart=False,
+        )
         action_name = str(self.get_parameter('action_name').value)
         self._action_server = ActionServer(
             self,
@@ -149,7 +153,8 @@ class VL53DistanceAction(Node):
             handle_accepted_callback=self._handle_accepted_callback,
         )
         self.get_logger().info(
-            f'VL53L0X pronto; aguardando goals em {action_name}.')
+            f'Servidor VL53L0X pronto; recursos em standby ate receber '
+            f'goals em {action_name}.')
 
     def _declare_parameters(self) -> None:
         defaults = {
@@ -302,6 +307,48 @@ class VL53DistanceAction(Node):
             self._worker_thread = worker
         worker.start()
 
+    def _activate_goal_resources(self) -> None:
+        """Ativa somente os recursos necessarios durante um goal."""
+        with self._resource_lock:
+            with self._lock:
+                self._latest_odom = None
+                self._odom_updated = float('-inf')
+
+            try:
+                if self._odom_subscription is None:
+                    self._odom_subscription = self.create_subscription(
+                        Odometry,
+                        self._odom_topic,
+                        self._odom_callback,
+                        qos_profile_sensor_data,
+                    )
+                if self._sensor_pair is None:
+                    self._sensor_pair = self._sensor_pair_factory()
+                self._command_timer.reset()
+            except Exception:
+                self._deactivate_goal_resources()
+                raise
+
+    def _deactivate_goal_resources(self) -> None:
+        """Cancela wakeups, remove odometria e libera o hardware do goal."""
+        with self._resource_lock:
+            if hasattr(self, '_command_timer'):
+                self._command_timer.cancel()
+
+            subscription = self._odom_subscription
+            self._odom_subscription = None
+            if subscription is not None:
+                self.destroy_subscription(subscription)
+
+            with self._lock:
+                self._latest_odom = None
+                self._odom_updated = float('-inf')
+
+            if self._owns_sensor_pair and self._sensor_pair is not None:
+                sensor_pair = self._sensor_pair
+                self._sensor_pair = None
+                sensor_pair.close()
+
     def _execute_follow_wall_goal(self, goal_handle):
         started = time.monotonic()
         last_iteration = started
@@ -311,14 +358,22 @@ class VL53DistanceAction(Node):
         traveled_mm = 0.0
         consecutive_failures = 0
         settled_since: float | None = None
-        self._follow_wall_controller.reset()
-        self._sensor_pair.reset_filter()
-        with self._lock:
-            self._state = 'executing_follow_wall'
-        if not goal_handle.is_cancel_requested:
-            goal_handle.executing()
-
         try:
+            if goal_handle.is_cancel_requested:
+                result = self._follow_wall_result(
+                    None, False, 0.0, 0.0,
+                    'Goal cancelado antes de ativar os sensores.')
+                goal_handle.canceled(result)
+                return result
+
+            goal_handle.executing()
+            self._activate_goal_resources()
+            self._follow_wall_controller.reset()
+            assert self._sensor_pair is not None
+            self._sensor_pair.reset_filter()
+            with self._lock:
+                self._state = 'executing_follow_wall'
+
             while (
                 rclpy.ok()
                 and goal_handle.is_active
@@ -485,6 +540,11 @@ class VL53DistanceAction(Node):
             return result
         finally:
             self._invalidate_command(publish=True)
+            try:
+                self._deactivate_goal_resources()
+            except Exception as error:
+                self.get_logger().error(
+                    f'Falha ao liberar recursos VL53L0X: {error}')
             with self._lock:
                 self._state = 'idle'
                 self._worker_thread = None
@@ -611,7 +671,10 @@ class VL53DistanceAction(Node):
         if worker is not None and worker is not threading.current_thread():
             worker.join(timeout=1.0)
         try:
-            self._sensor_pair.close()
+            self._deactivate_goal_resources()
+            if self._sensor_pair is not None:
+                self._sensor_pair.close()
+                self._sensor_pair = None
         except Exception as error:
             self.get_logger().error(f'Falha ao fechar os VL53L0X: {error}')
         if hasattr(self, '_action_server'):
