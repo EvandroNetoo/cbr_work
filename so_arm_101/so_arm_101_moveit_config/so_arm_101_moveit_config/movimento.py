@@ -63,6 +63,7 @@ class ExecutorDoMoveIt:
         move_group_action: str = "/move_action",
         apriltag_action: str = "/apriltags/analyze",
         joint_states_topic: str = "/joint_states",
+        monitorar_estados_continuamente: bool = True,
     ) -> None:
         self._possui_no = no is None
         self.no = no or rclpy.create_node("pegar_e_colocar")
@@ -79,16 +80,74 @@ class ExecutorDoMoveIt:
         self.posicoes_juntas_atuais: dict[str, float] = {}
         self.velocidades_juntas_atuais: dict[str, float] = {}
         self.sequencia_dos_estados_das_juntas = 0
-        self.inscricao_nos_estados_das_juntas = self.no.create_subscription(
-            JointState,
-            joint_states_topic,
-            self._receber_estados_das_juntas,
-            10,
-            callback_group=callback_group,
-        )
+        self._topico_dos_estados_das_juntas = joint_states_topic
+        self._grupo_de_callbacks = callback_group
+        self._geracao_do_monitoramento = 0
+        self.inscricao_nos_estados_das_juntas = None
+        if monitorar_estados_continuamente:
+            self.iniciar_monitoramento_dos_estados()
 
-    def _receber_estados_das_juntas(self, mensagem: JointState) -> None:
+    def iniciar_monitoramento_dos_estados(self) -> None:
+        """Assina os estados das juntas enquanto uma operação estiver ativa."""
         with self._condicao_dos_estados:
+            if self.inscricao_nos_estados_das_juntas is not None:
+                return
+            self.posicoes_juntas_atuais.clear()
+            self.velocidades_juntas_atuais.clear()
+            self.sequencia_dos_estados_das_juntas = 0
+            self._geracao_do_monitoramento += 1
+            geracao = self._geracao_do_monitoramento
+            self.inscricao_nos_estados_das_juntas = self.no.create_subscription(
+                JointState,
+                self._topico_dos_estados_das_juntas,
+                lambda mensagem: self._receber_estados_das_juntas(
+                    mensagem, geracao
+                ),
+                10,
+                callback_group=self._grupo_de_callbacks,
+            )
+
+    def parar_monitoramento_dos_estados(self) -> None:
+        """Remove a assinatura para não processar telemetria enquanto ocioso."""
+        with self._condicao_dos_estados:
+            inscricao = self.inscricao_nos_estados_das_juntas
+            if inscricao is None:
+                return
+            self.inscricao_nos_estados_das_juntas = None
+            self._geracao_do_monitoramento += 1
+            self._condicao_dos_estados.notify_all()
+        self.no.destroy_subscription(inscricao)
+
+    def aguardar_primeiro_estado(self, timeout_sec: float = 1.0) -> bool:
+        """Aguarda uma leitura nova após reativar o monitoramento."""
+        if timeout_sec < 0.0:
+            raise ValueError("O tempo limite não pode ser negativo.")
+        prazo = time.monotonic() + timeout_sec
+        while True:
+            with self._condicao_dos_estados:
+                if self.sequencia_dos_estados_das_juntas > 0:
+                    return True
+                if self.inscricao_nos_estados_das_juntas is None:
+                    return False
+                restante = prazo - time.monotonic()
+                if restante <= 0.0:
+                    return False
+                if not self._possui_no:
+                    self._condicao_dos_estados.wait(min(0.05, restante))
+                    self._verificar_cancelamento()
+                    continue
+            self._verificar_cancelamento()
+            rclpy.spin_once(self.no, timeout_sec=min(0.05, restante))
+
+    def _receber_estados_das_juntas(
+        self, mensagem: JointState, geracao: int | None = None
+    ) -> None:
+        with self._condicao_dos_estados:
+            if (
+                geracao is not None
+                and geracao != self._geracao_do_monitoramento
+            ):
+                return
             self.posicoes_juntas_atuais.update(zip(mensagem.name, mensagem.position))
             self.velocidades_juntas_atuais = dict(zip(mensagem.name, mensagem.velocity))
             self.sequencia_dos_estados_das_juntas += 1
@@ -563,5 +622,6 @@ class ExecutorDoMoveIt:
 
     def destruir(self) -> None:
         self.cancelar_objetivo_ativo()
+        self.parar_monitoramento_dos_estados()
         if self._possui_no:
             self.no.destroy_node()

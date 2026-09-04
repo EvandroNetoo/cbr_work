@@ -61,6 +61,9 @@ def test_server_serializes_actions_and_propagates_cancellation():
     assert 'self._motion.cancelar_objetivo_ativo()' in source
     assert 'MultiThreadedExecutor(num_threads=4)' in source
     assert 'spin_until_future_complete' not in source
+    assert 'monitorar_estados_continuamente=False' in source
+    assert 'self._motion.iniciar_monitoramento_dos_estados()' in source
+    assert 'self._motion.parar_monitoramento_dos_estados()' in source
     assert 'PlaceObject' not in source
     assert 'MissionStateClient' not in source
     assert '_inventory' not in source

@@ -138,6 +138,7 @@ class ManipulationServer(Node):
             move_group_action=str(self.get_parameter('move_group_action').value),
             apriltag_action=str(self.get_parameter('apriltag_action').value),
             joint_states_topic=str(self.get_parameter('joint_states_topic').value),
+            monitorar_estados_continuamente=False,
         )
 
         common = {
@@ -360,9 +361,16 @@ class ManipulationServer(Node):
         self._set_active(operation_name)
         self._effect_known = True
         self._effect_location = ManipulationResult.LOCATION_UNKNOWN
+        monitorando_estados = False
         try:
             if requires_moveit:
                 self._ensure_moveit()
+                self._motion.iniciar_monitoramento_dos_estados()
+                monitorando_estados = True
+                if not self._motion.aguardar_primeiro_estado():
+                    self.get_logger().warning(
+                        'Nenhum /joint_states novo recebido antes da operação.'
+                    )
             outcome = operation()
             message, location = outcome[:2]
             placed_pose = outcome[2] if len(outcome) == 3 else None
@@ -396,6 +404,8 @@ class ManipulationServer(Node):
             )
         finally:
             self._cancel_event.clear()
+            if monitorando_estados:
+                self._motion.parar_monitoramento_dos_estados()
             with self._lock:
                 self._busy = False
                 self._active_operation = ''
@@ -1159,6 +1169,7 @@ class ManipulationServer(Node):
         """Cancel child work before destroying the ROS node."""
         self._cancel_event.set()
         self._motion.cancelar_objetivo_ativo()
+        self._motion.parar_monitoramento_dos_estados()
         for server in self._servers:
             server.destroy()
         return super().destroy_node()

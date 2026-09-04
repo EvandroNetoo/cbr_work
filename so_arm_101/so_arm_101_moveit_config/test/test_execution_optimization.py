@@ -18,6 +18,7 @@ from so_arm_101_moveit_config.configuracao import (
 )
 from so_arm_101_moveit_config.movimento import ExecutorDoMoveIt
 from interfaces.msg import AprilTagStampedDetection
+from sensor_msgs.msg import JointState
 
 
 PACKAGE_DIR = Path(__file__).parents[1]
@@ -46,6 +47,65 @@ def test_estado_articular_ja_atingido_e_omitido():
     assert not executor._estado_articular_ja_atingido(
         'arm', {'joint': 1.02}, 0.01
     )
+
+
+def test_monitoramento_dos_estados_pode_dormir_entre_operacoes():
+    class NoFalso:
+        def __init__(self):
+            self.callbacks = []
+            self.inscricoes_destruidas = []
+
+        def create_subscription(
+            self, _tipo, _topico, callback, _profundidade, *, callback_group
+        ):
+            del callback_group
+            inscricao = object()
+            self.callbacks.append(callback)
+            return inscricao
+
+        def destroy_subscription(self, inscricao):
+            self.inscricoes_destruidas.append(inscricao)
+            return True
+
+    executor = ExecutorDoMoveIt.__new__(ExecutorDoMoveIt)
+    executor.no = NoFalso()
+    executor._condicao_dos_estados = threading.Condition()
+    executor._topico_dos_estados_das_juntas = '/joint_states'
+    executor._grupo_de_callbacks = None
+    executor._geracao_do_monitoramento = 0
+    executor.inscricao_nos_estados_das_juntas = None
+    executor.posicoes_juntas_atuais = {'antiga': 1.0}
+    executor.velocidades_juntas_atuais = {'antiga': 0.0}
+    executor.sequencia_dos_estados_das_juntas = 4
+
+    executor.iniciar_monitoramento_dos_estados()
+    primeira_inscricao = executor.inscricao_nos_estados_das_juntas
+    primeiro_callback = executor.no.callbacks[-1]
+
+    assert primeira_inscricao is not None
+    assert executor.posicoes_juntas_atuais == {}
+    assert executor.sequencia_dos_estados_das_juntas == 0
+    executor.iniciar_monitoramento_dos_estados()
+    assert len(executor.no.callbacks) == 1
+
+    primeiro_callback(JointState(name=['joint'], position=[0.5], velocity=[0.0]))
+    assert executor.posicoes_juntas_atuais == {'joint': 0.5}
+    assert executor.sequencia_dos_estados_das_juntas == 1
+    assert executor.aguardar_primeiro_estado(timeout_sec=0.0)
+
+    executor.parar_monitoramento_dos_estados()
+    assert executor.inscricao_nos_estados_das_juntas is None
+    assert executor.no.inscricoes_destruidas == [primeira_inscricao]
+    executor.parar_monitoramento_dos_estados()
+    assert executor.no.inscricoes_destruidas == [primeira_inscricao]
+
+    # Um callback já enfileirado da assinatura antiga deve ser ignorado.
+    primeiro_callback(JointState(name=['joint'], position=[0.9], velocity=[0.0]))
+    assert executor.posicoes_juntas_atuais == {'joint': 0.5}
+
+    executor.iniciar_monitoramento_dos_estados()
+    assert executor.posicoes_juntas_atuais == {}
+    assert executor.sequencia_dos_estados_das_juntas == 0
 
 
 def test_sequencia_nao_contem_esperas_fixas():
