@@ -45,9 +45,12 @@
   <xacro:property name="lidar_center_x" value="0.002"/>
   <xacro:property name="lidar_center_y" value="0.0"/>
   <xacro:property name="lidar_center_height_above_ground" value="0.07"/>
+  <!-- O LiDAR está montado invertido: 180° em X preserva frente/trás e
+       troca direita/esquerda no plano da varredura. -->
+  <xacro:property name="lidar_roll" value="${pi}"/>
   <!-- Correção atual de montagem: aproximadamente 3,4° à esquerda do eixo
        frontal da base. -->
-  <xacro:property name="lidar_yaw" value="-0.06"/>
+  <xacro:property name="lidar_yaw" value="0.06"/>
 
   <!-- Derived Z positions, relative to base_link at wheel-axle height. -->
   <xacro:property name="lower_bottom_z"
@@ -251,7 +254,7 @@
   <joint name="lidar_front_joint" type="fixed">
     <parent link="base_link"/><child link="lidar_front_link"/>
     <origin xyz="${lidar_center_x} ${lidar_center_y} ${lidar_center_height_above_ground - wheel_radius}"
-      rpy="0 0 ${lidar_yaw}"/>
+      rpy="${lidar_roll} 0 ${lidar_yaw}"/>
   </joint>
 
   <!-- Separate component link prevents RViz from reusing the orange material

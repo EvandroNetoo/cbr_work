@@ -23,7 +23,7 @@ bt_navigator:
 controller_server:
   ros__parameters:
     enable_stamped_cmd_vel: true
-    # 10 Hz e suficiente para a velocidade maxima de 0,37 m/s da base e
+    # 10 Hz e suficiente para a velocidade maxima de 0,374 m/s da base e
     # reduz pela metade a frequencia de otimizacoes do MPPI.
     controller_frequency: 10.0
     costmap_update_timeout: 0.50
@@ -54,11 +54,13 @@ controller_server:
       batch_size: 800
       iteration_count: 1
       motion_model: "Omni"
-      vx_max: 0.370
-      vx_min: -0.370
-      vy_max: 0.370
-      vy_min: -0.370
-      wz_max: 1.555
+      # Usa todo o limite das rodas: 0,034 m x 11 rad/s = 0,374 m/s.
+      vx_max: 0.374
+      vx_min: -0.374
+      vy_max: 0.374
+      vy_min: -0.374
+      # Limite de giro puro: 0,374 / 0,2225 m = 1,680 rad/s.
+      wz_max: 1.680
       ax_max: 3.109
       ax_min: -3.109
       ay_max: 3.109
@@ -237,8 +239,8 @@ velocity_smoother:
     stamp_smoothed_velocity_with_smoothing_time: false
     scale_velocities: true
     feedback: OPEN_LOOP
-    max_velocity: [0.370, 0.370, 1.555]
-    min_velocity: [-0.370, -0.370, -1.555]
+    max_velocity: [0.374, 0.374, 1.680]
+    min_velocity: [-0.374, -0.374, -1.680]
     max_accel: [3.109, 3.109, 6.218]
     max_decel: [-3.109, -3.109, -6.218]
     odom_topic: /odom

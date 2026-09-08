@@ -42,21 +42,28 @@ start:
   yaw_rad: -1.6412
 
 finish:
-  x_m: -0.0117
-  y_m: 0.0966
-  yaw_rad: 1.5065
+  x_m: -4.792
+  y_m: 6.156
+  yaw_rad: 1.660
 
 service_areas:
   ws_1:
-    x_m: -0.117
-    y_m: 0.276
-    yaw_rad: 3.130
-    height_cm: 15
+    x_m: 4.953
+    y_m: 3.251
+    yaw_rad: -1.570
+    height_cm: 10
     type: WS
 
   ws_2:
-    x_m: 0.1748
-    y_m: 0.1609
-    yaw_rad: -0.0449
-    height_cm: 10
+    x_m: 2.127
+    y_m: 4.570
+    yaw_rad: -1.570
+    height_cm: 15
+    type: WS
+
+  ws_3:
+    x_m: 2.122
+    y_m: 3.266
+    yaw_rad: 1.570
+    height_cm: 15
     type: WS
