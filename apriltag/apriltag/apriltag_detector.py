@@ -152,6 +152,7 @@ class AprilTagDetector(Node):
         self.declare_parameter('max_detection_rate_hz', 10.0)
         self.declare_parameter('min_decision_margin', 30.0)
         self.declare_parameter('max_hamming', 0)
+        self.declare_parameter('publish_debug_image', True)
         self.declare_parameter('feedback_rate_hz', 5.0)
         self.declare_parameter('suppress_native_pose_warning', True)
         self.declare_parameter('manage_camera_capture', True)
@@ -170,6 +171,8 @@ class AprilTagDetector(Node):
         self.tag_size_m = float(self.get_parameter('tag_size_m').value)
         self.min_decision_margin = float(self.get_parameter('min_decision_margin').value)
         self.max_hamming = int(self.get_parameter('max_hamming').value)
+        self.publish_debug_image = bool(
+            self.get_parameter('publish_debug_image').value)
         detection_rate = float(
             self.get_parameter('max_detection_rate_hz').value)
         if not math.isfinite(detection_rate) or detection_rate <= 0.0:
@@ -216,6 +219,8 @@ class AprilTagDetector(Node):
             AprilTagDetectionArray, 'apriltags/detections_camera', output_qos)
         self.detection_publisher = self.create_publisher(
             AprilTagDetectionArray, 'apriltags/detections', output_qos)
+        self.debug_image_publisher = self.create_publisher(
+            Image, 'apriltags/debug_image', qos_profile_sensor_data)
         self.capture_condition = threading.Condition(threading.RLock())
         self.capture_state: bool | None = None
         self.capture_future = None
@@ -490,6 +495,8 @@ class AprilTagDetector(Node):
         detections = self.detector.detect(image, estimate_tag_pose=True,
                                           camera_params=parameters, tag_size=self.tag_size_m)
         valid = [d for d in detections if d.hamming <= self.max_hamming and d.decision_margin >= self.min_decision_margin]
+        if self.publish_debug_image:
+            self.publish_detection_debug_image(message, image, detections)
         camera_items: list[AprilTagStampedDetection] = []
         camera_poses: list[PoseStamped] = []
         transforms: list[TransformStamped] = []
@@ -642,6 +649,49 @@ class AprilTagDetector(Node):
             raise ValueError(f'unsupported encoding: {message.encoding}')
         channels, code = channels_and_code[encoding]
         return cv2.cvtColor(rows[:, :width * channels].reshape(height, width, channels), code)
+
+    def publish_detection_debug_image(
+            self, source: Image, mono: np.ndarray, detections) -> None:
+        """Publish the detector input annotated with raw AprilTag candidates."""
+        debug = cv2.cvtColor(mono, cv2.COLOR_GRAY2BGR)
+        accepted = 0
+        for detection in detections:
+            is_accepted = (
+                detection.hamming <= self.max_hamming
+                and detection.decision_margin >= self.min_decision_margin
+            )
+            accepted += int(is_accepted)
+            color = (0, 200, 0) if is_accepted else (0, 0, 255)
+            corners = np.rint(np.asarray(detection.corners)).astype(np.int32)
+            cv2.polylines(debug, [corners.reshape(-1, 1, 2)], True,
+                          color, 2, cv2.LINE_AA)
+            center = tuple(map(
+                int, np.rint(np.asarray(detection.center)).reshape(2)))
+            cv2.circle(debug, center, 3, color, -1, cv2.LINE_AA)
+            label = (
+                f'id={int(detection.tag_id)} '
+                f'm={float(detection.decision_margin):.1f} '
+                f'h={int(detection.hamming)}'
+            )
+            text_origin = (max(0, int(corners[:, 0].min())),
+                           max(16, int(corners[:, 1].min()) - 5))
+            cv2.putText(debug, label, text_origin, cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45, color, 1, cv2.LINE_AA)
+
+        summary = f'raw={len(detections)} accepted={accepted}'
+        cv2.rectangle(debug, (0, 0), (min(debug.shape[1] - 1, 245), 24),
+                      (0, 0, 0), -1)
+        cv2.putText(debug, summary, (6, 17), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5, (255, 255, 255), 1, cv2.LINE_AA)
+
+        output = Image()
+        output.header = source.header
+        output.height, output.width = debug.shape[:2]
+        output.encoding = 'bgr8'
+        output.is_bigendian = False
+        output.step = output.width * 3
+        output.data = debug.tobytes()
+        self.debug_image_publisher.publish(output)
 
 
 def main(args: Iterable[str] | None = None) -> None:

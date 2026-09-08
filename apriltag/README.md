@@ -71,6 +71,19 @@ margin, lowest hamming distance, and newest timestamp.
 - `apriltags/detections` (`interfaces/AprilTagDetectionArray`) in
   `base_link`.
 
+When `publish_debug_image` is enabled, `apriltags/debug_image`
+(`sensor_msgs/Image`, `bgr8`) contains the exact monochrome detector input
+with every raw candidate outlined. Green candidates passed `max_hamming` and
+`min_decision_margin`; red candidates were rejected. The overlay includes the
+tag ID, decision margin (`m`), Hamming distance (`h`), and raw/accepted totals.
+View it while an analysis goal is active with:
+
+```bash
+ros2 run rqt_image_view rqt_image_view
+```
+
+Then select `/apriltags/debug_image` in the topic menu.
+
 Each detection keeps `family`, `id`, `decision_margin`, `hamming`,
 `pose_error`, and `pose` together. The compatibility interfaces are:
 

@@ -14,6 +14,8 @@ apriltag_detector:
     max_detection_rate_hz: 10.0
     min_decision_margin: 30.0
     max_hamming: 0
+    # Publica a entrada mono do detector com candidatos e métricas desenhados.
+    publish_debug_image: true
     feedback_rate_hz: 5.0
     suppress_native_pose_warning: true
 

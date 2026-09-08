@@ -7,6 +7,7 @@ import numpy as np
 import yaml
 from interfaces.msg import AprilTagStampedDetection
 from geometry_msgs.msg import Pose
+from sensor_msgs.msg import Image
 
 try:
     import pupil_apriltags  # noqa: F401
@@ -160,6 +161,52 @@ def test_topics_keep_legacy_identity_and_pose_messages():
     assert 'to_stamped_detection_from_item' in source
     assert 'transform.header.frame_id = camera_frame' in source
     assert 'transform.child_frame_id' in source
+
+
+def test_debug_image_shows_raw_and_filtered_detections():
+    config = yaml.safe_load(
+        (PACKAGE / 'config' / 'apriltag.yaml').read_text())
+    parameters = config['apriltag_detector']['ros__parameters']
+    assert parameters['publish_debug_image'] is True
+
+    source = (PACKAGE / 'apriltag' / 'apriltag_detector.py').read_text()
+    assert "'apriltags/debug_image'" in source
+    assert "output.encoding = 'bgr8'" in source
+    assert 'publish_detection_debug_image(message, image, detections)' in source
+    assert 'raw={len(detections)} accepted={accepted}' in source
+
+
+def test_debug_image_is_publishable_and_marks_acceptance():
+    detector = object.__new__(AprilTagDetector)
+    detector.max_hamming = 0
+    detector.min_decision_margin = 30.0
+    published = []
+    detector.debug_image_publisher = SimpleNamespace(publish=published.append)
+    source = Image()
+    source.header.frame_id = 'camera_optical_frame'
+    mono = np.full((80, 100), 127, dtype=np.uint8)
+    accepted = SimpleNamespace(
+        tag_id=1, decision_margin=45.0, hamming=0,
+        corners=np.array([[10, 30], [35, 30], [35, 55], [10, 55]]),
+        center=np.array([22.5, 42.5]),
+    )
+    rejected = SimpleNamespace(
+        tag_id=2, decision_margin=20.0, hamming=0,
+        corners=np.array([[60, 30], [85, 30], [85, 55], [60, 55]]),
+        center=np.array([72.5, 42.5]),
+    )
+
+    detector.publish_detection_debug_image(
+        source, mono, [accepted, rejected])
+
+    assert len(published) == 1
+    output = published[0]
+    assert output.header.frame_id == 'camera_optical_frame'
+    assert (output.height, output.width, output.step) == (80, 100, 300)
+    assert output.encoding == 'bgr8'
+    pixels = np.frombuffer(output.data, dtype=np.uint8).reshape(80, 100, 3)
+    assert np.any((pixels[:, :, 1] == 200) & (pixels[:, :, 2] == 0))
+    assert np.any((pixels[:, :, 2] == 255) & (pixels[:, :, 1] == 0))
 
 
 def test_action_interface_declares_camera_and_base_results():
