@@ -80,8 +80,10 @@ def test_both_measured_cargo_slots_are_enabled():
     profiles = _profiles()
     assert set(profiles.cargo_slots) == {'left', 'right'}
     assert profiles.cargo_slots['left'].store_state == 'deposit_cube_left'
+    assert profiles.cargo_slots['left'].safe_state == 'safe_cube_left'
     assert profiles.cargo_slots['left'].retrieve_state == 'pick_cube_left'
     assert profiles.cargo_slots['right'].store_state == 'deposit_cube_right'
+    assert profiles.cargo_slots['right'].safe_state == 'safe_cube_right'
     assert profiles.cargo_slots['right'].retrieve_state == 'pick_cube_right'
 
 

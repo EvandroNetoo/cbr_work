@@ -14,5 +14,5 @@ manipulation_server:
     place_on_shelf_action: manipulation/place_on_shelf
     place_at_pose_action: manipulation/place_at_pose
     prepare_action: manipulation/prepare
-    moveit_server_timeout_s: 15.0
+    moveit_server_timeout_s: 20.0
     apriltag_analysis_duration_s: 2.0

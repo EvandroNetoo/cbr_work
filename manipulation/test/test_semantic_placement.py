@@ -89,7 +89,8 @@ def test_common_release_reports_physical_effect_only_after_opening_gripper():
     )
     server._feedback = lambda *args: None
     server._gripper = lambda state, description: gripper.append(state)
-    server._safe = lambda _loaded: None
+    transfer_states = []
+    server._transfer_state = lambda description: transfer_states.append(description)
 
     message, location, placed_pose = server._release_at_pose(
         object(), PlaceOnTable, 5, _pose(), _cartesian_profile(), 'teste'
@@ -99,6 +100,7 @@ def test_common_release_reports_physical_effect_only_after_opening_gripper():
     assert server._effect_location == ManipulationResult.LOCATION_DESTINATION
     assert gripper == ['open']
     assert len(motions) == 3
+    assert transfer_states == ['Preparando detect_apriltags após o depósito']
     assert placed_pose.pose.position.z == pytest.approx(0.10)
     assert 'depositado' in message
     assert location > 0

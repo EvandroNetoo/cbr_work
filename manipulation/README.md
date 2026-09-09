@@ -73,6 +73,11 @@ Se nenhuma tag for detectada, o candidato alcançável mais próximo do nominal 
 usado; se nenhum candidato for livre, a action retorna `NO_FREE_SPACE` sem
 iniciar o depósito.
 
+Após liberar o objeto e recuar pela pose de aproximação, os depósitos
+cartesianos levam o braço diretamente para `detect_apriltags`. O retorno para
+`home` fica a cargo de `PrepareManipulator` no modo `NAVIGATION`, evitando o
+desvio por `home` quando a próxima operação também acontece na mesa.
+
 O servidor aceita somente uma operação por vez e propaga cancelamento para o
 goal ativo do MoveIt ou do detector. Após cancelar, o braço permanece parado;
 nenhum movimento automático de recuperação é iniciado. O servidor não possui
@@ -115,13 +120,13 @@ ros2 action send_goal manipulation/retrieve interfaces/action/RetrieveObject \
   "{object_tag_id: 5, slot_id: right}" --feedback
 ```
 
-Na retirada, `store_state` é a pose segura de armazenamento e `retrieve_state`
-é a pose baixa onde a garra alcança o objeto. Para o compartimento `left`, a
-sequência completa é `pre_grip` → `detect_apriltags` → `deposit_cube_left` →
-`pick_cube_left` → fechar em `grip` → `deposit_cube_left` →
-`detect_apriltags`. No lado direito, a mesma lógica usa `deposit_cube_right` e
-`pick_cube_right`. O armazenamento também parte de `detect_apriltags` e volta
-para essa pose; `home` fica para a preparação da navegação da base.
+Na retirada, `safe_state` é a pose segura de entrada e saída, enquanto
+`retrieve_state` é a pose baixa onde a garra alcança o objeto. Para o
+compartimento `left`, a sequência completa é `safe_cube_left` → `pre_grip` →
+`pick_cube_left` → fechar em `grip` → `safe_cube_left`. No lado direito, a
+mesma lógica usa `safe_cube_right` e `pick_cube_right`. O armazenamento usa
+`store_state` (`deposit_cube_left/right`) para liberar o objeto; `home` fica
+para a preparação da navegação da base.
 
 Depósito em uma pose explícita do TCP (`arm_base_link`):
 

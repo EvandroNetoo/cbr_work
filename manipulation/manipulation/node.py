@@ -201,6 +201,7 @@ class ManipulationServer(Node):
             profiles.transport_loaded_state,
             *(profile.observation_state for profile in profiles.pickup.values()),
             *(slot.store_state for slot in profiles.cargo_slots.values()),
+            *(slot.safe_state for slot in profiles.cargo_slots.values()),
             *(slot.retrieve_state for slot in profiles.cargo_slots.values()),
             *(
                 profile.named_state
@@ -613,17 +614,14 @@ class ManipulationServer(Node):
                 raise ConfigurationError(f"Compartimento não configurado: '{slot_id}'.")
             self._feedback(
                 goal_handle, RetrieveObject, ManipulationFeedback.PREPARING,
-                0.10, 'Preparando a abertura da garra para retirar o objeto',
+                0.10, f"Indo para a pose segura do compartimento '{slot_id}'",
+            )
+            self._arm_state(slot.safe_state, 'Indo para a pose segura de retirada')
+            self._feedback(
+                goal_handle, RetrieveObject, ManipulationFeedback.PREPARING,
+                0.25, 'Preparando a abertura da garra para retirar o objeto',
             )
             self._gripper('pre_grip', 'Posicionando a garra em pre_grip')
-            self._transfer_state(
-                'Garantindo detect_apriltags antes de acessar o compartimento'
-            )
-            self._feedback(
-                goal_handle, RetrieveObject, ManipulationFeedback.APPROACHING,
-                0.25, f"Aproximando do compartimento '{slot_id}'",
-            )
-            self._arm_state(slot.store_state, 'Indo para a pose de armazenamento')
             self._feedback(
                 goal_handle, RetrieveObject, ManipulationFeedback.APPROACHING,
                 0.45, 'Descendo até o objeto armazenado',
@@ -642,13 +640,10 @@ class ManipulationServer(Node):
             try:
                 self._feedback(
                     goal_handle, RetrieveObject, ManipulationFeedback.RETREATING,
-                    0.80, 'Elevando o objeto do compartimento',
+                    0.80, 'Retornando à pose segura com o objeto',
                 )
                 self._arm_state(
-                    slot.store_state, 'Retornando à pose de armazenamento'
-                )
-                self._transfer_state(
-                    'Retornando do compartimento para detect_apriltags'
+                    slot.safe_state, 'Retornando à pose segura de retirada'
                 )
             except Exception:
                 self._mark_effect_unknown()
@@ -915,7 +910,9 @@ class ManipulationServer(Node):
             GRUPO_BRACO, restricoes_de_pre_pegada(retreat_pose),
             VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
         )
-        self._safe(False)
+        self._transfer_state(
+            'Preparando detect_apriltags após o depósito'
+        )
         return (
             f'Objeto {tag_id} depositado: {destination}.',
             ManipulationResult.LOCATION_DESTINATION,

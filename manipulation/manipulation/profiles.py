@@ -85,6 +85,7 @@ class PlacementProfile:
 class CargoSlotProfile:
     slot_id: str
     store_state: str
+    safe_state: str
     retrieve_state: str
 
 
@@ -427,14 +428,22 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
     cargo_slots: dict[str, CargoSlotProfile] = {}
     for slot_id, raw_value in cargo_raw.items():
         raw = _mapping(raw_value, f'cargo_slots.{slot_id}')
-        _only_keys(raw, {'store_state', 'retrieve_state'}, f'cargo_slots.{slot_id}')
+        _only_keys(
+            raw,
+            {'store_state', 'safe_state', 'retrieve_state'},
+            f'cargo_slots.{slot_id}',
+        )
         store_state = str(raw.get('store_state', ''))
+        safe_state = str(raw.get('safe_state', ''))
         retrieve_state = str(raw.get('retrieve_state', ''))
-        if not store_state or not retrieve_state:
+        if not store_state or not safe_state or not retrieve_state:
             raise ConfigurationError(
-                f"O compartimento '{slot_id}' precisa de store_state e retrieve_state."
+                f"O compartimento '{slot_id}' precisa de store_state, safe_state "
+                'e retrieve_state.'
             )
-        cargo_slots[slot_id] = CargoSlotProfile(slot_id, store_state, retrieve_state)
+        cargo_slots[slot_id] = CargoSlotProfile(
+            slot_id, store_state, safe_state, retrieve_state
+        )
     if not cargo_slots:
         raise ConfigurationError('Configure ao menos um compartimento de carga.')
 

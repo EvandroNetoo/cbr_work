@@ -40,38 +40,58 @@
     <joint name="link4_to_link5" value="1.5707963267"/>
   </group_state>
 
+  <!-- Posição de depósito do compartimento esquerdo: [96, 41, -46, -89, 89]°. -->
   <group_state name="deposit_cube_left" group="arm">
-    <joint name="base_link_to_link1" value="1.8325957146"/>
-    <joint name="link1_to_link2" value="0.6981317008"/>
-    <joint name="link2_to_link3" value="-0.6108652382"/>
-    <joint name="link3_to_link4" value="-1.8151424221"/>
-    <joint name="link4_to_link5" value="1.3962634016"/>
+    <joint name="base_link_to_link1" value="1.6755160819"/>
+    <joint name="link1_to_link2" value="0.7155849933"/>
+    <joint name="link2_to_link3" value="-0.8028514559"/>
+    <joint name="link3_to_link4" value="-1.5533430343"/>
+    <joint name="link4_to_link5" value="1.5533430343"/>
   </group_state>
 
+  <!-- Posição segura do compartimento esquerdo: [96, 44, -33, -102, 90]°. -->
+  <group_state name="safe_cube_left" group="arm">
+    <joint name="base_link_to_link1" value="1.6755160819"/>
+    <joint name="link1_to_link2" value="0.7679448709"/>
+    <joint name="link2_to_link3" value="-0.5759586532"/>
+    <joint name="link3_to_link4" value="-1.7802358370"/>
+    <joint name="link4_to_link5" value="1.5707963268"/>
+  </group_state>
+
+  <!-- Posição de retirada do compartimento esquerdo: [96, 55, -63, -81, 90]°. -->
   <group_state name="pick_cube_left" group="arm">
-    <joint name="base_link_to_link1" value="1.7976891296"/>
-    <joint name="link1_to_link2" value="0.7504915784"/>
-    <joint name="link2_to_link3" value="-0.9250245036"/>
-    <joint name="link3_to_link4" value="-1.5184364492"/>
-    <joint name="link4_to_link5" value="1.3788101091"/>
+    <joint name="base_link_to_link1" value="1.6755160819"/>
+    <joint name="link1_to_link2" value="0.9599310886"/>
+    <joint name="link2_to_link3" value="-1.0995574288"/>
+    <joint name="link3_to_link4" value="-1.4137166941"/>
+    <joint name="link4_to_link5" value="1.5707963268"/>
   </group_state>
 
-  <!-- Posição superior segura do compartimento direito: [-95, 40, -38, -101, 95]°. -->
+  <!-- Espelho da posição de depósito esquerda, invertendo somente a primeira junta. -->
   <group_state name="deposit_cube_right" group="arm">
-    <joint name="base_link_to_link1" value="-1.6580627894"/>
-    <joint name="link1_to_link2" value="0.6981317008"/>
-    <joint name="link2_to_link3" value="-0.6108652382"/>
-    <joint name="link3_to_link4" value="-1.8151424221"/>
-    <joint name="link4_to_link5" value="1.6580627894"/>
+    <joint name="base_link_to_link1" value="-1.6755160819"/>
+    <joint name="link1_to_link2" value="0.7155849933"/>
+    <joint name="link2_to_link3" value="-0.8028514559"/>
+    <joint name="link3_to_link4" value="-1.5533430343"/>
+    <joint name="link4_to_link5" value="1.5533430343"/>
   </group_state>
 
-  <!-- Posição baixa de retirada do compartimento direito: [-100, 43, -53, -87, 95]°. -->
+  <!-- Espelho da posição segura esquerda, invertendo somente a primeira junta. -->
+  <group_state name="safe_cube_right" group="arm">
+    <joint name="base_link_to_link1" value="-1.6755160819"/>
+    <joint name="link1_to_link2" value="0.7679448709"/>
+    <joint name="link2_to_link3" value="-0.5759586532"/>
+    <joint name="link3_to_link4" value="-1.7802358370"/>
+    <joint name="link4_to_link5" value="1.5707963268"/>
+  </group_state>
+
+  <!-- Espelho da posição de retirada esquerda, invertendo somente a primeira junta. -->
   <group_state name="pick_cube_right" group="arm">
-    <joint name="base_link_to_link1" value="-1.7453292520"/>
-    <joint name="link1_to_link2" value="0.7504915784"/>
-    <joint name="link2_to_link3" value="-0.9250245036"/>
-    <joint name="link3_to_link4" value="-1.5184364492"/>
-    <joint name="link4_to_link5" value="1.6580627894"/>
+    <joint name="base_link_to_link1" value="-1.6755160819"/>
+    <joint name="link1_to_link2" value="0.9599310886"/>
+    <joint name="link2_to_link3" value="-1.0995574288"/>
+    <joint name="link3_to_link4" value="-1.4137166941"/>
+    <joint name="link4_to_link5" value="1.5707963268"/>
   </group_state>
 
   <group_state name="place_cube_center" group="arm">

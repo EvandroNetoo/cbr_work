@@ -81,24 +81,21 @@ def test_retrieve_uses_explicit_waypoints_before_and_after_grasp():
     retrieve = source.split('def _execute_retrieve', 1)[1]
     retrieve = retrieve.split('def _validate_target_pose', 1)[0]
 
-    pre_grip = retrieve.index("self._gripper('pre_grip'")
-    transfer = retrieve.index('self._transfer_state(', pre_grip)
-    approach_store = retrieve.index(
-        'self._arm_state(slot.store_state', transfer
-    )
+    approach_safe = retrieve.index('self._arm_state(slot.safe_state')
+    pre_grip = retrieve.index("self._gripper('pre_grip'", approach_safe)
     retrieve_pose = retrieve.index(
-        'self._arm_state(slot.retrieve_state', approach_store
+        'self._arm_state(slot.retrieve_state', pre_grip
     )
     close_gripper = retrieve.index("self._gripper('grip'", retrieve_pose)
-    retreat_store = retrieve.index(
-        'self._arm_state(\n                    slot.store_state', close_gripper
+    retreat_safe = retrieve.index(
+        'self._arm_state(\n                    slot.safe_state', close_gripper
     )
-    return_transfer = retrieve.index('self._transfer_state(', retreat_store)
 
     assert (
-        pre_grip < transfer < approach_store < retrieve_pose < close_gripper
-        < retreat_store < return_transfer
+        approach_safe < pre_grip < retrieve_pose < close_gripper < retreat_safe
     )
+    assert 'self._transfer_state(' not in retrieve
+    assert 'slot.store_state' not in retrieve
     assert 'self._safe()' not in retrieve
 
 
@@ -115,6 +112,21 @@ def test_pick_returns_to_approach_before_detection_pose():
 
     assert close_gripper < return_approach < return_detection
     assert 'executar_trajetoria_invertida' not in pick
+
+
+def test_cartesian_deposit_finishes_in_apriltag_observation_pose():
+    source = (PACKAGE / 'manipulation' / 'node.py').read_text()
+    release = source.split('def _release_at_pose', 1)[1]
+    release = release.split('def _execute_place_on_table', 1)[0]
+
+    open_gripper = release.index("self._gripper('open'")
+    retreat = release.index(
+        'restricoes_de_pre_pegada(retreat_pose)', open_gripper
+    )
+    return_detection = release.index('self._transfer_state(', retreat)
+
+    assert open_gripper < retreat < return_detection
+    assert 'self._safe(False)' not in release
 
 
 def test_launch_installs_profiles_from_package_share():

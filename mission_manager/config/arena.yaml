@@ -51,19 +51,19 @@ service_areas:
     x_m: 4.953
     y_m: 3.251
     yaw_rad: -1.570
-    height_cm: 10
+    height_cm: 15
     type: WS
 
   ws_2:
-    x_m: 2.127
-    y_m: 4.570
+    x_m: 2.194
+    y_m: 5.151
     yaw_rad: -1.570
-    height_cm: 15
+    height_cm: 10
     type: WS
 
   ws_3:
-    x_m: 2.122
-    y_m: 3.266
+    x_m: 2.194
+    y_m: 3.700
     yaw_rad: 1.570
-    height_cm: 15
+    height_cm: 10
     type: WS

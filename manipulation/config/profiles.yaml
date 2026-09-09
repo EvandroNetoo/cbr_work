@@ -29,20 +29,20 @@ placements:
     release_yaw_deg: 0.0
     tcp_release_offset_cm: -7.5
     # Região segura e alcançável para buscar espaço livre. Calibrar os vazios.
-    free_space_min_distance_m: 0.08
-    free_space_preferred_distance_m: 0.12
+    free_space_min_distance_m: 0.07
+    free_space_preferred_distance_m: 0.10
     # Faixa de alcance XY em torno do centro do braço.
     reach_center_x_m: 0.0
     reach_center_y_m: 0.0
-    reach_min_radius_m: 0.125
-    reach_max_radius_m: 0.30
+    reach_min_radius_m: 0.155
+    reach_max_radius_m: 0.28
     search_x_min_m: -0.2
     search_x_max_m: 0.2
-    search_y_min_m: -0.30
-    search_y_max_m: -0.10
+    search_y_min_m: -0.25
+    search_y_max_m: -0.15
     search_step_m: 0.01
-    approach_height_m: 0.07
-    retreat_height_m: 0.07
+    approach_height_m: 0.06
+    retreat_height_m: 0.06
 
   explicit_pose:
     strategy: cartesian

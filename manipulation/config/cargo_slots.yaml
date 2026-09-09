@@ -3,15 +3,19 @@ schema_version: 1
 # Cada compartimento referencia sua pose superior segura e sua pose baixa.
 cargo_slots:
   left:
-    # Pose segura de armazenamento, usada antes e depois da pose de retirada.
+    # Pose onde o objeto é liberado durante o armazenamento.
     store_state: deposit_cube_left
+    # Pose segura usada antes e depois da retirada.
+    safe_state: safe_cube_left
     # Pose baixa onde a garra alcança o objeto armazenado.
     retrieve_state: pick_cube_left
 
   right:
-    # Primeira pose medida: aproximação e saída segura do compartimento.
+    # Pose onde o objeto é liberado durante o armazenamento.
     store_state: deposit_cube_right
-    # Segunda pose medida: garra na altura do objeto armazenado.
+    # Pose segura usada antes e depois da retirada.
+    safe_state: safe_cube_right
+    # Pose baixa onde a garra alcança o objeto armazenado.
     retrieve_state: pick_cube_right
 
 transport_empty_state: home
