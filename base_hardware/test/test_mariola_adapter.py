@@ -3,6 +3,7 @@ import math
 import pytest
 
 from base_hardware.controleMotores import (
+    ControleMotores,
     GrupoMotoresBrick,
     GrupoMotoresExpansao,
 )
@@ -32,6 +33,7 @@ class FakeControle:
         self.reset_calls = 0
         self.brake_calls = 0
         self.close_calls = []
+        self.led_colors = []
 
     def reseta_angulos_motores(self):
         self.reset_calls += 1
@@ -48,6 +50,9 @@ class FakeControle:
     def fechar(self, parar_motores=True):
         self.close_calls.append(parar_motores)
 
+    def definir_led_rgb(self, red, green, blue):
+        self.led_colors.append((red, green, blue))
+
 
 class FakeBrick:
     BREAK = 0
@@ -58,6 +63,7 @@ class FakeBrick:
         self.commands = []
         self.mode = None
         self.angles = {1: 986, 2: 986}
+        self.led_colors = []
 
     def velocidade_motores(self, left, right):
         self.commands.append((left, right))
@@ -76,6 +82,9 @@ class FakeBrick:
 
     def reseta_angulo_motor(self, index):
         self.angles[index] = 0
+
+    def set_led_rgb_all(self, red, green, blue):
+        self.led_colors.append((red, green, blue))
 
 
 class FakeExpansion:
@@ -162,8 +171,18 @@ def test_adapter_uses_controle_motores_for_commands_and_encoders():
 
     base.stop()
     assert controle.brake_calls == 1
+    base.set_led_rgb(255, 255, 255)
+    assert controle.led_colors == [(255, 255, 255)]
     base.close(stop=False)
     assert controle.close_calls == [False]
+
+
+@pytest.mark.parametrize('color', [(-1, 0, 0), (0, 256, 0), (True, 0, 0)])
+def test_adapter_rejects_invalid_led_colors(color):
+    base = MariolaBase(controle=FakeControle())
+    with pytest.raises(ValueError):
+        base.set_led_rgb(*color)
+    base.close(stop=False)
 
 
 def test_original_groups_apply_physical_inversions():
@@ -178,6 +197,8 @@ def test_original_groups_apply_physical_inversions():
         'rear_right_wheel_joint': 50,
     })
     assert brick.commands[-1] == (50, -50)
+    rear.definir_led_rgb(255, 255, 255)
+    assert brick.led_colors == [(255, 255, 255)]
 
     front_left = FakeExpansion()
     front_right = FakeExpansion()
@@ -197,3 +218,14 @@ def test_original_groups_apply_physical_inversions():
     })
     assert front_left.commands[-1] == -50
     assert front_right.commands[-1] == 50
+
+
+def test_unified_controller_routes_led_to_brick_group():
+    brick = FakeBrick()
+    rear = GrupoMotoresBrick(brick, ('rear_left', 'rear_right'))
+    controle = ControleMotores([rear])
+
+    controle.definir_led_rgb(255, 255, 255)
+
+    assert brick.led_colors == [(255, 255, 255)]
+    controle.fechar(parar_motores=False)

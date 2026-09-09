@@ -5,7 +5,7 @@ frame_id: map
 # somente os campos que forem diferentes.
 alignment_defaults:
   distance_mm: 30
-  tolerance_mm: 10
+  tolerance_mm: 5
   timeout_s: 10.0
 
 # Distância segura da superfície antes de entregar novamente o movimento ao
@@ -20,7 +20,7 @@ departure_defaults:
 # longo da parede; o eixo y corrige a distância perpendicular à parede.
 pickup_recovery:
   enabled: true
-  minimum_wall_distance_mm: 30
+  minimum_wall_distance_mm: 15
   maximum_wall_distance_mm: 250
   # Limites laterais absolutos relativos ao alinhamento inicial (posição 0).
   minimum_lateral_position_mm: -275
@@ -42,9 +42,9 @@ start:
   yaw_rad: -1.6412
 
 finish:
-  x_m: -4.792
-  y_m: 6.156
-  yaw_rad: 1.660
+  x_m: 4.162
+  y_m: 6.000
+  yaw_rad: 1.570
 
 service_areas:
   ws_1:

@@ -8,6 +8,7 @@ import yaml
 from interfaces.msg import AprilTagStampedDetection
 from geometry_msgs.msg import Pose
 from sensor_msgs.msg import Image
+from std_srvs.srv import SetBool
 
 try:
     import pupil_apriltags  # noqa: F401
@@ -34,6 +35,29 @@ class _Logger:
 
     def error(self, *_args, **_kwargs):
         pass
+
+
+class _CompletedFuture:
+    def __init__(self, response):
+        self._response = response
+
+    def add_done_callback(self, callback):
+        callback(self)
+
+    def result(self):
+        return self._response
+
+
+class _VisionLedClient:
+    def __init__(self):
+        self.requests = []
+
+    def wait_for_service(self, timeout_sec):
+        return True
+
+    def call_async(self, request):
+        self.requests.append(request.data)
+        return _CompletedFuture(SetBool.Response(success=True, message='ok'))
 
 
 def _item(tag_id, error, margin, hamming=0, stamp=0):
@@ -111,6 +135,9 @@ def test_real_profile_stops_camera_while_idle():
     assert parameters['camera_idle_timeout_sec'] == 0.0
     assert parameters['camera_capture_retry_sec'] == 1.0
     assert parameters['max_detection_rate_hz'] == 10.0
+    assert parameters['manage_vision_led'] is True
+    assert parameters['vision_led_service'] == '/base_hardware/set_vision_led'
+    assert parameters['vision_led_timeout_sec'] == 5.0
 
     source = (PACKAGE / 'apriltag' / 'apriltag_detector.py').read_text()
     assert 'SetBool' in source
@@ -118,6 +145,26 @@ def test_real_profile_stops_camera_while_idle():
     assert 'def _stop_camera_when_idle' in source
     assert 'self._wait_for_camera_capture()' in source
     assert 'now - self.last_detection_time < self.detection_period' in source
+
+
+def test_vision_led_is_controlled_through_base_hardware_service():
+    detector = object.__new__(AprilTagDetector)
+    detector.manage_vision_led = True
+    detector.vision_led_timeout = 0.1
+    detector.vision_led_service = '/base_hardware/set_vision_led'
+    detector.vision_led_client = _VisionLedClient()
+    detector.get_logger = lambda: _Logger()
+
+    assert detector._set_vision_led(True)
+    assert detector._set_vision_led(False)
+    assert detector.vision_led_client.requests == [True, False]
+
+    source = (PACKAGE / 'apriltag' / 'apriltag_detector.py').read_text()
+    execute_callback = source.split('    def execute_callback', 1)[1].split(
+        '    def _feedback', 1)[0]
+    assert execute_callback.index('self._set_vision_led(True)') < (
+        execute_callback.index('self._wait_for_camera_capture()'))
+    assert 'self._set_vision_led(False)' in execute_callback
 
 
 def test_continuous_apriltag_outputs_keep_only_latest_sample():

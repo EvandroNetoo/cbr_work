@@ -154,6 +154,10 @@ class GrupoMotoresBrick(GrupoMotores):
         for nome in self.nomes:
             self.reseta_angulo_motor(nome)
 
+    def definir_led_rgb(self, vermelho: int, verde: int, azul: int) -> None:
+        """Controla os LEDs ligados à placa do brick."""
+        self.controlador.set_led_rgb_all(vermelho, verde, azul)
+
 
 class GrupoMotoresExpansao(GrupoMotores):
     """Adapta motores individuais no barramento de expansão."""
@@ -396,6 +400,26 @@ class ControleMotores:
             if falhas:
                 raise ErroControleMotores(falhas)
 
+    def definir_led_rgb(self, vermelho: int, verde: int, azul: int) -> None:
+        """Envia uma cor aos LEDs pela mesma serial usada pelos motores."""
+        with self._lock:
+            self._garantir_aberto()
+            grupos_brick = [
+                grupo for grupo in self._grupos
+                if isinstance(grupo, GrupoMotoresBrick)
+            ]
+            if len(grupos_brick) != 1:
+                raise RuntimeError(
+                    'O controle deve possuir exatamente um grupo do brick '
+                    'para controlar os LEDs.')
+            grupo = grupos_brick[0]
+            try:
+                grupo.definir_led_rgb(vermelho, verde, azul)
+            except Exception as exc:
+                raise ErroControleMotores(
+                    {self._nome_grupo(grupo): exc}
+                ) from exc
+
     def frear(self) -> None:
         with self._lock:
             self._garantir_aberto()
@@ -472,4 +496,3 @@ class ControleMotores:
         traceback: TracebackType | None,
     ) -> None:
         self.fechar()
-

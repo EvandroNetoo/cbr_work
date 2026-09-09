@@ -246,6 +246,22 @@ class MariolaBase:
         except ErroControleMotores as error:
             raise MotorCommunicationError(str(error)) from error
 
+    def set_led_rgb(self, red: int, green: int, blue: int) -> None:
+        """Controla todos os LEDs RGB pela conexão já aberta com o brick."""
+        components = (red, green, blue)
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not 0 <= value <= 255
+            for value in components
+        ):
+            raise ValueError('Os componentes RGB devem ser inteiros entre 0 e 255.')
+        try:
+            self._ensure_open()
+            self._controle.definir_led_rgb(red, green, blue)
+        except ErroControleMotores as error:
+            raise MotorCommunicationError(str(error)) from error
+
     def close(self, *, stop: bool = True):
         if self._closed:
             return

@@ -161,6 +161,10 @@ class AprilTagDetector(Node):
         self.declare_parameter('camera_capture_timeout_sec', 5.0)
         self.declare_parameter('camera_idle_timeout_sec', 0.0)
         self.declare_parameter('camera_capture_retry_sec', 1.0)
+        self.declare_parameter('manage_vision_led', True)
+        self.declare_parameter(
+            'vision_led_service', '/base_hardware/set_vision_led')
+        self.declare_parameter('vision_led_timeout_sec', 5.0)
 
         self.warning_filter = (NativeWarningFilter()
                                if bool(self.get_parameter('suppress_native_pose_warning').value)
@@ -228,6 +232,16 @@ class AprilTagDetector(Node):
         self.next_capture_attempt = 0.0
         self.capture_client = None
         self.camera_idle_timer = None
+        self.manage_vision_led = bool(
+            self.get_parameter('manage_vision_led').value)
+        self.vision_led_timeout = max(
+            0.1, float(self.get_parameter('vision_led_timeout_sec').value))
+        self.vision_led_client = None
+        if self.manage_vision_led:
+            self.vision_led_service = str(
+                self.get_parameter('vision_led_service').value)
+            self.vision_led_client = self.create_client(
+                SetBool, self.vision_led_service)
         if self.manage_camera_capture:
             self.camera_capture_service = str(
                 self.get_parameter('camera_capture_service').value)
@@ -389,6 +403,39 @@ class AprilTagDetector(Node):
             self.camera_idle_timer = self.create_timer(
                 0.25, self._stop_camera_when_idle)
 
+    def _set_vision_led(self, enabled: bool) -> bool:
+        """Liga ou desliga a iluminação através do dono da serial do brick."""
+        if not self.manage_vision_led:
+            return True
+        if self.vision_led_client is None or not self.vision_led_client.wait_for_service(
+            timeout_sec=self.vision_led_timeout
+        ):
+            self.get_logger().error(
+                f'O serviço de iluminação {self.vision_led_service} não está disponível.')
+            return False
+
+        request = SetBool.Request()
+        request.data = enabled
+        future = self.vision_led_client.call_async(request)
+        completed = threading.Event()
+        future.add_done_callback(lambda _future: completed.set())
+        if not completed.wait(timeout=self.vision_led_timeout):
+            self.get_logger().error(
+                f'O serviço de iluminação {self.vision_led_service} não respondeu.')
+            return False
+        try:
+            response = future.result()
+        except Exception as error:
+            self.get_logger().error(
+                f'Falha ao chamar o serviço de iluminação: {error}')
+            return False
+        if response is None or not response.success:
+            message = response.message if response is not None else 'sem resposta'
+            self.get_logger().error(
+                f'Não foi possível alterar o LED de visão: {message}')
+            return False
+        return True
+
     def _stop_camera_when_idle(self) -> None:
         with self.sessions_lock:
             idle = self.state == 'idle'
@@ -412,7 +459,14 @@ class AprilTagDetector(Node):
             self.session = session
             self.state = 'analyzing'
             self.last_detection_time = float('-inf')
+        vision_led_enabled = False
         try:
+            if not self._set_vision_led(True):
+                result = self._result(
+                    session, 'A iluminação da câmera não pôde ser ligada.')
+                goal_handle.abort(result)
+                return result
+            vision_led_enabled = self.manage_vision_led
             if not self._wait_for_camera_capture():
                 result = self._result(
                     session, 'A câmera não iniciou dentro do tempo limite.')
@@ -438,6 +492,8 @@ class AprilTagDetector(Node):
                     session.last_feedback = now
                     goal_handle.publish_feedback(self._feedback(session))
         finally:
+            if vision_led_enabled:
+                self._set_vision_led(False)
             with self.sessions_lock:
                 self.session = None
                 self.state = 'deactivating'

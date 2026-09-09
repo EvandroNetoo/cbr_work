@@ -9,9 +9,9 @@ vl53_distance_action:
     # Endereço 0x70 do TCA9548A em representação decimal para o YAML ROS.
     sensor.mux_address: 112
     sensor.right.channel: 0
-    sensor.right.offset_mm: 48
+    sensor.right.offset_mm: 50
     sensor.left.channel: 1
-    sensor.left.offset_mm: 106
+    sensor.left.offset_mm: 101
     sensor.raw_min_mm: 0
     sensor.raw_max_mm: 8191
     sensor.median_window: 3

@@ -13,6 +13,7 @@ from rclpy.logging import get_logger
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
+from std_srvs.srv import SetBool
 
 from .mariola_adapter import (
     MariolaBase,
@@ -33,6 +34,10 @@ class BaseHardwareNode(Node):
         self.declare_parameter('max_consecutive_io_failures', 3)
         self.declare_parameter('state_topic', '/base_hardware/raw_joint_states')
         self.declare_parameter('command_topic', '/base_hardware/command_velocities')
+        self.declare_parameter('vision_led.service', '/base_hardware/set_vision_led')
+        self.declare_parameter('vision_led.red', 255)
+        self.declare_parameter('vision_led.green', 255)
+        self.declare_parameter('vision_led.blue', 255)
         self.declare_parameter('hardware.expansion_serial_port', 3)
         self.declare_parameter('hardware.serial_baud_rate', 250000)
         self.declare_parameter('hardware.expansion_timeout_sec', 0.005)
@@ -102,7 +107,18 @@ class BaseHardwareNode(Node):
         self._max_wheel_velocity = hardware_config.max_wheel_velocity_rad_s
         self._min_effective_command = (
             hardware_config.min_effective_wheel_command)
+        self._vision_led_color = tuple(
+            int(self.get_parameter(f'vision_led.{component}').value)
+            for component in ('red', 'green', 'blue')
+        )
+        if any(not 0 <= value <= 255 for value in self._vision_led_color):
+            raise ValueError(
+                'vision_led.red, green e blue devem estar entre 0 e 255.')
         self._backend = backend or MariolaBase(config=hardware_config)
+        # A placa pode preservar a última cor enquanto recebe outros comandos.
+        # Sincronize explicitamente o estado físico ao iniciar o driver.
+        self._backend.set_led_rgb(0, 0, 0)
+        self._vision_led_enabled = False
 
         # Estes tópicos formam uma ponte local de estado/comando em alta taxa.
         # Uma amostra antiga não tem utilidade e não pode bloquear o loop de
@@ -120,7 +136,33 @@ class BaseHardwareNode(Node):
             self._command_callback,
             qos,
         )
+        self._vision_led_service = self.create_service(
+            SetBool,
+            self.get_parameter('vision_led.service').value,
+            self._set_vision_led_callback,
+        )
         self._timer = self.create_timer(1.0 / rate, self._io_cycle)
+
+    def _set_vision_led_callback(self, request, response):
+        enabled = bool(request.data)
+        if enabled == self._vision_led_enabled:
+            response.success = True
+            response.message = 'LED de visão já estava no estado solicitado.'
+            return response
+
+        color = self._vision_led_color if enabled else (0, 0, 0)
+        try:
+            self._backend.set_led_rgb(*color)
+        except Exception as error:
+            response.success = False
+            response.message = f'Falha ao controlar o LED de visão: {error}'
+            self.get_logger().error(response.message)
+            return response
+
+        self._vision_led_enabled = enabled
+        response.success = True
+        response.message = 'LED de visão ligado.' if enabled else 'LED de visão desligado.'
+        return response
 
     def _command_callback(self, message: WheelCommand):
         try:
@@ -216,6 +258,13 @@ class BaseHardwareNode(Node):
             self.get_logger().error(detail)
 
     def destroy_node(self):
+        if self._vision_led_enabled:
+            try:
+                self._backend.set_led_rgb(0, 0, 0)
+                self._vision_led_enabled = False
+            except Exception as error:
+                self.get_logger().error(
+                    f'Não foi possível desligar o LED de visão: {error}')
         self._backend.close(stop=True)
         super().destroy_node()
 

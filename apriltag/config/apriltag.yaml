@@ -27,3 +27,9 @@ apriltag_detector:
     # assinaturas no mesmo ciclo do executor.
     camera_idle_timeout_sec: 0.0
     camera_capture_retry_sec: 1.0
+
+    # O base_hardware é o único dono da serial do brick. O detector apenas
+    # solicita iluminação no início e desligamento no fim de cada ação.
+    manage_vision_led: true
+    vision_led_service: /base_hardware/set_vision_led
+    vision_led_timeout_sec: 5.0

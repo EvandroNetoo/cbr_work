@@ -9,6 +9,12 @@ base_hardware_node:
     state_topic: /base_hardware/raw_joint_states
     command_topic: /base_hardware/command_velocities
 
+    # Iluminação branca usada somente durante a análise de AprilTags.
+    vision_led.service: /base_hardware/set_vision_led
+    vision_led.red: 255
+    vision_led.green: 255
+    vision_led.blue: 255
+
     # O brick permanece na SERIAL0, como no exemplo validado.
     hardware.expansion_serial_port: 3
     hardware.serial_baud_rate: 250000

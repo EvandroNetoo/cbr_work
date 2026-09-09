@@ -5,6 +5,7 @@ import time
 from interfaces.msg import WheelCommand
 import pytest
 import rclpy
+from std_srvs.srv import SetBool
 import yaml
 
 from base_hardware.hardware_node import BaseHardwareNode
@@ -20,6 +21,7 @@ class FakeBackend:
         self.stop_calls = 0
         self.close_calls = 0
         self.read_error = None
+        self.led_colors = []
 
     def read(self, now=None):
         if self.read_error is not None:
@@ -36,6 +38,9 @@ class FakeBackend:
         self.close_calls += 1
         if stop:
             self.stop()
+
+    def set_led_rgb(self, red, green, blue):
+        self.led_colors.append((red, green, blue))
 
 
 @pytest.fixture
@@ -69,6 +74,12 @@ def test_performance_defaults_are_explicit():
     assert parameters['hardware.min_effective_wheel_command'] == 4
     assert parameters['hardware.brick_ticks_per_revolution'] == 986
     assert parameters['hardware.expansion_ticks_per_revolution'] == 1972
+    assert parameters['vision_led.service'] == '/base_hardware/set_vision_led'
+    assert (
+        parameters['vision_led.red'],
+        parameters['vision_led.green'],
+        parameters['vision_led.blue'],
+    ) == (255, 255, 255)
 
     launch_source = (PACKAGE_ROOT / 'launch' / 'driver.launch.py').read_text()
     assert "'deduplicate_commands', default_value='true'" in launch_source
@@ -93,6 +104,27 @@ def test_valid_command_is_written_while_fresh(node_and_backend):
     node._command_callback(command_message())
     node._io_cycle()
     assert backend.writes[-1] == {name: 1.0 for name in WHEEL_NAMES}
+
+
+def test_vision_led_service_sends_each_state_once(node_and_backend):
+    node, backend = node_and_backend
+
+    # O driver sempre limpa um possível estado residual da placa no startup.
+    assert backend.led_colors == [(0, 0, 0)]
+
+    enabled = node._set_vision_led_callback(
+        SetBool.Request(data=True), SetBool.Response())
+    repeated = node._set_vision_led_callback(
+        SetBool.Request(data=True), SetBool.Response())
+    disabled = node._set_vision_led_callback(
+        SetBool.Request(data=False), SetBool.Response())
+
+    assert enabled.success and repeated.success and disabled.success
+    assert backend.led_colors == [
+        (0, 0, 0),
+        (255, 255, 255),
+        (0, 0, 0),
+    ]
 
 
 def test_watchdog_writes_four_zero_commands(node_and_backend):
