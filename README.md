@@ -1,22 +1,25 @@
 # CBR ROS 2 Workspace
 
-Pacotes ROS 2 do robô da CBR. A Banana Pi executa o sistema autônomo; o
-notebook é uma estação opcional de visualização, teleoperação e diagnóstico.
+Pacotes ROS 2 do robô da CBR. A Banana Pi executa drivers e controle de baixo
+nível; o Raspberry Pi 4 executa percepção, planejamento e autonomia. O notebook
+é uma estação opcional de visualização, teleoperação e diagnóstico.
 
 ## Arquitetura
 
 ```text
-Banana Pi: driver → ros2_control → controllers → MoveIt → autonomia
-Notebook:  RViz / MotionPlanning / teleop / diagnóstico
+Banana Pi:    drivers físicos → ros2_control → controllers
+Raspberry Pi: câmera / EKF / AMCL / Nav2 / MoveIt / manipulação / missão
+Notebook:     RViz / MotionPlanning / teleop / diagnóstico
 ```
 
-O notebook não é necessário para o controle ou planejamento do robô.
+Os dois computadores do robô devem usar o mesmo `ROS_DOMAIN_ID`. O controle de
+baixo nível permanece operacional na Banana sem depender do laço de rede.
 
 ## Pacotes principais
 
-- `bringup`: perfil embarcado completo do robô.
+- `bringup`: perfis distribuídos, perfil monolítico e navegação do robô.
 - `lidar`: aquisição do LiDAR XV-11 e publicação de `/scan_front`.
-- `imu`: aquisição da IMU a 50 Hz e fusão leve com a odometria das rodas.
+- `imu`: aquisição da IMU e configuração da fusão com a odometria das rodas.
 - `vl53_distance`: actions de posicionamento frontal e seguimento lateral de
   parede com dois VL53L0X.
 - `camera`: aquisição e retificação da câmera, independentes do robô.
@@ -36,32 +39,60 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-## Banana Pi
+## Execução distribuída
 
-O perfil embarcado inicia hardware, `ros2_control`, controllers, `move_group` e
-o servidor de manipulação, sem RViz, Gazebo ou teleop:
+Na Banana Pi, inicie apenas o hardware e o controle local:
 
 ```bash
-ros2 launch bringup robot.launch.py \
+export ROS_DOMAIN_ID=10
+ros2 launch bringup hardware.launch.py \
   port:=/dev/ttyUSB0 \
   robot_id:=so101_follower
 ```
 
-Esse único launch também inicia `/dev/video1` em 320 x 240, carrega a
-calibração intrínseca, publica `/camera/image_rect` e executa o detector dos
-AprilTags `tag36h11` de IDs 0 a 14. O LiDAR XV-11 é ligado pelo relé e publica
-o setor frontal em `/scan_front`, no frame `lidar_front_link`.
+Na Raspberry Pi, inicie o processamento e a autonomia:
 
-O sistema aguarda um estado completo das seis juntas antes de iniciar os
-controllers. A IMU calibra o offset angular com o robô parado, publica
-`/imu/data`, e o EKF combina seu giro Z com `/wheel/odom` para manter a saída
-pública `/odom`. Falha inicial de conexão ou cinco falhas consecutivas de
-comunicação encerram o processo para reinício por um supervisor externo,
-como `systemd`.
+```bash
+export ROS_DOMAIN_ID=10
+ros2 launch bringup processing.launch.py
+```
+
+Visão, navegação, manipulação e missão ficam habilitadas por padrão. Cada
+módulo pode ser desligado independentemente:
+
+```bash
+ros2 launch bringup processing.launch.py \
+  enable_vision:=false \
+  enable_navigation:=false \
+  enable_manipulation:=false \
+  enable_mission:=false
+```
+
+A localização usa `arena` por padrão. Para trocar o mapa, informe somente o
+nome instalado, sem diretório e sem `.yaml`:
+
+```bash
+ros2 launch bringup processing.launch.py map:=arena_nova3
+```
+
+A câmera conectada ao Raspberry publica `/camera/image_rect`; o detector usa os
+mesmos AprilTags e frames do perfil anterior. O LiDAR e a IMU continuam na
+Banana, publicando `/scan_front` e `/imu/data` para AMCL/Nav2 e EKF no Raspberry.
+
+O hardware aguarda estados completos do braço, base e IMU antes de ativar os
+controllers. O Raspberry aguarda os controllers do braço antes de iniciar
+MoveIt e manipulação. Falhas físicas continuam encerrando o launch da Banana
+para reinício por um supervisor externo, como `systemd`.
+
+O perfil monolítico anterior permanece inalterado para rollback:
+
+```bash
+ros2 launch bringup robot.launch.py
+```
 
 ## Notebook
 
-Configure o mesmo domínio DDS da Banana Pi:
+Configure o mesmo domínio DDS das duas placas:
 
 ```bash
 export ROS_DOMAIN_ID=10
@@ -88,7 +119,8 @@ ros2 launch bringup workstation.launch.py enable_xbox_teleop:=true
 
 No Xbox, segure `RB` para mover, use `LB` para turbo e pressione `B` para
 parar e solicitar o cancelamento dos goals Nav2. A desconexão do controle
-também publica parada. Nav2 e SLAM ainda não são iniciados por este projeto.
+também publica parada. Nav2 faz parte do perfil de processamento; SLAM continua
+fora do bringup de produção.
 
 ## Simulação e modelo offline
 

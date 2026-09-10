@@ -18,6 +18,8 @@ setup(
          glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'config'),
          glob('config/*.yaml') + glob('config/*.rviz') + glob('config/*.xml')),
+        (os.path.join('share', package_name, 'maps'),
+         glob('maps/*.yaml') + glob('maps/*.pgm')),
     ],
     install_requires=['setuptools'],
     tests_require=['pytest'],
@@ -27,6 +29,7 @@ setup(
     description='Embedded CBR robot bringup',
     license='GPL-3.0-only',
     entry_points={'console_scripts': [
+        'publish_robot_description = bringup.robot_description_publisher:main',
         'wait_for_hardware_states = bringup.wait_for_hardware_states:main',
         'xbox_base_teleop = bringup.xbox_base_teleop:main',
     ]},
