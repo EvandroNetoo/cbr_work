@@ -40,58 +40,58 @@
     <joint name="link4_to_link5" value="1.5707963267"/>
   </group_state>
 
-  <!-- Posição de depósito do compartimento esquerdo: [96, 41, -46, -89, 89]°. -->
+  <!-- Posição de depósito do compartimento esquerdo: [95, 48, -60, -77, 90]°. -->
   <group_state name="deposit_cube_left" group="arm">
-    <joint name="base_link_to_link1" value="1.6755160819"/>
-    <joint name="link1_to_link2" value="0.7155849933"/>
-    <joint name="link2_to_link3" value="-0.8028514559"/>
-    <joint name="link3_to_link4" value="-1.5533430343"/>
-    <joint name="link4_to_link5" value="1.5533430343"/>
-  </group_state>
-
-  <!-- Posição segura do compartimento esquerdo: [96, 44, -33, -102, 90]°. -->
-  <group_state name="safe_cube_left" group="arm">
-    <joint name="base_link_to_link1" value="1.6755160819"/>
-    <joint name="link1_to_link2" value="0.7679448709"/>
-    <joint name="link2_to_link3" value="-0.5759586532"/>
-    <joint name="link3_to_link4" value="-1.7802358370"/>
+    <joint name="base_link_to_link1" value="1.6580627894"/>
+    <joint name="link1_to_link2" value="0.8377580410"/>
+    <joint name="link2_to_link3" value="-1.0471975512"/>
+    <joint name="link3_to_link4" value="-1.3439035240"/>
     <joint name="link4_to_link5" value="1.5707963268"/>
   </group_state>
 
-  <!-- Posição de retirada do compartimento esquerdo: [96, 55, -63, -81, 90]°. -->
+  <!-- Posição segura do compartimento esquerdo: [95, 44, -37, -100, 90]°. -->
+  <group_state name="safe_cube_left" group="arm">
+    <joint name="base_link_to_link1" value="1.6580627894"/>
+    <joint name="link1_to_link2" value="0.7679448709"/>
+    <joint name="link2_to_link3" value="-0.6457718232"/>
+    <joint name="link3_to_link4" value="-1.7453292520"/>
+    <joint name="link4_to_link5" value="1.5707963268"/>
+  </group_state>
+
+  <!-- Posição de retirada do compartimento esquerdo: [96, 48, -71, -68, 89]°. -->
   <group_state name="pick_cube_left" group="arm">
     <joint name="base_link_to_link1" value="1.6755160819"/>
-    <joint name="link1_to_link2" value="0.9599310886"/>
-    <joint name="link2_to_link3" value="-1.0995574288"/>
-    <joint name="link3_to_link4" value="-1.4137166941"/>
-    <joint name="link4_to_link5" value="1.5707963268"/>
+    <joint name="link1_to_link2" value="0.8377580410"/>
+    <joint name="link2_to_link3" value="-1.2391837689"/>
+    <joint name="link3_to_link4" value="-1.1868238914"/>
+    <joint name="link4_to_link5" value="1.5533430343"/>
   </group_state>
 
   <!-- Espelho da posição de depósito esquerda, invertendo somente a primeira junta. -->
   <group_state name="deposit_cube_right" group="arm">
-    <joint name="base_link_to_link1" value="-1.6755160819"/>
-    <joint name="link1_to_link2" value="0.7155849933"/>
-    <joint name="link2_to_link3" value="-0.8028514559"/>
-    <joint name="link3_to_link4" value="-1.5533430343"/>
-    <joint name="link4_to_link5" value="1.5533430343"/>
+    <joint name="base_link_to_link1" value="-1.6580627894"/>
+    <joint name="link1_to_link2" value="0.8377580410"/>
+    <joint name="link2_to_link3" value="-1.0471975512"/>
+    <joint name="link3_to_link4" value="-1.3439035240"/>
+    <joint name="link4_to_link5" value="1.5707963268"/>
   </group_state>
 
   <!-- Espelho da posição segura esquerda, invertendo somente a primeira junta. -->
   <group_state name="safe_cube_right" group="arm">
-    <joint name="base_link_to_link1" value="-1.6755160819"/>
+    <joint name="base_link_to_link1" value="-1.6580627894"/>
     <joint name="link1_to_link2" value="0.7679448709"/>
-    <joint name="link2_to_link3" value="-0.5759586532"/>
-    <joint name="link3_to_link4" value="-1.7802358370"/>
+    <joint name="link2_to_link3" value="-0.6457718232"/>
+    <joint name="link3_to_link4" value="-1.7453292520"/>
     <joint name="link4_to_link5" value="1.5707963268"/>
   </group_state>
 
   <!-- Espelho da posição de retirada esquerda, invertendo somente a primeira junta. -->
   <group_state name="pick_cube_right" group="arm">
     <joint name="base_link_to_link1" value="-1.6755160819"/>
-    <joint name="link1_to_link2" value="0.9599310886"/>
-    <joint name="link2_to_link3" value="-1.0995574288"/>
-    <joint name="link3_to_link4" value="-1.4137166941"/>
-    <joint name="link4_to_link5" value="1.5707963268"/>
+    <joint name="link1_to_link2" value="0.8377580410"/>
+    <joint name="link2_to_link3" value="-1.2391837689"/>
+    <joint name="link3_to_link4" value="-1.1868238914"/>
+    <joint name="link4_to_link5" value="1.5533430343"/>
   </group_state>
 
   <group_state name="place_cube_center" group="arm">
@@ -107,7 +107,7 @@
   </group_state>
 
   <group_state name="pre_grip" group="gripper">
-    <joint name="right_clamp" value="0.03"/>
+    <joint name="right_clamp" value="0.024"/>
   </group_state>
 
   <group_state name="closed" group="gripper">
@@ -115,7 +115,7 @@
   </group_state>
 
   <group_state name="grip" group="gripper">
-    <joint name="right_clamp" value="0.020"/>
+    <joint name="right_clamp" value="0.015"/>
   </group_state>
 
   <!-- Adjacent links are intentionally allowed to be in contact. -->

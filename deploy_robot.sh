@@ -3,12 +3,13 @@
 set -e
 
 # BANANA="banana@172.20.10.8"
-# BANANA="banana@10.209.182.44"
-# BANANA="banana@192.168.1.219"
-BANANA="banana@10.164.72.44"
+BANANA="banana@10.39.10.44"
+# BANANA="banana@192.168.1.216"
+# BANANA="banana@10.164.72.44"
 
 # RASPBERRY="rasp@172.20.10.13"
-RASPBERRY="rasp@10.164.72.248"
+# RASPBERRY="rasp@192.168.1.114"
+RASPBERRY="rasp@10.39.10.248"
 
 rsync -av \
   --delete \

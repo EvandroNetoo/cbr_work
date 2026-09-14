@@ -124,8 +124,14 @@ fora do bringup de produção.
 
 ## Simulação e modelo offline
 
-Os launches de Gazebo, demos offline e RViz isolado foram removidos. O escopo
-atual é o robô físico e a workstation conectada por DDS.
+O robô completo pode ser inspecionado offline, com controles gráficos para as
+juntas, sem iniciar drivers ou acessar o hardware:
+
+```bash
+ros2 launch robot_description display.launch.py
+```
+
+Os launches de Gazebo e as demos offline continuam fora do escopo atual.
 
 ## Diagnóstico
 

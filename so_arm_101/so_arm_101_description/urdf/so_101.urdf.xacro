@@ -157,14 +157,14 @@
     <visual>
       <origin xyz="-0.007062 0.120627 -0.152066" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://so_arm_101_description/meshes/visual/link5_1.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://so_arm_101_description/meshes/visual/link5_1.stl" scale="1 1 1"/>
       </geometry>
       <material name="silver"/>
     </visual>
     <collision>
       <origin xyz="-0.007062 0.120627 -0.152066" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://so_arm_101_description/meshes/collision/link5_1.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://so_arm_101_description/meshes/collision/link5_1.stl" scale="1 1 1"/>
       </geometry>
     </collision>
   </link>
@@ -183,8 +183,7 @@
   <joint name="link5_to_gripper_tcp" type="fixed">
     <parent link="link5_1"/>
     <child link="gripper_tcp"/>
-    <!-- Os dedos ocupam aproximadamente y=-0.052 a -0.132 m em link5_1. -->
-    <origin xyz="0 -0.13 0" rpy="0 0 0"/>
+    <origin xyz="0 -0.10 0" rpy="0 0 0"/>
   </joint>
 
   <!-- Camera measured and rigidly mounted to the underside of link4_1. -->
@@ -192,42 +191,42 @@
 
   <link name="clamp_1">
     <inertial>
-      <origin xyz="0.0601695113719365 0.14480677890200364 0.1844826866723634" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <mass value="0.15381179772652928"/>
       <inertia ixx="8.6e-05" iyy="4.1e-05" izz="7.3e-05" ixy="-1e-06" iyz="4e-06" ixz="-2e-06"/>
     </inertial>
     <visual>
-      <origin xyz="0.045072 0.340704 0.033971" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="1.57079632679 1.57079632679 0"/>
       <geometry>
-        <mesh filename="package://so_arm_101_description/meshes/visual/clamp_1.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://so_arm_101_description/meshes/visual/pinca.stl" scale="1 1 1"/>
       </geometry>
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="0.045072 0.340704 0.033971" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://so_arm_101_description/meshes/visual/clamp_1.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://so_arm_101_description/meshes/visual/pinca.stl" scale="1 1 1"/>
       </geometry>
     </collision>
   </link>
 
   <link name="clamp_2">
     <inertial>
-      <origin xyz="-0.0800042161303889 0.1470101120878245 0.18506826370370444" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <mass value="0.15381179772652928"/>
       <inertia ixx="8.6e-05" iyy="4.1e-05" izz="7.3e-05" ixy="1e-06" iyz="-4e-06" ixz="-2e-06"/>
     </inertial>
     <visual>
-      <origin xyz="-0.07989 0.342905 0.031809" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="1.57079632679 -1.57079632679 0"/>
       <geometry>
-        <mesh filename="package://so_arm_101_description/meshes/visual/clamp_2.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://so_arm_101_description/meshes/visual/pinca.stl" scale="1 1 1"/>
       </geometry>
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="-0.07989 0.342905 0.031809" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://so_arm_101_description/meshes/visual/clamp_2.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://so_arm_101_description/meshes/visual/pinca.stl" scale="1 1 1"/>
       </geometry>
     </collision>
   </link>
@@ -295,7 +294,7 @@
 
   <!-- Gripper: right clamp (primary) — STS3215 servo -->
   <joint name="right_clamp" type="prismatic">
-    <origin xyz="-0.052134 -0.220077 -0.186037" rpy="0 0 0"/>
+    <origin xyz="0.005 -0.065 0" rpy="0 0 0"/>
     <parent link="link5_1"/>
     <child link="clamp_1"/>
     <axis xyz="0.999848 -0.000154 0.017451"/>
@@ -305,7 +304,7 @@
 
   <!-- Passive side mechanically coupled to the single commanded joint. -->
   <joint name="left_clamp" type="prismatic">
-    <origin xyz="0.072828 -0.222278 -0.183875" rpy="0 0 0"/>
+    <origin xyz="-0.005 -0.065 0" rpy="0 0 0"/>
     <parent link="link5_1"/>
     <child link="clamp_2"/>
     <axis xyz="0.999848 -0.000154 0.017451"/>

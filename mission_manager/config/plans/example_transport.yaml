@@ -10,7 +10,7 @@ steps:
 
   - id: pick_1
     action: pick
-    tag_id: 1
+    tag_id: 4
 
   - id: store_1
     action: store
@@ -18,15 +18,15 @@ steps:
 
   - id: pick_5
     action: pick
-    tag_id: 2
+    tag_id: 5
 
-  - id: store_5
-    action: store
-    slot_id: right
+  # - id: store_5
+  #   action: store
+  #   slot_id: right
 
-  - id: pick_3
-    action: pick
-    tag_id: 4
+  # - id: pick_3
+  #   action: pick
+  #   tag_id: 4
 
   - id: go_destination
     action: navigate
@@ -46,14 +46,45 @@ steps:
     analyze_apriltags: true
     analyze_containers: false
 
-  - id: retrieve_5
-    action: retrieve
-    slot_id: right
+  # - id: retrieve_5
+  #   action: retrieve
+  #   slot_id: right
 
-  - id: stack_5_on_1
+  # - id: stack_5_on_1
+  #   action: place_on_table
+  #   analyze_apriltags: true
+  #   analyze_containers: false
+
+  - id: pick_12345
+    action: pick
+    tag_id: 4
+
+  - id: store_12345
+    action: store
+    slot_id: left
+
+  - id: pick_52345
+    action: pick
+    tag_id: 5
+
+  - id: go_destin2345ation
+    action: navigate
+    target: ws_3
+
+  - id: place_32345
     action: place_on_table
     analyze_apriltags: true
     analyze_containers: false
+
+  - id: re2345trieve_1
+    action: retrieve
+    slot_id: left
+
+  - id: place_12435
+    action: place_on_table
+    analyze_apriltags: true
+    analyze_containers: false
+
 
   - id: finish
     action: finish
