@@ -48,22 +48,22 @@ finish:
 
 service_areas:
   ws_1:
-    x_m: 4.357
-    y_m: 1.540
+    x_m: 4.35
+    y_m: 1.906
+    yaw_rad: -1.570
+    height_cm: 10
+    type: WS
+
+  ws_2:
+    x_m: 1.5
+    y_m: 5.166
     yaw_rad: -1.570
     height_cm: 15
     type: WS
 
-  ws_2:
-    x_m: 1.567
-    y_m: 4.896
-    yaw_rad: -1.570
-    height_cm: 10
-    type: WS
-
   ws_3:
-    x_m: 1.521
-    y_m: 3.687
+    x_m: 1.5
+    y_m: 3.552
     yaw_rad: 1.570
-    height_cm: 10
+    height_cm: 13
     type: WS
