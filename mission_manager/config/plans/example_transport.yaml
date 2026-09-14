@@ -57,7 +57,7 @@ steps:
 
   - id: pick_12345
     action: pick
-    tag_id: 4
+    tag_id: 10
 
   - id: store_12345
     action: store
@@ -65,7 +65,16 @@ steps:
 
   - id: pick_52345
     action: pick
-    tag_id: 5
+    tag_id: 11
+
+  - id: store_12124345
+    action: store
+    slot_id: right
+
+  - id: pick_123451234
+    action: pick
+    tag_id: 12
+
 
   - id: go_destin2345ation
     action: navigate
@@ -78,11 +87,34 @@ steps:
 
   - id: re2345trieve_1
     action: retrieve
-    slot_id: left
+    slot_id: right
 
-  - id: place_12435
+  - id: place_1jlhjlk2435
     action: place_on_table
     analyze_apriltags: true
+    analyze_containers: false
+
+  - id: re2345trasdfieve_1
+    action: retrieve
+    slot_id: left
+
+  - id: place_1243sadfa5
+    action: place_on_table
+    analyze_apriltags: true
+    analyze_containers: false
+
+
+  - id: pick_123451234asdf
+    action: pick
+    tag_id: 13
+
+  - id: go_destin2345ationsasdfadf
+    action: navigate
+    target: ws_1
+
+  - id: place_32345asdf
+    action: place_on_table
+    analyze_apriltags: false
     analyze_containers: false
 
 
