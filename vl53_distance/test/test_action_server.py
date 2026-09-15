@@ -62,6 +62,7 @@ class FakeFollowWallGoal(FakeGoal):
             travel_distance_mm=500,
             wall_tolerance_mm=10,
             travel_tolerance_mm=10,
+            max_alignment_error_mm=0,
             timeout=SimpleNamespace(sec=10, nanosec=0),
         )
 
@@ -180,6 +181,7 @@ def _follow_request(
     travel=500,
     wall_tolerance=10,
     travel_tolerance=10,
+    max_alignment_error=0,
     timeout=10,
 ):
     return SimpleNamespace(
@@ -187,6 +189,7 @@ def _follow_request(
         travel_distance_mm=travel,
         wall_tolerance_mm=wall_tolerance,
         travel_tolerance_mm=travel_tolerance,
+        max_alignment_error_mm=max_alignment_error,
         timeout=SimpleNamespace(sec=timeout, nanosec=0),
     )
 
@@ -211,6 +214,8 @@ def test_follow_wall_goal_validation_and_single_goal_reservation():
         _follow_request(wall_tolerance=0)).name == GoalResponse.REJECT.name
     assert server._follow_wall_goal_callback(
         _follow_request(travel_tolerance=0)).name == GoalResponse.REJECT.name
+    assert server._follow_wall_goal_callback(
+        _follow_request(max_alignment_error=-1)).name == GoalResponse.REJECT.name
     assert server._follow_wall_goal_callback(
         _follow_request(timeout=0)).name == GoalResponse.REJECT.name
 
@@ -371,3 +376,26 @@ def test_follow_wall_sensor_failure_counter_aborts(monkeypatch):
     assert result.has_valid_odometry
     assert not result.has_valid_reading
     assert [item.consecutive_read_failures for item in goal.feedback] == [1, 2, 3]
+
+
+def test_follow_wall_aborts_when_alignment_exceeds_optional_limit(monkeypatch):
+    sample = DistanceSample(400, 400, 250, 351)
+    pair = SequencePair([sample])
+    server = _bare_server(pair)
+    pose = OdometryPose(0.0, 0.0, 0.0)
+    server._odometry_snapshot = lambda _now=None: (pose, True)
+    monkeypatch.setattr(action_module.rclpy, 'ok', lambda: True)
+    goal = FakeFollowWallGoal()
+    goal.request.max_alignment_error_mm = 100
+
+    result = server._execute_follow_wall_goal(goal)
+
+    assert goal.terminal == 'aborted'
+    assert result.has_valid_reading
+    assert result.final_left_distance_mm == 250
+    assert result.final_right_distance_mm == 351
+    assert '101 mm' in result.message
+    assert '100 mm' in result.message
+    assert goal.feedback[-1].alignment_error_mm == pytest.approx(101.0)
+    assert isinstance(goal.feedback[-1].alignment_error_mm, float)
+    assert not server._desired_valid

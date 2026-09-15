@@ -274,6 +274,7 @@ class VL53DistanceAction(Node):
         target = int(request.wall_distance_mm)
         wall_tolerance = int(request.wall_tolerance_mm)
         travel_tolerance = int(request.travel_tolerance_mm)
+        max_alignment_error = int(request.max_alignment_error_mm)
         timeout = duration_seconds(request.timeout)
         minimum = max(1, self._sensor_config.minimum_target_mm)
         maximum = self._sensor_config.maximum_target_mm
@@ -285,6 +286,11 @@ class VL53DistanceAction(Node):
         if wall_tolerance <= 0 or travel_tolerance <= 0:
             self.get_logger().warning(
                 'Goal rejeitado: tolerâncias devem ser positivas.')
+            return GoalResponse.REJECT
+        if max_alignment_error < 0:
+            self.get_logger().warning(
+                'Goal rejeitado: limite de desalinhamento não pode ser '
+                'negativo.')
             return GoalResponse.REJECT
         if not math.isfinite(timeout) or timeout <= 0.0:
             self.get_logger().warning('Goal rejeitado: timeout deve ser positivo.')
@@ -484,6 +490,27 @@ class VL53DistanceAction(Node):
                     elapsed = now - started
                     if elapsed >= duration_seconds(goal_handle.request.timeout):
                         continue
+                    max_alignment_error = int(
+                        goal_handle.request.max_alignment_error_mm)
+                    alignment_error = sample.right_mm - sample.left_mm
+                    if (
+                        max_alignment_error > 0
+                        and abs(alignment_error) > max_alignment_error
+                    ):
+                        self._follow_wall_controller.reset()
+                        self._invalidate_command(publish=True)
+                        self._publish_follow_wall_feedback(
+                            goal_handle, sample, None, 0, elapsed,
+                            traveled_mm=traveled_mm,
+                            travel_target_mm=int(
+                                goal_handle.request.travel_distance_mm),
+                        )
+                        result = self._follow_wall_result(
+                            sample, True, traveled_mm, elapsed,
+                            f'Desalinhamento de {abs(alignment_error)} mm '
+                            f'excede o limite de {max_alignment_error} mm.')
+                        goal_handle.abort(result)
+                        return result
                     dt = max(now - last_iteration, 1.0 / self._control_rate_hz)
                     command = self._follow_wall_controller.calculate(
                         sample.left_mm,
@@ -626,6 +653,8 @@ class VL53DistanceAction(Node):
             feedback.left_distance_mm = sample.left_mm
             feedback.right_distance_mm = sample.right_mm
             feedback.average_distance_mm = sample.average_mm
+            feedback.alignment_error_mm = float(
+                sample.right_mm - sample.left_mm)
         if command is not None:
             feedback.wall_distance_error_mm = command.wall_distance_error_mm
             feedback.alignment_error_mm = command.alignment_error_mm

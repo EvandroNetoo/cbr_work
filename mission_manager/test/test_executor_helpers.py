@@ -116,6 +116,7 @@ def test_wall_control_uses_zero_travel_for_alignment():
     assert goal.travel_distance_mm == 0
     assert goal.wall_tolerance_mm == 5
     assert goal.travel_tolerance_mm == 5
+    assert goal.max_alignment_error_mm == 0
 
 
 def test_manipulation_validator_uses_semantic_outcome():

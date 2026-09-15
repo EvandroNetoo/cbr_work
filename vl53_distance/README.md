@@ -19,7 +19,8 @@ Para ficar a 50 mm da parede sem mudar de posição lateral:
 ```bash
 ros2 action send_goal /vl53/follow_wall interfaces/action/FollowWall \
   "{wall_distance_mm: 50, travel_distance_mm: 0, wall_tolerance_mm: 5, \
-  travel_tolerance_mm: 5, timeout: {sec: 10, nanosec: 0}}" --feedback
+  travel_tolerance_mm: 5, max_alignment_error_mm: 0, \
+  timeout: {sec: 10, nanosec: 0}}" --feedback
 ```
 
 Para percorrer 500 mm para a direita mantendo 300 mm da parede frontal:
@@ -27,7 +28,8 @@ Para percorrer 500 mm para a direita mantendo 300 mm da parede frontal:
 ```bash
 ros2 action send_goal /vl53/follow_wall interfaces/action/FollowWall \
   "{wall_distance_mm: 300, travel_distance_mm: 500, wall_tolerance_mm: 10, \
-  travel_tolerance_mm: 10, timeout: {sec: 15, nanosec: 0}}" --feedback
+  travel_tolerance_mm: 10, max_alignment_error_mm: 100, \
+  timeout: {sec: 15, nanosec: 0}}" --feedback
 ```
 
 Em `travel_distance_mm`, valores positivos movimentam para a direita e
@@ -35,6 +37,11 @@ negativos para a esquerda. O percurso é o deslocamento líquido de `/odom`
 projetado sobre o eixo direito que o robô possuía no início do goal. A action
 aborta e publica parada se a odometria deixar de chegar dentro do prazo
 configurado.
+
+`max_alignment_error_mm` limita a diferença absoluta entre as distâncias dos
+dois sensores. Se uma leitura válida ultrapassar esse valor, a action publica
+parada e aborta o goal imediatamente. O valor `0` desativa essa proteção e é o
+padrão quando o campo não é preenchido.
 
 Os canais, offsets, ganhos e limites ficam em `config/vl53_distance.yaml`.
 Durante um goal, nenhum outro nó deve publicar em `/cmd_vel`.
