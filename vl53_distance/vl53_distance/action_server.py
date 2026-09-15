@@ -275,6 +275,7 @@ class VL53DistanceAction(Node):
         wall_tolerance = int(request.wall_tolerance_mm)
         travel_tolerance = int(request.travel_tolerance_mm)
         max_alignment_error = int(request.max_alignment_error_mm)
+        recovery_distance = int(request.alignment_recovery_distance_mm)
         timeout = duration_seconds(request.timeout)
         minimum = max(1, self._sensor_config.minimum_target_mm)
         maximum = self._sensor_config.maximum_target_mm
@@ -291,6 +292,21 @@ class VL53DistanceAction(Node):
             self.get_logger().warning(
                 'Goal rejeitado: limite de desalinhamento não pode ser '
                 'negativo.')
+            return GoalResponse.REJECT
+        if recovery_distance < 0:
+            self.get_logger().warning(
+                'Goal rejeitado: distância de recuperação não pode ser '
+                'negativa.')
+            return GoalResponse.REJECT
+        if recovery_distance > 0 and max_alignment_error == 0:
+            self.get_logger().warning(
+                'Goal rejeitado: recuperação requer um limite de '
+                'desalinhamento positivo.')
+            return GoalResponse.REJECT
+        if recovery_distance > 0 and int(request.travel_distance_mm) == 0:
+            self.get_logger().warning(
+                'Goal rejeitado: recuperação lateral requer percurso '
+                'lateral diferente de zero.')
             return GoalResponse.REJECT
         if not math.isfinite(timeout) or timeout <= 0.0:
             self.get_logger().warning('Goal rejeitado: timeout deve ser positivo.')
@@ -364,6 +380,11 @@ class VL53DistanceAction(Node):
         traveled_mm = 0.0
         consecutive_failures = 0
         settled_since: float | None = None
+        recovery_target_mm: float | None = None
+        recovery_distance_mm = int(
+            goal_handle.request.alignment_recovery_distance_mm)
+        requested_travel_mm = int(goal_handle.request.travel_distance_mm)
+        active_travel_target_mm = float(requested_travel_mm)
         try:
             if goal_handle.is_cancel_requested:
                 result = self._follow_wall_result(
@@ -468,8 +489,7 @@ class VL53DistanceAction(Node):
                         goal_handle, last_sample, None, consecutive_failures,
                         time.monotonic() - started,
                         traveled_mm=traveled_mm,
-                        travel_target_mm=int(
-                            goal_handle.request.travel_distance_mm),
+                        travel_target_mm=round(active_travel_target_mm),
                     )
                     if consecutive_failures >= self._failure_limit:
                         result = self._follow_wall_result(
@@ -493,32 +513,64 @@ class VL53DistanceAction(Node):
                     max_alignment_error = int(
                         goal_handle.request.max_alignment_error_mm)
                     alignment_error = sample.right_mm - sample.left_mm
-                    if (
+                    alignment_outside = (
                         max_alignment_error > 0
                         and abs(alignment_error) > max_alignment_error
-                    ):
+                    )
+                    if recovery_target_mm is None and alignment_outside:
+                        if recovery_distance_mm == 0:
+                            self._follow_wall_controller.reset()
+                            self._invalidate_command(publish=True)
+                            self._publish_follow_wall_feedback(
+                                goal_handle, sample, None, 0, elapsed,
+                                traveled_mm=traveled_mm,
+                                travel_target_mm=round(
+                                    active_travel_target_mm),
+                            )
+                            result = self._follow_wall_result(
+                                sample, True, traveled_mm, elapsed,
+                                f'Desalinhamento de {abs(alignment_error)} mm '
+                                f'excede o limite de '
+                                f'{max_alignment_error} mm.')
+                            goal_handle.abort(result)
+                            return result
+
+                        travel_direction = (
+                            1.0 if requested_travel_mm > 0 else -1.0)
+                        recovery_target_mm = (
+                            traveled_mm
+                            - travel_direction * recovery_distance_mm
+                        )
+                        active_travel_target_mm = recovery_target_mm
+                        settled_since = None
                         self._follow_wall_controller.reset()
                         self._invalidate_command(publish=True)
-                        self._publish_follow_wall_feedback(
-                            goal_handle, sample, None, 0, elapsed,
-                            traveled_mm=traveled_mm,
-                            travel_target_mm=int(
-                                goal_handle.request.travel_distance_mm),
-                        )
-                        result = self._follow_wall_result(
-                            sample, True, traveled_mm, elapsed,
-                            f'Desalinhamento de {abs(alignment_error)} mm '
-                            f'excede o limite de {max_alignment_error} mm.')
-                        goal_handle.abort(result)
-                        return result
+                        self.get_logger().warning(
+                            f'Desalinhamento de {abs(alignment_error)} mm; '
+                            f'iniciando retorno lateral de '
+                            f'{recovery_distance_mm} mm até '
+                            f'{recovery_target_mm:.1f} mm de odometria.')
+
                     dt = max(now - last_iteration, 1.0 / self._control_rate_hz)
+                    use_sensor_alignment = (
+                        recovery_target_mm is None or not alignment_outside)
+                    control_left_mm = (
+                        sample.left_mm
+                        if use_sensor_alignment
+                        else int(goal_handle.request.wall_distance_mm)
+                    )
+                    control_right_mm = (
+                        sample.right_mm
+                        if use_sensor_alignment
+                        else int(goal_handle.request.wall_distance_mm)
+                    )
                     command = self._follow_wall_controller.calculate(
-                        sample.left_mm,
-                        sample.right_mm,
+                        control_left_mm,
+                        control_right_mm,
                         int(goal_handle.request.wall_distance_mm),
                         int(goal_handle.request.wall_tolerance_mm),
                         traveled_mm,
-                        int(goal_handle.request.travel_distance_mm),
+                        round(active_travel_target_mm),
                         int(goal_handle.request.travel_tolerance_mm),
                         dt,
                     )
@@ -526,6 +578,13 @@ class VL53DistanceAction(Node):
                     if command.inside_tolerance:
                         self._follow_wall_controller.reset()
                         self._set_desired_command(0.0, 0.0, 0.0)
+                        if recovery_target_mm is not None:
+                            result = self._follow_wall_result(
+                                sample, True, traveled_mm, elapsed,
+                                f'Recuperação concluída após retorno lateral '
+                                f'de {recovery_distance_mm} mm.')
+                            goal_handle.abort(result)
+                            return result
                         if settled_since is None:
                             settled_since = now
                         elif now - settled_since >= self._settle_time:
@@ -657,7 +716,8 @@ class VL53DistanceAction(Node):
                 sample.right_mm - sample.left_mm)
         if command is not None:
             feedback.wall_distance_error_mm = command.wall_distance_error_mm
-            feedback.alignment_error_mm = command.alignment_error_mm
+            if sample is None:
+                feedback.alignment_error_mm = command.alignment_error_mm
             feedback.traveled_distance_mm = command.traveled_distance_mm
             feedback.travel_error_mm = command.travel_error_mm
             feedback.linear_x_velocity_mps = command.linear_x_velocity_mps

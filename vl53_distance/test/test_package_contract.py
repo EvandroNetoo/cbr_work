@@ -16,6 +16,7 @@ def test_action_interface_contains_goal_result_and_feedback_contract():
     assert 'uint32 wall_tolerance_mm' in follow_wall
     assert 'uint32 travel_tolerance_mm' in follow_wall
     assert 'uint32 max_alignment_error_mm' in follow_wall
+    assert 'uint32 alignment_recovery_distance_mm' in follow_wall
     assert 'bool has_valid_odometry' in follow_wall
     assert 'float32 traveled_distance_mm' in follow_wall
     assert 'float32 linear_y_velocity_mps' in follow_wall

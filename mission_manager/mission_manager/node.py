@@ -454,6 +454,7 @@ class MissionManager(Node):
         travel_distance_mm: int = 0,
         travel_tolerance_mm: int | None = None,
         max_alignment_error_mm: int = 0,
+        alignment_recovery_distance_mm: int = 0,
     ) -> FollowWall.Result:
         goal = FollowWall.Goal()
         goal.wall_distance_mm = int(distance_mm)
@@ -465,6 +466,8 @@ class MissionManager(Node):
             else tolerance_mm
         )
         goal.max_alignment_error_mm = int(max_alignment_error_mm)
+        goal.alignment_recovery_distance_mm = int(
+            alignment_recovery_distance_mm)
         goal.timeout = self._duration(timeout_s)
         return self._call_action(
             self._wall_control_client,

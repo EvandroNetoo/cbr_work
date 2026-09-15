@@ -20,6 +20,7 @@ Para ficar a 50 mm da parede sem mudar de posição lateral:
 ros2 action send_goal /vl53/follow_wall interfaces/action/FollowWall \
   "{wall_distance_mm: 50, travel_distance_mm: 0, wall_tolerance_mm: 5, \
   travel_tolerance_mm: 5, max_alignment_error_mm: 0, \
+  alignment_recovery_distance_mm: 0, \
   timeout: {sec: 10, nanosec: 0}}" --feedback
 ```
 
@@ -29,6 +30,7 @@ Para percorrer 500 mm para a direita mantendo 300 mm da parede frontal:
 ros2 action send_goal /vl53/follow_wall interfaces/action/FollowWall \
   "{wall_distance_mm: 300, travel_distance_mm: 500, wall_tolerance_mm: 10, \
   travel_tolerance_mm: 10, max_alignment_error_mm: 100, \
+  alignment_recovery_distance_mm: 200, \
   timeout: {sec: 15, nanosec: 0}}" --feedback
 ```
 
@@ -42,6 +44,13 @@ configurado.
 dois sensores. Se uma leitura válida ultrapassar esse valor, a action publica
 parada e aborta o goal imediatamente. O valor `0` desativa essa proteção e é o
 padrão quando o campo não é preenchido.
+
+Quando `alignment_recovery_distance_mm` é positivo, um desalinhamento inicia
+um retorno lateral no sentido oposto ao percurso solicitado, em vez do aborto
+imediato. Enquanto o desalinhamento persistir, somente a odometria controla o
+retorno lateral; ao normalizar, o controle dos sensores volta a manter a
+distância da parede e o alinhamento. Após percorrer a distância de recuperação,
+a action para e termina abortada com a mensagem `Recuperação concluída`.
 
 Os canais, offsets, ganhos e limites ficam em `config/vl53_distance.yaml`.
 Durante um goal, nenhum outro nó deve publicar em `/cmd_vel`.

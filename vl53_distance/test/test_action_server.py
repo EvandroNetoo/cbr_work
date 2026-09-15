@@ -63,6 +63,7 @@ class FakeFollowWallGoal(FakeGoal):
             wall_tolerance_mm=10,
             travel_tolerance_mm=10,
             max_alignment_error_mm=0,
+            alignment_recovery_distance_mm=0,
             timeout=SimpleNamespace(sec=10, nanosec=0),
         )
 
@@ -182,6 +183,7 @@ def _follow_request(
     wall_tolerance=10,
     travel_tolerance=10,
     max_alignment_error=0,
+    recovery_distance=0,
     timeout=10,
 ):
     return SimpleNamespace(
@@ -190,6 +192,7 @@ def _follow_request(
         wall_tolerance_mm=wall_tolerance,
         travel_tolerance_mm=travel_tolerance,
         max_alignment_error_mm=max_alignment_error,
+        alignment_recovery_distance_mm=recovery_distance,
         timeout=SimpleNamespace(sec=timeout, nanosec=0),
     )
 
@@ -216,6 +219,18 @@ def test_follow_wall_goal_validation_and_single_goal_reservation():
         _follow_request(travel_tolerance=0)).name == GoalResponse.REJECT.name
     assert server._follow_wall_goal_callback(
         _follow_request(max_alignment_error=-1)).name == GoalResponse.REJECT.name
+    assert server._follow_wall_goal_callback(_follow_request(
+        max_alignment_error=100,
+        recovery_distance=-1,
+    )).name == GoalResponse.REJECT.name
+    assert server._follow_wall_goal_callback(_follow_request(
+        recovery_distance=100,
+    )).name == GoalResponse.REJECT.name
+    assert server._follow_wall_goal_callback(_follow_request(
+        travel=0,
+        max_alignment_error=100,
+        recovery_distance=100,
+    )).name == GoalResponse.REJECT.name
     assert server._follow_wall_goal_callback(
         _follow_request(timeout=0)).name == GoalResponse.REJECT.name
 
@@ -398,4 +413,50 @@ def test_follow_wall_aborts_when_alignment_exceeds_optional_limit(monkeypatch):
     assert '100 mm' in result.message
     assert goal.feedback[-1].alignment_error_mm == pytest.approx(101.0)
     assert isinstance(goal.feedback[-1].alignment_error_mm, float)
+    assert not server._desired_valid
+
+
+def test_follow_wall_returns_laterally_and_aborts_after_recovery(monkeypatch):
+    outside = DistanceSample(400, 400, 250, 351)
+    aligned = DistanceSample(400, 400, 290, 300)
+    pair = SequencePair([outside, outside, aligned])
+    server = _bare_server(pair)
+    calls = []
+
+    class RecoveryController(FakeFollowWallController):
+        def calculate(self, left, right, wall, wall_tolerance, traveled,
+                      travel, travel_tolerance, dt):
+            calls.append((left, right, traveled, travel))
+            inside = (
+                abs(travel - traveled) <= travel_tolerance
+                and wall - wall_tolerance <= left <= wall + wall_tolerance
+                and wall - wall_tolerance <= right <= wall + wall_tolerance
+            )
+            return FollowWallCommand(
+                0.0, 0.0 if inside else 0.04, 0.0,
+                (left + right) / 2.0, 0.0, float(right - left),
+                traveled, travel - traveled, inside)
+
+    server._follow_wall_controller = RecoveryController()
+    poses = iter([
+        (OdometryPose(0.0, 0.0, 0.0), True),
+        (OdometryPose(0.0, -0.3, 0.0), True),
+        (OdometryPose(0.0, -0.2, 0.0), True),
+        (OdometryPose(0.0, -0.1, 0.0), True),
+    ])
+    server._odometry_snapshot = lambda _now=None: next(poses)
+    monkeypatch.setattr(action_module.rclpy, 'ok', lambda: True)
+    goal = FakeFollowWallGoal()
+    goal.request.max_alignment_error_mm = 100
+    goal.request.alignment_recovery_distance_mm = 200
+
+    result = server._execute_follow_wall_goal(goal)
+
+    assert goal.terminal == 'aborted'
+    assert result.traveled_distance_mm == pytest.approx(100.0)
+    assert 'Recuperação concluída' in result.message
+    assert calls[0] == (300, 300, pytest.approx(300.0), 100)
+    assert calls[1] == (300, 300, pytest.approx(200.0), 100)
+    assert calls[2] == (290, 300, pytest.approx(100.0), 100)
+    assert goal.feedback[0].alignment_error_mm == pytest.approx(101.0)
     assert not server._desired_valid
