@@ -142,7 +142,31 @@ def _departure(
     context: str,
     defaults: DepartureConfig | None = None,
 ) -> DepartureConfig:
-    return DepartureConfig(*_distance_config_values(raw_value, context, defaults))
+    raw = _mapping(raw_value, context)
+    _only_keys(
+        raw,
+        {'distance_mm', 'tolerance_mm', 'timeout_s', 'lateral_position_mm'},
+        context,
+    )
+    distance_values = _distance_config_values(
+        {
+            key: raw[key]
+            for key in ('distance_mm', 'tolerance_mm', 'timeout_s')
+            if key in raw
+        },
+        context,
+        defaults,
+    )
+    lateral_position = raw.get(
+        'lateral_position_mm',
+        defaults.lateral_position_mm if defaults is not None else None,
+    )
+    return DepartureConfig(
+        *distance_values,
+        lateral_position_mm=_integer(
+            lateral_position, f'{context}.lateral_position_mm'
+        ),
+    )
 
 
 def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:

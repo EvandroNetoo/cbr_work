@@ -27,18 +27,22 @@ PrepareManipulator(NAVIGATION) → NavigateToPose → FollowWall(travel=0)
 Ao sair de uma service area para outro destino, o fluxo começa com:
 
 ```text
-FollowWall(departure, travel=0) → PrepareManipulator(NAVIGATION) → NavigateToPose
+FollowWall(departure, travel=destino-atual) → PrepareManipulator(NAVIGATION) → NavigateToPose
 ```
 
 Para `start` e `finish`, o alinhamento de chegada é omitido. Os blocos
 `alignment` e `departure` de uma service area sobrescrevem parcialmente
 `alignment_defaults` e `departure_defaults`, respectivamente.
+`departure.lateral_position_mm` é uma coordenada absoluta relativa ao centro
+registrado na chegada à mesa. Com o padrão `0`, o robô retorna a esse centro
+enquanto se afasta da superfície no mesmo goal `FollowWall`.
 
 Os limites `follow_wall.max_alignment_error_mm` e
 `follow_wall.alignment_recovery_distance_mm` do `mission_manager.yaml` são
 enviados somente quando o goal possui deslocamento lateral. Durante o
-alinhamento frontal de chegada ou o recuo de uma mesa, ambos são enviados como
-`0`. Aborto durante o percurso lateral por desalinhamento, conclusão da
+alinhamento frontal de chegada, ambos são enviados como `0`; no recuo de uma
+mesa eles são habilitados quando houver retorno lateral. Aborto durante o
+percurso lateral por desalinhamento, conclusão da
 recuperação ou obstáculo na folga lateral mínima é registrado como aviso e o
 fluxo da missão continua usando o deslocamento efetivamente medido. Timeout,
 falha de sensores, odometria inválida e comunicação continuam encerrando a

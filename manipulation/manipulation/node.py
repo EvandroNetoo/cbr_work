@@ -24,6 +24,7 @@ from interfaces.msg import ManipulationFeedback, ManipulationResult
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.exceptions import InvalidHandle
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from so_arm_101_moveit_config.configuracao import (
@@ -1172,6 +1173,20 @@ class ManipulationServer(Node):
         return super().destroy_node()
 
 
+def _spin_executor(executor: Any, node: Node) -> None:
+    """Keep spinning when an entity is removed from a concurrent wait set."""
+    while rclpy.ok():
+        try:
+            executor.spin_once()
+        except InvalidHandle as error:
+            if not rclpy.ok():
+                break
+            node.get_logger().debug(
+                'Entidade ROS removida durante a atualização do executor: '
+                f'{error}'
+            )
+
+
 def main(args=None) -> int:
     """Run the manipulation server in an executor that can service child actions."""
     rclpy.init(args=args)
@@ -1181,7 +1196,7 @@ def main(args=None) -> int:
     try:
         node = ManipulationServer()
         executor.add_node(node)
-        executor.spin()
+        _spin_executor(executor, node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     except Exception as error:

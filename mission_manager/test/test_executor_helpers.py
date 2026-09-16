@@ -24,7 +24,7 @@ import pytest
 
 def _arena():
     alignment = AlignmentConfig(200, 10, 10.0)
-    departure = DepartureConfig(250, 10, 10.0)
+    departure = DepartureConfig(250, 10, 10.0, 0)
     return Arena(
         frame_id='map',
         start=MapPose(0.0, 0.0, 0.0),
@@ -648,6 +648,40 @@ def test_cached_pick_falls_back_to_original_observation_before_search():
     assert moves[0][:2] == (220, 100.0)
     assert moves[1][:2] == (180, 0.0)
     assert 'ponto original' in moves[1][2]
+
+
+@pytest.mark.parametrize(
+    ('current_lateral_position_mm', 'expected_travel_distance_mm'),
+    ((250.0, -250), (-250.0, 250), (0.0, 0)),
+)
+def test_navigation_returns_to_departure_lateral_origin_while_backing_away(
+    current_lateral_position_mm,
+    expected_travel_distance_mm,
+):
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = current_lateral_position_mm
+    manager._navigate_client = object()
+    manager._prepare_for_navigation = lambda: None
+    manager._navigation_timeout = lambda: 120.0
+    wall_calls = []
+    manager._control_wall = lambda *args, **kwargs: (
+        wall_calls.append((args, kwargs)) or FollowWall.Result()
+    )
+    manager._call_action = lambda *_args, **_kwargs: NavigateToPose.Result()
+    manager.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(to_msg=lambda: Time())
+    )
+
+    manager._navigate('start')
+
+    assert len(wall_calls) == 1
+    assert wall_calls[0][0][:3] == (250, 10, 10.0)
+    assert wall_calls[0][1]['travel_distance_mm'] == (
+        expected_travel_distance_mm
+    )
 
 
 def test_navigation_keeps_apriltag_memory_for_later_return():

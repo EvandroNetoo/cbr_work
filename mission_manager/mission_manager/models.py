@@ -31,6 +31,7 @@ class DepartureConfig:
     distance_mm: int
     tolerance_mm: int
     timeout_s: float
+    lateral_position_mm: int
 
 
 @dataclass(frozen=True)

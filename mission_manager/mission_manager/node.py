@@ -807,11 +807,16 @@ class MissionManager(Node):
             departure = self._arena.service_areas[
                 self._current_location
             ].departure
+            departure_travel_mm = round(
+                departure.lateral_position_mm
+                - self._current_lateral_position_mm
+            )
             self._control_wall(
                 departure.distance_mm,
                 departure.tolerance_mm,
                 departure.timeout_s,
                 f'recuo para sair de {self._current_location}',
+                travel_distance_mm=departure_travel_mm,
             )
             self._current_wall_distance_mm = None
             self._current_lateral_position_mm = 0.0

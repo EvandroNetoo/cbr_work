@@ -20,6 +20,7 @@ departure_defaults:
   distance_mm: 250
   tolerance_mm: 15
   timeout_s: 8.0
+  lateral_position_mm: 0
 pickup_recovery:
   enabled: true
   minimum_wall_distance_mm: 30
@@ -52,6 +53,7 @@ service_areas:
       distance_mm: 180
     departure:
       distance_mm: 300
+      lateral_position_mm: -20
 """
 
 
@@ -74,6 +76,8 @@ def test_arena_merges_partial_alignment_override(tmp_path):
     assert departure.distance_mm == 300
     assert departure.tolerance_mm == 15
     assert departure.timeout_s == pytest.approx(8.0)
+    assert arena.service_areas['ws_1'].departure.lateral_position_mm == 0
+    assert departure.lateral_position_mm == -20
     assert arena.pickup_recovery.minimum_wall_distance_mm == 30
     assert arena.pickup_recovery.minimum_lateral_position_mm == -275
     assert arena.pickup_recovery.maximum_lateral_position_mm == 275
@@ -90,6 +94,15 @@ def test_arena_rejects_unknown_fields(tmp_path):
     source = VALID_ARENA.replace('height_cm: 10.0', 'height_cm: 10.0\n    typo: 1')
 
     with pytest.raises(ConfigurationError, match='campos desconhecidos'):
+        load_arena(_write(tmp_path, 'arena.yaml', source))
+
+
+def test_arena_rejects_non_integer_departure_lateral_position(tmp_path):
+    source = VALID_ARENA.replace(
+        'lateral_position_mm: 0', 'lateral_position_mm: 0.5'
+    )
+
+    with pytest.raises(ConfigurationError, match='deve ser inteiro'):
         load_arena(_write(tmp_path, 'arena.yaml', source))
 
 
