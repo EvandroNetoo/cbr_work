@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Cyclone DDS 0.10.5 / ROS 2 Jazzy. Ethernet preference, not Wi-Fi isolation.
+     SPDP discovery still uses Wi-Fi multicast. Start after DHCP is ready. -->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain Id="any">
+    <General>
+      <Transport>udp</Transport>
+      <Interfaces>
+        <NetworkInterface name="eth0" priority="100"/>
+        <NetworkInterface name="wlan0" priority="10" presence_required="false"/>
+      </Interfaces>
+      <AllowMulticast>spdp</AllowMulticast>
+      <MulticastRecvNetworkInterfaceAddresses>all</MulticastRecvNetworkInterfaceAddresses>
+      <EnableMulticastLoopback>true</EnableMulticastLoopback>
+      <RedundantNetworking>false</RedundantNetworking>
+      <!-- IPv4 MTU >= 1500; message size includes RTPS, excludes IP/UDP. -->
+      <MaxMessageSize>1400 B</MaxMessageSize>
+      <MaxRexmitMessageSize>1400 B</MaxRexmitMessageSize>
+      <FragmentSize>1200 B</FragmentSize>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>64</MaxAutoParticipantIndex>
+      <Peers>
+        <Peer Address="127.0.0.1"/>
+        <Peer Address="10.50.0.1"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

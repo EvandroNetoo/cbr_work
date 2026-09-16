@@ -44,7 +44,7 @@ source install/setup.bash
 Na Banana Pi, inicie apenas o hardware e o controle local:
 
 ```bash
-export ROS_DOMAIN_ID=10
+source "$(ros2 pkg prefix --share bringup)/scripts/dds_environment.bash" banana
 ros2 launch bringup hardware.launch.py \
   port:=/dev/ttyUSB0 \
   robot_id:=so101_follower
@@ -53,7 +53,7 @@ ros2 launch bringup hardware.launch.py \
 Na Raspberry Pi, inicie o processamento e a autonomia:
 
 ```bash
-export ROS_DOMAIN_ID=10
+source "$(ros2 pkg prefix --share bringup)/scripts/dds_environment.bash" rasp
 ros2 launch bringup processing.launch.py
 ```
 
@@ -92,11 +92,17 @@ ros2 launch bringup robot.launch.py
 
 ## Notebook
 
-Configure o mesmo domínio DDS das duas placas:
+Configure Cyclone DDS e o mesmo domínio das duas placas em cada terminal ROS:
 
 ```bash
-export ROS_DOMAIN_ID=10
+source "$(ros2 pkg prefix --share bringup)/scripts/dds_environment.bash" notebook
 ```
+
+Os perfis usam `eth0` nas placas, `wlan1` na Banana, `wlan0` no Raspberry e
+`wlp0s20f3` no notebook. Antes do primeiro uso, instale as dependências com
+`rosdep` e reconstrua o pacote `bringup`. Ao trocar de middleware, pare os
+processos anteriores e execute `ros2 daemon stop` antes de iniciar os novos.
+Veja [rede, validação e retorno ao Fast DDS](bringup/README.md#rede-e-cyclone-dds).
 
 Workstation com RViz e MotionPlanning:
 

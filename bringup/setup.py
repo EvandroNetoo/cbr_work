@@ -18,6 +18,8 @@ setup(
          glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'config'),
          glob('config/*.yaml') + glob('config/*.rviz') + glob('config/*.xml')),
+        (os.path.join('share', package_name, 'scripts'),
+         glob('scripts/*.bash')),
         (os.path.join('share', package_name, 'maps'),
          glob('maps/*.yaml') + glob('maps/*.pgm')),
     ],
