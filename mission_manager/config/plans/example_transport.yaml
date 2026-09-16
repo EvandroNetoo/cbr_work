@@ -4,119 +4,172 @@ plan_id: example_transport
 # Exemplo sintaticamente válido. Ajuste IDs, destinos e tipos de depósito para
 # a tarefa entregue na competição.
 steps:
-  - id: go_source
+  - id: navigate_to_ws_1
     action: navigate
     target: ws_1
 
-  - id: pick_1
+  - id: pick_tag_1
     action: pick
     tag_id: 1
 
-  - id: store_1
+  - id: store_tag_1_in_left_slot
     action: store
     slot_id: left
 
-  - id: pick_5
+  - id: pick_tag_2
     action: pick
     tag_id: 2
 
-  # - id: store_5
-  #   action: store
-  #   slot_id: right
-
-  # - id: pick_3
-  #   action: pick
-  #   tag_id: 4
-
-  - id: go_destination
-    action: navigate
-    target: ws_2
-
-  - id: place_3
-    action: place_on_table
-    analyze_apriltags: true
-    analyze_containers: false
-
-  - id: retrieve_1
-    action: retrieve
-    slot_id: left
-
-  - id: place_1
-    action: place_on_table
-    analyze_apriltags: true
-    analyze_containers: false
-
-  # - id: retrieve_5
-  #   action: retrieve
-  #   slot_id: right
-
-  # - id: stack_5_on_1
-  #   action: place_on_table
-  #   analyze_apriltags: true
-  #   analyze_containers: false
-
-  - id: pick_12345
-    action: pick
-    tag_id: 3
-
-  - id: store_12345
-    action: store
-    slot_id: left
-
-  - id: pick_52345
-    action: pick
-    tag_id: 4
-
-  - id: store_12124345
+  - id: store_tag_2_in_right_slot
     action: store
     slot_id: right
 
-  - id: pick_123451234
+  - id: pick_tag_10
+    action: pick
+    tag_id: 10
+
+
+
+  - id: navigate_to_ws_2
+    action: navigate
+    target: ws_2
+
+
+  - id: place_tag_10_at_ws_2
+    action: place_on_table
+    analyze_apriltags: true
+    analyze_containers: false
+
+  - id: retrieve_left_slot_at_ws_2
+    action: retrieve
+    slot_id: left
+
+  - id: place_left_slot_object_at_ws_2
+    action: place_on_table
+    analyze_apriltags: true
+    analyze_containers: false
+
+  - id: retrieve_right_slot_at_ws_2
+    action: retrieve
+    slot_id: right
+
+  - id: place_right_slot_object_at_ws_2
+    action: place_on_table
+    analyze_apriltags: true
+    analyze_containers: false
+
+
+  - id: pick_tag_3
+    action: pick
+    tag_id: 3
+
+  - id: store_tag_3_in_left_slot
+    action: store
+    slot_id: left
+
+  - id: pick_tag_4
+    action: pick
+    tag_id: 4
+
+  - id: store_tag_4_in_right_slot
+    action: store
+    slot_id: right
+
+  - id: pick_tag_5
     action: pick
     tag_id: 5
 
 
-  - id: go_destin2345ation
+
+  - id: navigate_to_ws_3
     action: navigate
     target: ws_3
 
-  - id: place_32345
+  - id: place_tag_5_at_ws_3
     action: place_on_table
     analyze_apriltags: true
     analyze_containers: false
 
-  - id: re2345trieve_1
+  - id: retrieve_tag_4_from_right_slot
     action: retrieve
     slot_id: right
 
-  - id: place_1jlhjlk2435
+  - id: place_tag_4_at_ws_3
     action: place_on_table
     analyze_apriltags: true
     analyze_containers: false
 
-  - id: re2345trasdfieve_1
+  - id: retrieve_tag_3_from_left_slot
     action: retrieve
     slot_id: left
 
-  - id: place_1243sadfa5
+  - id: place_tag_3_at_ws_3
     action: place_on_table
     analyze_apriltags: true
     analyze_containers: false
 
 
-  - id: pick_123451234asdf
+  - id: pick_tag_6
     action: pick
     tag_id: 6
 
-  - id: go_destin2345ationsasdfadf
-    action: navigate
-    target: ws_1
+  - id: store_tag_6_in_left_slot
+    action: store
+    slot_id: left
 
-  - id: place_32345asdf
+  - id: pick_tag_11
+    action: pick
+    tag_id: 11
+
+  - id: store_tag_11_in_right_slot
+    action: store
+    slot_id: right
+
+  - id: pick_tag_12
+    action: pick
+    tag_id: 12
+
+
+  - id: navigate_to_ws_4_with_tag_12
+    action: navigate
+    target: ws_4
+
+  - id: place_tag_12_at_ws_4
+    action: place_on_table
+    analyze_apriltags: true
+    analyze_containers: false
+
+  - id: retrieve_tag_11_from_right_slot
+    action: retrieve
+    slot_id: right
+
+  - id: place_tag_11_at_ws_4
+    action: place_on_table
+    analyze_apriltags: true
+    analyze_containers: false
+
+  - id: retrieve_tag_6_from_left_slot
+    action: retrieve
+    slot_id: left
+
+  - id: place_tag_6_at_ws_4
+    action: place_on_table
+    analyze_apriltags: true
+    analyze_containers: false
+
+  - id: pick_tag_13
+    action: pick
+    tag_id: 13
+
+  - id: navigate_to_ws_4_with_tag_13
+    action: navigate
+    target: ws_4
+
+  - id: place_tag_13_at_ws_4
     action: place_on_table
     analyze_apriltags: false
     analyze_containers: false
 
 
-  - id: finish
+  - id: finish_transport_plan
     action: finish
