@@ -32,6 +32,9 @@ class DepartureConfig:
     tolerance_mm: int
     timeout_s: float
     lateral_position_mm: int
+    max_alignment_error_mm: int | None = None
+    alignment_recovery_distance_mm: int | None = None
+    minimum_lateral_clearance_mm: int | None = None
 
 
 @dataclass(frozen=True)

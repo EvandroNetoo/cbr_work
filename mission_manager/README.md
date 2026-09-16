@@ -36,17 +36,27 @@ Para `start` e `finish`, o alinhamento de chegada é omitido. Os blocos
 `departure.lateral_position_mm` é uma coordenada absoluta relativa ao centro
 registrado na chegada à mesa. Com o padrão `0`, o robô retorna a esse centro
 enquanto se afasta da superfície no mesmo goal `FollowWall`.
+`departure.max_alignment_error_mm` e
+`departure.alignment_recovery_distance_mm` configuram a recuperação de
+alinhamento desse retorno lateral. `departure.minimum_lateral_clearance_mm`
+define a folga mínima para obstáculos no lado do movimento. Os três campos
+podem ser sobrescritos em cada área; quando omitidos, são usados os parâmetros
+globais `follow_wall.*`.
+Se o recuo não precisar de deslocamento lateral, ambos são enviados como `0`,
+pois a recuperação é uma manobra ao longo da parede.
 
 Os limites `follow_wall.max_alignment_error_mm` e
 `follow_wall.alignment_recovery_distance_mm` do `mission_manager.yaml` são
-enviados somente quando o goal possui deslocamento lateral. Durante o
-alinhamento frontal de chegada, ambos são enviados como `0`; no recuo de uma
-mesa eles são habilitados quando houver retorno lateral. Aborto durante o
-percurso lateral por desalinhamento, conclusão da
+usados nos demais goals com deslocamento lateral. Durante o alinhamento
+frontal de chegada, ambos são enviados como `0`; no recuo de uma mesa são
+usados os valores do bloco `departure` quando houver retorno lateral. Aborto
+durante o percurso lateral por desalinhamento, conclusão da
 recuperação ou obstáculo na folga lateral mínima é registrado como aviso e o
-fluxo da missão continua usando o deslocamento efetivamente medido. Timeout,
-falha de sensores, odometria inválida e comunicação continuam encerrando a
-missão.
+fluxo da missão continua usando o deslocamento efetivamente medido. Quando a
+folga lateral bloqueia um goal que também corrige a distância frontal, o
+`FollowWall` mantém somente `linear.x` até estabilizar na distância solicitada
+e então devolve o resultado parcial. Timeout, falha de sensores, odometria
+inválida e comunicação continuam encerrando a missão.
 
 ## Recuperação de coleta fora do alcance
 

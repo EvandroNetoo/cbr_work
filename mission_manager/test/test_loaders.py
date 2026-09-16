@@ -21,6 +21,9 @@ departure_defaults:
   tolerance_mm: 15
   timeout_s: 8.0
   lateral_position_mm: 0
+  max_alignment_error_mm: 100
+  alignment_recovery_distance_mm: 80
+  minimum_lateral_clearance_mm: 20
 pickup_recovery:
   enabled: true
   minimum_wall_distance_mm: 30
@@ -54,6 +57,8 @@ service_areas:
     departure:
       distance_mm: 300
       lateral_position_mm: -20
+      max_alignment_error_mm: 75
+      minimum_lateral_clearance_mm: 15
 """
 
 
@@ -78,6 +83,9 @@ def test_arena_merges_partial_alignment_override(tmp_path):
     assert departure.timeout_s == pytest.approx(8.0)
     assert arena.service_areas['ws_1'].departure.lateral_position_mm == 0
     assert departure.lateral_position_mm == -20
+    assert departure.max_alignment_error_mm == 75
+    assert departure.alignment_recovery_distance_mm == 80
+    assert departure.minimum_lateral_clearance_mm == 15
     assert arena.pickup_recovery.minimum_wall_distance_mm == 30
     assert arena.pickup_recovery.minimum_lateral_position_mm == -275
     assert arena.pickup_recovery.maximum_lateral_position_mm == 275
@@ -104,6 +112,35 @@ def test_arena_rejects_non_integer_departure_lateral_position(tmp_path):
 
     with pytest.raises(ConfigurationError, match='deve ser inteiro'):
         load_arena(_write(tmp_path, 'arena.yaml', source))
+
+
+def test_arena_rejects_departure_recovery_without_alignment_limit(tmp_path):
+    source = VALID_ARENA.replace(
+        'max_alignment_error_mm: 100', 'max_alignment_error_mm: 0'
+    )
+
+    with pytest.raises(ConfigurationError, match='requer'):
+        load_arena(_write(tmp_path, 'arena.yaml', source))
+
+
+def test_arena_allows_legacy_departure_without_safety_overrides(tmp_path):
+    source = VALID_ARENA.replace(
+        '  max_alignment_error_mm: 100\n'
+        '  alignment_recovery_distance_mm: 80\n'
+        '  minimum_lateral_clearance_mm: 20\n',
+        '',
+    ).replace(
+        '      max_alignment_error_mm: 75\n'
+        '      minimum_lateral_clearance_mm: 15\n',
+        '',
+    )
+
+    arena = load_arena(_write(tmp_path, 'arena.yaml', source))
+
+    departure = arena.service_areas['ws_1'].departure
+    assert departure.max_alignment_error_mm is None
+    assert departure.alignment_recovery_distance_mm is None
+    assert departure.minimum_lateral_clearance_mm is None
 
 
 def test_arena_rejects_search_position_outside_lateral_limits(tmp_path):

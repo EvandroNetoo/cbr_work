@@ -465,7 +465,9 @@ class MissionManager(Node):
         if accepted:
             self.get_logger().warning(
                 f'FollowWall interrompida por protecao; a missao continuara: '
-                f'{message}')
+                f'{message} Resultado parcial: parede='
+                f'{result.final_average_distance_mm:.1f} mm, deslocamento '
+                f'lateral={result.traveled_distance_mm:.1f} mm.')
         return accepted
 
     @staticmethod
@@ -507,6 +509,9 @@ class MissionManager(Node):
         *,
         travel_distance_mm: int = 0,
         travel_tolerance_mm: int | None = None,
+        max_alignment_error_mm: int | None = None,
+        alignment_recovery_distance_mm: int | None = None,
+        minimum_lateral_clearance_mm: int | None = None,
     ) -> FollowWall.Result:
         goal = FollowWall.Goal()
         goal.wall_distance_mm = int(distance_mm)
@@ -518,15 +523,34 @@ class MissionManager(Node):
             else tolerance_mm
         )
         has_lateral_travel = goal.travel_distance_mm != 0
-        goal.max_alignment_error_mm = (
-            self._wall_max_alignment_error_mm if has_lateral_travel else 0)
-        goal.alignment_recovery_distance_mm = (
+        configured_max_alignment_error = (
+            self._wall_max_alignment_error_mm
+            if max_alignment_error_mm is None
+            else max_alignment_error_mm
+        )
+        configured_recovery_distance = (
             self._wall_alignment_recovery_distance_mm
-            if has_lateral_travel else 0)
+            if alignment_recovery_distance_mm is None
+            else alignment_recovery_distance_mm
+        )
+        goal.max_alignment_error_mm = (
+            configured_max_alignment_error if has_lateral_travel else 0)
+        goal.alignment_recovery_distance_mm = (
+            configured_recovery_distance if has_lateral_travel else 0)
         goal.minimum_lateral_clearance_mm = (
-            self._wall_minimum_lateral_clearance_mm)
+            self._wall_minimum_lateral_clearance_mm
+            if minimum_lateral_clearance_mm is None
+            else minimum_lateral_clearance_mm
+        )
         goal.timeout = self._duration(timeout_s)
-        return self._call_action(
+        self.get_logger().info(
+            f'Iniciando FollowWall ({description}): parede alvo='
+            f'{goal.wall_distance_mm}±{goal.wall_tolerance_mm} mm, '
+            f'deslocamento lateral={goal.travel_distance_mm}±'
+            f'{goal.travel_tolerance_mm} mm, folga lateral minima='
+            f'{goal.minimum_lateral_clearance_mm} mm, timeout={timeout_s:.1f} s.'
+        )
+        result = self._call_action(
             self._wall_control_client,
             goal,
             description,
@@ -534,6 +558,12 @@ class MissionManager(Node):
             self._wall_control_failure,
             accept_unsuccessful_result=self._accept_wall_control_abort,
         )
+        self.get_logger().info(
+            f'FollowWall finalizada ({description}): parede final='
+            f'{result.final_average_distance_mm:.1f} mm, deslocamento lateral '
+            f'efetivo={result.traveled_distance_mm:.1f} mm; {result.message}'
+        )
+        return result
 
     def _navigation_timeout(self) -> float:
         return float(self.get_parameter('navigation_timeout_s').value)
@@ -711,8 +741,20 @@ class MissionManager(Node):
         if abs(travel) <= config.travel_tolerance_mm:
             travel = 0
         if wall_is_current and travel == 0:
+            self.get_logger().info(
+                f'Reposicionamento dispensado ({description}): posição atual '
+                f'já atende parede={self._current_wall_distance_mm:.1f} mm e '
+                f'lateral={self._current_lateral_position_mm:.1f} mm.'
+            )
             return False
 
+        self.get_logger().info(
+            f'Reposicionamento de mesa ({description}): posição atual '
+            f'parede={self._current_wall_distance_mm:.1f} mm, lateral='
+            f'{self._current_lateral_position_mm:.1f} mm; destino parede='
+            f'{wall} mm, lateral={bounded_lateral_position_mm:.1f} mm; '
+            f'percurso lateral solicitado={travel} mm.'
+        )
         self._prepare_for_pick_observation()
         follow_result = self._control_wall(
             wall,
@@ -723,6 +765,13 @@ class MissionManager(Node):
             travel_tolerance_mm=config.travel_tolerance_mm,
         )
         self._update_table_position(follow_result)
+        self.get_logger().info(
+            f'Estado da mesa atualizado ({description}): parede='
+            f'{self._current_wall_distance_mm:.1f} mm, lateral='
+            f'{self._current_lateral_position_mm:.1f} mm '
+            f'(avanço lateral medido={follow_result.traveled_distance_mm:.1f} '
+            'mm).'
+        )
         return True
 
     def _position_from_memory(
@@ -817,6 +866,13 @@ class MissionManager(Node):
                 departure.timeout_s,
                 f'recuo para sair de {self._current_location}',
                 travel_distance_mm=departure_travel_mm,
+                max_alignment_error_mm=departure.max_alignment_error_mm,
+                alignment_recovery_distance_mm=(
+                    departure.alignment_recovery_distance_mm
+                ),
+                minimum_lateral_clearance_mm=(
+                    departure.minimum_lateral_clearance_mm
+                ),
             )
             self._current_wall_distance_mm = None
             self._current_lateral_position_mm = 0.0

@@ -145,7 +145,12 @@ def _departure(
     raw = _mapping(raw_value, context)
     _only_keys(
         raw,
-        {'distance_mm', 'tolerance_mm', 'timeout_s', 'lateral_position_mm'},
+        {
+            'distance_mm', 'tolerance_mm', 'timeout_s',
+            'lateral_position_mm', 'max_alignment_error_mm',
+            'alignment_recovery_distance_mm',
+            'minimum_lateral_clearance_mm',
+        },
         context,
     )
     distance_values = _distance_config_values(
@@ -161,11 +166,59 @@ def _departure(
         'lateral_position_mm',
         defaults.lateral_position_mm if defaults is not None else None,
     )
+    max_alignment_error = raw.get(
+        'max_alignment_error_mm',
+        defaults.max_alignment_error_mm if defaults is not None else None,
+    )
+    if max_alignment_error is not None:
+        max_alignment_error = _integer(
+            max_alignment_error,
+            f'{context}.max_alignment_error_mm',
+            nonnegative=True,
+        )
+    alignment_recovery_distance = raw.get(
+        'alignment_recovery_distance_mm',
+        (
+            defaults.alignment_recovery_distance_mm
+            if defaults is not None else None
+        ),
+    )
+    if alignment_recovery_distance is not None:
+        alignment_recovery_distance = _integer(
+            alignment_recovery_distance,
+            f'{context}.alignment_recovery_distance_mm',
+            nonnegative=True,
+        )
+    minimum_lateral_clearance = raw.get(
+        'minimum_lateral_clearance_mm',
+        (
+            defaults.minimum_lateral_clearance_mm
+            if defaults is not None else None
+        ),
+    )
+    if minimum_lateral_clearance is not None:
+        minimum_lateral_clearance = _integer(
+            minimum_lateral_clearance,
+            f'{context}.minimum_lateral_clearance_mm',
+            nonnegative=True,
+        )
+    if (
+        alignment_recovery_distance is not None
+        and alignment_recovery_distance > 0
+        and max_alignment_error == 0
+    ):
+        raise ConfigurationError(
+            f'{context}.alignment_recovery_distance_mm requer '
+            'max_alignment_error_mm positivo.'
+        )
     return DepartureConfig(
         *distance_values,
         lateral_position_mm=_integer(
             lateral_position, f'{context}.lateral_position_mm'
         ),
+        max_alignment_error_mm=max_alignment_error,
+        alignment_recovery_distance_mm=alignment_recovery_distance,
+        minimum_lateral_clearance_mm=minimum_lateral_clearance,
     )
 
 

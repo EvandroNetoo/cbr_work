@@ -24,7 +24,7 @@ import pytest
 
 def _arena():
     alignment = AlignmentConfig(200, 10, 10.0)
-    departure = DepartureConfig(250, 10, 10.0, 0)
+    departure = DepartureConfig(250, 10, 10.0, 0, 75, 50, 25)
     return Arena(
         frame_id='map',
         start=MapPose(0.0, 0.0, 0.0),
@@ -100,6 +100,8 @@ def test_wall_control_requires_valid_distance_and_odometry():
 
 def test_wall_control_uses_zero_travel_for_alignment():
     manager = MissionManager.__new__(MissionManager)
+    logs = []
+    manager.get_logger = lambda: SimpleNamespace(info=lambda text: logs.append(text))
     manager._wall_control_client = object()
     manager._wall_max_alignment_error_mm = 100
     manager._wall_alignment_recovery_distance_mm = 100
@@ -125,10 +127,14 @@ def test_wall_control_uses_zero_travel_for_alignment():
     assert goal.minimum_lateral_clearance_mm == 10
     assert calls[0][3]['accept_unsuccessful_result'] == (
         manager._accept_wall_control_abort)
+    assert 'parede alvo=50±5 mm' in logs[0]
+    assert 'deslocamento lateral=0±5 mm' in logs[0]
+    assert 'parede final=0.0 mm' in logs[1]
 
 
 def test_wall_control_uses_configured_recovery_for_lateral_travel():
     manager = MissionManager.__new__(MissionManager)
+    manager.get_logger = lambda: SimpleNamespace(info=lambda _text: None)
     manager._wall_control_client = object()
     manager._wall_max_alignment_error_mm = 100
     manager._wall_alignment_recovery_distance_mm = 100
@@ -151,6 +157,34 @@ def test_wall_control_uses_configured_recovery_for_lateral_travel():
     assert goals[0].minimum_lateral_clearance_mm == 10
 
 
+def test_wall_control_accepts_recovery_override_for_departure():
+    manager = MissionManager.__new__(MissionManager)
+    manager.get_logger = lambda: SimpleNamespace(info=lambda _text: None)
+    manager._wall_control_client = object()
+    manager._wall_max_alignment_error_mm = 100
+    manager._wall_alignment_recovery_distance_mm = 100
+    manager._wall_minimum_lateral_clearance_mm = 10
+    manager._duration = lambda seconds: seconds
+    goals = []
+    manager._call_action = lambda _client, goal, *_args, **_kwargs: (
+        goals.append(goal) or FollowWall.Result())
+
+    manager._control_wall(
+        250,
+        10,
+        10.0,
+        'recuo',
+        travel_distance_mm=-250,
+        max_alignment_error_mm=75,
+        alignment_recovery_distance_mm=50,
+        minimum_lateral_clearance_mm=25,
+    )
+
+    assert goals[0].max_alignment_error_mm == 75
+    assert goals[0].alignment_recovery_distance_mm == 50
+    assert goals[0].minimum_lateral_clearance_mm == 25
+
+
 @pytest.mark.parametrize(
     'message',
     (
@@ -167,6 +201,8 @@ def test_wall_control_safety_abort_is_tolerated(message):
     result = FollowWall.Result()
     result.has_valid_reading = True
     result.has_valid_odometry = True
+    result.final_average_distance_mm = 15.0
+    result.traveled_distance_mm = 4.0
     result.message = message
 
     assert manager._accept_wall_control_abort(result)
@@ -178,6 +214,8 @@ def test_wall_control_safety_abort_is_tolerated(message):
         accept_unsuccessful_result=manager._accept_wall_control_abort,
     )
     assert warnings
+    assert 'parede=15.0 mm' in warnings[-1]
+    assert 'deslocamento lateral=4.0 mm' in warnings[-1]
 
 
 @pytest.mark.parametrize(
@@ -408,7 +446,8 @@ def test_table_movement_clamps_absolute_lateral_destination(
     manager._prepare_for_pick_observation = lambda: None
     warnings = []
     manager.get_logger = lambda: SimpleNamespace(
-        warning=lambda message: warnings.append(message)
+        warning=lambda message: warnings.append(message),
+        info=lambda _message: None,
     )
     commands = []
 
@@ -682,6 +721,9 @@ def test_navigation_returns_to_departure_lateral_origin_while_backing_away(
     assert wall_calls[0][1]['travel_distance_mm'] == (
         expected_travel_distance_mm
     )
+    assert wall_calls[0][1]['max_alignment_error_mm'] == 75
+    assert wall_calls[0][1]['alignment_recovery_distance_mm'] == 50
+    assert wall_calls[0][1]['minimum_lateral_clearance_mm'] == 25
 
 
 def test_navigation_keeps_apriltag_memory_for_later_return():

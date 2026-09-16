@@ -390,7 +390,7 @@ class VL53DistanceAction(Node):
         minimum_clearance_mm: int,
         now: float,
     ) -> tuple[FollowWallCommand, str | None]:
-        """Limita apenas linear.y; angular.z isolado e ignorado."""
+        """Protege o lado do linear.y sem bloquear a correcao frontal."""
         linear_y = command.linear_y_velocity_mps
         if minimum_clearance_mm <= 0 or linear_y == 0.0:
             return command, None
@@ -414,13 +414,12 @@ class VL53DistanceAction(Node):
         if clearance is None:
             return command, None
         if clearance <= float(minimum_clearance_mm):
-            stopped = replace(
+            x_only = replace(
                 command,
-                linear_x_velocity_mps=0.0,
                 linear_y_velocity_mps=0.0,
                 angular_velocity_rad_s=0.0,
             )
-            return stopped, (
+            return x_only, (
                 f'Obstaculo no lado {side} a {clearance:.0f} mm do footprint; '
                 f'minimo solicitado: {minimum_clearance_mm} mm.')
 
@@ -584,6 +583,8 @@ class VL53DistanceAction(Node):
         traveled_mm = 0.0
         consecutive_failures = 0
         settled_since: float | None = None
+        lateral_blocked_since: float | None = None
+        lateral_blocked_message: str | None = None
         recovery_target_mm: float | None = None
         recovery_distance_mm = int(
             goal_handle.request.alignment_recovery_distance_mm)
@@ -787,17 +788,59 @@ class VL53DistanceAction(Node):
                         now,
                     )
                     last_iteration = now
+                    lateral_safety_handled = False
                     if lateral_safety_error is not None:
-                        self._follow_wall_controller.reset()
-                        self._invalidate_command(publish=True)
-                        self._publish_follow_wall_feedback(
-                            goal_handle, sample, command, 0, elapsed)
-                        result = self._follow_wall_result(
-                            sample, True, traveled_mm, elapsed,
-                            lateral_safety_error)
-                        goal_handle.abort(result)
-                        return result
-                    if command.inside_tolerance:
+                        is_lateral_obstacle = lateral_safety_error.startswith(
+                            'Obstaculo no lado ')
+                        if (
+                            is_lateral_obstacle
+                            and command.linear_x_velocity_mps != 0.0
+                        ):
+                            lateral_blocked_since = None
+                            if lateral_blocked_message != lateral_safety_error:
+                                self.get_logger().warning(
+                                    f'{lateral_safety_error} Mantendo somente '
+                                    'a correção frontal em linear.x.')
+                            lateral_blocked_message = lateral_safety_error
+                            settled_since = None
+                            self._set_desired_command(
+                                command.linear_x_velocity_mps, 0.0, 0.0)
+                            self._publish_follow_wall_feedback(
+                                goal_handle, sample, command, 0, elapsed)
+                            lateral_safety_handled = True
+                        elif is_lateral_obstacle:
+                            if lateral_blocked_since is None:
+                                lateral_blocked_since = now
+                                self._set_desired_command(0.0, 0.0, 0.0)
+                                self._publish_follow_wall_feedback(
+                                    goal_handle, sample, command, 0, elapsed)
+                                lateral_safety_handled = True
+                            elif now - lateral_blocked_since < self._settle_time:
+                                self._set_desired_command(0.0, 0.0, 0.0)
+                                self._publish_follow_wall_feedback(
+                                    goal_handle, sample, command, 0, elapsed)
+                                lateral_safety_handled = True
+                            else:
+                                lateral_safety_error += (
+                                    ' Aproximacao frontal concluida; '
+                                    'deslocamento lateral interrompido.')
+                        if not lateral_safety_handled:
+                            self._follow_wall_controller.reset()
+                            self._invalidate_command(publish=True)
+                            self._publish_follow_wall_feedback(
+                                goal_handle, sample, command, 0, elapsed)
+                            result = self._follow_wall_result(
+                                sample, True, traveled_mm, elapsed,
+                                lateral_safety_error)
+                            goal_handle.abort(result)
+                            return result
+                    else:
+                        lateral_blocked_since = None
+                        lateral_blocked_message = None
+                    if (
+                        not lateral_safety_handled
+                        and command.inside_tolerance
+                    ):
                         self._follow_wall_controller.reset()
                         self._set_desired_command(0.0, 0.0, 0.0)
                         if recovery_target_mm is not None:
@@ -815,7 +858,7 @@ class VL53DistanceAction(Node):
                                 'Parede e percurso lateral alcançados.')
                             goal_handle.succeed(result)
                             return result
-                    else:
+                    elif not lateral_safety_handled:
                         settled_since = None
                         self._set_desired_command(
                             command.linear_x_velocity_mps,

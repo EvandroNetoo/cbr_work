@@ -16,13 +16,18 @@ departure_defaults:
   timeout_s: 10.0
   # Coordenada lateral absoluta do centro registrado ao chegar à mesa.
   lateral_position_mm: 0
+  # Proteções usadas no retorno lateral executado junto com o recuo.
+  # Para desativar a proteção no recuo, defina ambos como zero.
+  max_alignment_error_mm: 0
+  alignment_recovery_distance_mm: 0
+  minimum_lateral_clearance_mm: 10
 
 # Se uma coleta estiver fora do alcance, centraliza novamente a AprilTag no
 # referencial do braço e repete a detecção. O eixo x corrige o percurso ao
 # longo da parede; o eixo y corrige a distância perpendicular à parede.
 pickup_recovery:
   enabled: true
-  minimum_wall_distance_mm: 15
+  minimum_wall_distance_mm: 10
   maximum_wall_distance_mm: 250
   # Limites laterais absolutos relativos ao alinhamento inicial (posição 0).
   minimum_lateral_position_mm: -900
@@ -50,11 +55,18 @@ finish:
 
 service_areas:
   ws_1:
-    x_m: 4.50
+    x_m: 4.40
     y_m: 1.807
     yaw_rad: -1.570
     height_cm: 10
     type: WS
+    # departure:
+    #   distance_mm: 250
+    #   tolerance_mm: 25
+    #   timeout_s: 10.0
+    #   lateral_position_mm: 0
+    #   max_alignment_error_mm: 100
+    #   alignment_recovery_distance_mm: 100
 
   ws_2:
     x_m: 1.436
@@ -72,7 +84,7 @@ service_areas:
 
   ws_4:
     x_m: 1.77
-    y_m: 3.20
+    y_m: 3.10
     yaw_rad: 0.0
     height_cm: 11
     type: WS

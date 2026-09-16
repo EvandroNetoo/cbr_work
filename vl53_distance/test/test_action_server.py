@@ -310,7 +310,9 @@ def test_lateral_safety_uses_only_the_side_of_linear_y():
     command_left = FollowWallCommand(
         0.02, 0.10, 0.3, 300.0, 0.0, 0.0, 0.0, 500.0, False)
     stopped, error = server._apply_lateral_safety(command_left, 100, now)
+    assert stopped.linear_x_velocity_mps == command_left.linear_x_velocity_mps
     assert stopped.linear_y_velocity_mps == 0.0
+    assert stopped.angular_velocity_rad_s == 0.0
     assert 'lado esquerdo' in error
     assert '50 mm' in error
 
@@ -445,6 +447,57 @@ def test_follow_wall_succeeds_after_all_conditions_settle(monkeypatch):
     assert len(goal.feedback) == 1
     assert goal.feedback[0].traveled_distance_mm == pytest.approx(500.0)
     assert not server._desired_valid
+
+
+def test_follow_wall_finishes_front_alignment_when_lateral_side_is_blocked(
+    monkeypatch,
+):
+    far = DistanceSample(400, 400, 400, 400)
+    aligned = DistanceSample(300, 300, 300, 300)
+    pair = SequencePair([far, aligned, aligned])
+    server = _bare_server(pair)
+
+    class FrontThenStopController(FakeFollowWallController):
+        def calculate(self, left, right, wall, wall_tolerance, traveled,
+                      travel, travel_tolerance, dt):
+            del travel_tolerance, dt
+            wall_inside = (
+                wall - wall_tolerance <= left <= wall + wall_tolerance
+                and wall - wall_tolerance <= right <= wall + wall_tolerance
+            )
+            return FollowWallCommand(
+                0.0 if wall_inside else 0.02,
+                -0.04,
+                0.3,
+                (left + right) / 2.0,
+                (left + right) / 2.0 - wall,
+                float(right - left),
+                traveled,
+                travel - traveled,
+                False,
+            )
+
+    server._follow_wall_controller = FrontThenStopController()
+    server._activate_goal_resources = lambda **_kwargs: None
+    server._deactivate_goal_resources = lambda: None
+    server._latest_lateral_clearances = LateralClearances(
+        left_mm=None, right_mm=0.0)
+    server._lateral_scan_updated = time.monotonic()
+    pose = OdometryPose(0.0, 0.0, 0.0)
+    server._odometry_snapshot = lambda _now=None: (pose, True)
+    monkeypatch.setattr(action_module.rclpy, 'ok', lambda: True)
+    goal = FakeFollowWallGoal()
+    goal.request.minimum_lateral_clearance_mm = 10
+
+    result = server._execute_follow_wall_goal(goal)
+
+    assert goal.terminal == 'aborted'
+    assert pair.read_count == 3
+    assert result.final_average_distance_mm == pytest.approx(300.0)
+    assert 'Aproximacao frontal concluida' in result.message
+    assert goal.feedback[0].linear_x_velocity_mps == pytest.approx(0.02)
+    assert goal.feedback[0].linear_y_velocity_mps == 0.0
+    assert goal.feedback[0].angular_velocity_rad_s == 0.0
 
 
 def test_follow_wall_sensor_failure_counter_aborts(monkeypatch):

@@ -163,7 +163,7 @@ steps:
 
   - id: navigate_to_ws_4_with_tag_13
     action: navigate
-    target: ws_4
+    target: ws_1
 
   - id: place_tag_13_at_ws_4
     action: place_on_table

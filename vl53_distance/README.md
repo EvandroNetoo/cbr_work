@@ -47,9 +47,12 @@ e um obstaculo no lado do movimento. O valor `0` desativa a protecao e preserva
 o comportamento anterior. Um comando lateral positivo no frame ROS verifica o
 lado esquerdo; um comando negativo verifica o direito. Rotacao sem movimento
 lateral nao aciona a verificacao. A velocidade lateral e reduzida dentro da
-margem configurada e a action para e aborta ao atingir a folga minima. Com a
-protecao habilitada, um `/scan_front` ausente ou obsoleto tambem causa parada e
-aborto.
+margem configurada. Ao atingir a folga minima, `linear.y` e `angular.z` sao
+bloqueados, mas uma correcao frontal pendente em `linear.x` continua ate
+estabilizar na distancia solicitada. A action entao termina abortada, informando
+que concluiu a aproximacao frontal e interrompeu o percurso lateral. Com a
+protecao habilitada, um `/scan_front` ausente ou obsoleto ainda causa parada
+total e aborto imediato.
 
 `max_alignment_error_mm` limita a diferença absoluta entre as distâncias dos
 dois sensores. Se uma leitura válida ultrapassar esse valor, a action publica
