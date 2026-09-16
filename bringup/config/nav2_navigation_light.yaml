@@ -66,12 +66,16 @@ controller_server:
       ay_max: 3.109
       ay_min: -3.109
       az_max: 6.218
-      vx_std: 0.187
-      vy_std: 0.187
+      # Ruido moderado evita que a melhor amostra alterne bruscamente entre
+      # acelerar e parar, mas ainda cobre todo o intervalo de velocidade.
+      vx_std: 0.200
+      vy_std: 0.200
       wz_std: 0.777
       prune_distance: 0.80
       transform_tolerance: 0.2
-      temperature: 0.3
+      # Mantem uma media ponderada entre boas trajetorias. Temperaturas muito
+      # baixas fazem uma unica amostra dominar e geram comandos aos trancos.
+      temperature: 0.30
       gamma: 0.015
       visualize: false
       regenerate_noises: false
@@ -98,12 +102,14 @@ controller_server:
         enabled: true
         cost_power: 1
         cost_weight: 8.0
-        threshold_to_consider: 0.45
+        # Entrega o controle ao objetivo apenas no trecho final. Ate aqui o
+        # PathFollowCritic continua exigindo progresso rapido.
+        threshold_to_consider: 0.25
       GoalAngleCritic:
         enabled: true
         cost_power: 1
         cost_weight: 15.0
-        threshold_to_consider: 0.50
+        threshold_to_consider: 0.25
       PathAlignCritic:
         enabled: true
         cost_power: 1
@@ -116,9 +122,12 @@ controller_server:
       PathFollowCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 5.0
-        offset_from_furthest: 5
-        threshold_to_consider: 0.45
+        # Este e o critico que efetivamente recompensa avancar pelo caminho.
+        # Com mapa de 5 cm, 10 pontos miram 0,50 m adiante; o peso duplicado
+        # ainda exige velocidade, sem produzir a resposta liga/desliga.
+        cost_weight: 10.0
+        offset_from_furthest: 10
+        threshold_to_consider: 0.25
       PreferForwardCritic:
         enabled: true
         cost_power: 1
@@ -242,7 +251,9 @@ velocity_smoother:
     max_velocity: [0.374, 0.374, 1.680]
     min_velocity: [-0.374, -0.374, -1.680]
     max_accel: [3.109, 3.109, 6.218]
-    max_decel: [-3.109, -3.109, -6.218]
+    # Filtra reducoes isoladas do MPPI para a base nao frear entre dois ciclos.
+    # O collision_monitor fica depois deste no e ainda pode parar imediatamente.
+    max_decel: [-1.500, -1.500, -3.000]
     odom_topic: /odom
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
