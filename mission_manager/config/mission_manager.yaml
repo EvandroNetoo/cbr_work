@@ -8,6 +8,9 @@ mission_manager:
     cargo_slot_ids: [left, right]
     navigate_action: /navigate_to_pose
     wall_control_action: /vl53/follow_wall
+    follow_wall.max_alignment_error_mm: 100
+    follow_wall.alignment_recovery_distance_mm: 100
+    follow_wall.minimum_lateral_clearance_mm: 10
     prepare_action: /manipulation/prepare
     pick_action: /manipulation/pick
     store_action: /manipulation/store

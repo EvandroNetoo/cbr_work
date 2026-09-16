@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 
 PACKAGE = Path(__file__).parents[1]
 SOURCE_ROOT = PACKAGE.parent
@@ -52,3 +54,13 @@ def test_execute_mission_contract_reports_step_and_completion():
     assert 'string failed_step_id' in action
     assert 'uint32 current_step_index' in action
     assert 'string operation' in action
+
+
+def test_follow_wall_safety_parameters_are_enabled_by_default():
+    config = yaml.safe_load(
+        (PACKAGE / 'config' / 'mission_manager.yaml').read_text())
+    parameters = config['mission_manager']['ros__parameters']
+
+    assert parameters['follow_wall.max_alignment_error_mm'] == 100
+    assert parameters['follow_wall.alignment_recovery_distance_mm'] == 100
+    assert parameters['follow_wall.minimum_lateral_clearance_mm'] == 10

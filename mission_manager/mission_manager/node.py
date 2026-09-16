@@ -69,6 +69,9 @@ class MissionManager(Node):
             'cargo_slot_ids': ['left', 'right'],
             'navigate_action': '/navigate_to_pose',
             'wall_control_action': '/vl53/follow_wall',
+            'follow_wall.max_alignment_error_mm': 100,
+            'follow_wall.alignment_recovery_distance_mm': 100,
+            'follow_wall.minimum_lateral_clearance_mm': 10,
             'prepare_action': '/manipulation/prepare',
             'pick_action': '/manipulation/pick',
             'store_action': '/manipulation/store',
@@ -83,6 +86,23 @@ class MissionManager(Node):
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
+
+        self._wall_max_alignment_error_mm = (
+            self._nonnegative_integer_parameter(
+                'follow_wall.max_alignment_error_mm'))
+        self._wall_alignment_recovery_distance_mm = (
+            self._nonnegative_integer_parameter(
+                'follow_wall.alignment_recovery_distance_mm'))
+        self._wall_minimum_lateral_clearance_mm = (
+            self._nonnegative_integer_parameter(
+                'follow_wall.minimum_lateral_clearance_mm'))
+        if (
+            self._wall_alignment_recovery_distance_mm > 0
+            and self._wall_max_alignment_error_mm == 0
+        ):
+            raise ConfigurationError(
+                'follow_wall.alignment_recovery_distance_mm requer '
+                'follow_wall.max_alignment_error_mm positivo.')
 
         self._callback_group = ReentrantCallbackGroup()
         self._cancel_event = threading.Event()
@@ -224,6 +244,13 @@ class MissionManager(Node):
             raise ConfigurationError('server_timeout_s deve ser positivo.')
         return value
 
+    def _nonnegative_integer_parameter(self, name: str) -> int:
+        value = self.get_parameter(name).value
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ConfigurationError(
+                f'{name} deve ser um inteiro nao negativo.')
+        return int(value)
+
     def _call_action(
         self,
         client: ActionClient,
@@ -233,6 +260,7 @@ class MissionManager(Node):
         validate_result: Callable[[Any], str | None] | None = None,
         *,
         allow_unsuccessful_status: bool = False,
+        accept_unsuccessful_result: Callable[[Any], bool] | None = None,
         on_goal_accepted: Callable[[], None] | None = None,
     ) -> Any:
         self._check_canceled()
@@ -275,6 +303,7 @@ class MissionManager(Node):
             result,
             description,
             allow_unsuccessful_status=allow_unsuccessful_status,
+            accept_unsuccessful_result=accept_unsuccessful_result,
         )
         if validate_result is not None:
             failure = validate_result(result)
@@ -289,6 +318,7 @@ class MissionManager(Node):
         description: str,
         *,
         allow_unsuccessful_status: bool,
+        accept_unsuccessful_result: Callable[[Any], bool] | None = None,
     ) -> None:
         if status == GoalStatus.STATUS_SUCCEEDED:
             return
@@ -299,6 +329,11 @@ class MissionManager(Node):
                 and int(outcome.code) != int(outcome.SUCCESS)
             ):
                 return
+        if (
+            accept_unsuccessful_result is not None
+            and accept_unsuccessful_result(result)
+        ):
+            return
         raise StepFailed(f'{description} falhou com estado {status}.')
 
     @staticmethod
@@ -414,6 +449,25 @@ class MissionManager(Node):
             return None
         return result.message or 'sensores de distância ou odometria inválidos'
 
+    def _accept_wall_control_abort(self, result: FollowWall.Result) -> bool:
+        """Aceita somente as paradas de seguranca configuradas da FollowWall."""
+        message = str(result.message)
+        tolerated_prefixes = (
+            'Desalinhamento de ',
+            'Recuperação concluída após retorno lateral de ',
+            'Obstaculo no lado ',
+        )
+        accepted = (
+            bool(result.has_valid_reading)
+            and bool(result.has_valid_odometry)
+            and message.startswith(tolerated_prefixes)
+        )
+        if accepted:
+            self.get_logger().warning(
+                f'FollowWall interrompida por protecao; a missao continuara: '
+                f'{message}')
+        return accepted
+
     @staticmethod
     def _pickup_recovery_correction(
         current_wall_distance_mm: float,
@@ -453,8 +507,6 @@ class MissionManager(Node):
         *,
         travel_distance_mm: int = 0,
         travel_tolerance_mm: int | None = None,
-        max_alignment_error_mm: int = 0,
-        alignment_recovery_distance_mm: int = 0,
     ) -> FollowWall.Result:
         goal = FollowWall.Goal()
         goal.wall_distance_mm = int(distance_mm)
@@ -465,12 +517,14 @@ class MissionManager(Node):
             if travel_tolerance_mm is not None
             else tolerance_mm
         )
-        goal.max_alignment_error_mm = int(max_alignment_error_mm)
-        goal.alignment_recovery_distance_mm = int(
-            alignment_recovery_distance_mm)
-        # Missoes existentes mantem a protecao lateral opt-in. Chamadas que
-        # precisem dela podem definir o campo diretamente em um FollowWall.Goal.
-        goal.minimum_lateral_clearance_mm = 0
+        has_lateral_travel = goal.travel_distance_mm != 0
+        goal.max_alignment_error_mm = (
+            self._wall_max_alignment_error_mm if has_lateral_travel else 0)
+        goal.alignment_recovery_distance_mm = (
+            self._wall_alignment_recovery_distance_mm
+            if has_lateral_travel else 0)
+        goal.minimum_lateral_clearance_mm = (
+            self._wall_minimum_lateral_clearance_mm)
         goal.timeout = self._duration(timeout_s)
         return self._call_action(
             self._wall_control_client,
@@ -478,6 +532,7 @@ class MissionManager(Node):
             description,
             timeout_s + 5.0,
             self._wall_control_failure,
+            accept_unsuccessful_result=self._accept_wall_control_abort,
         )
 
     def _navigation_timeout(self) -> float:
@@ -736,6 +791,10 @@ class MissionManager(Node):
             destination,
             f'busca lateral da AprilTag {tag_id} em {destination} mm',
         )
+        # O destino foi tentado mesmo quando FollowWall terminou por uma
+        # protecao tolerada. Mantemos a posicao fisica medida, mas nao voltamos
+        # a selecionar indefinidamente o mesmo extremo da busca.
+        visited.add(destination)
         return True
 
     def _navigate(self, target: str) -> None:

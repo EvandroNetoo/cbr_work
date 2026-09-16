@@ -10,7 +10,7 @@ steps:
 
   - id: pick_1
     action: pick
-    tag_id: 4
+    tag_id: 1
 
   - id: store_1
     action: store
@@ -18,7 +18,7 @@ steps:
 
   - id: pick_5
     action: pick
-    tag_id: 5
+    tag_id: 2
 
   # - id: store_5
   #   action: store
@@ -57,7 +57,7 @@ steps:
 
   - id: pick_12345
     action: pick
-    tag_id: 10
+    tag_id: 3
 
   - id: store_12345
     action: store
@@ -65,7 +65,7 @@ steps:
 
   - id: pick_52345
     action: pick
-    tag_id: 11
+    tag_id: 4
 
   - id: store_12124345
     action: store
@@ -73,7 +73,7 @@ steps:
 
   - id: pick_123451234
     action: pick
-    tag_id: 12
+    tag_id: 5
 
 
   - id: go_destin2345ation
@@ -106,7 +106,7 @@ steps:
 
   - id: pick_123451234asdf
     action: pick
-    tag_id: 13
+    tag_id: 6
 
   - id: go_destin2345ationsasdfadf
     action: navigate

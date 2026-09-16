@@ -10,7 +10,7 @@ diretamente: ele compõe Nav2, alinhamento VL53 e as actions semânticas do paco
   recuperação de coleta;
 - `config/plans/*.yaml`: passos sequenciais selecionados por `plan_id`;
 - `config/mission_manager.yaml`: nomes das actions, serviço/tópico de estado,
-  compartimentos disponíveis e timeouts ROS.
+  compartimentos disponíveis, proteções do `FollowWall` e timeouts ROS.
 
 As poses vazias de `arena.yaml` devem ser medidas antes da execução. O nó inicia
 normalmente, mas um goal retorna `CONFIGURATION_ERROR` sem movimentar o robô se
@@ -33,6 +33,16 @@ FollowWall(departure, travel=0) → PrepareManipulator(NAVIGATION) → NavigateT
 Para `start` e `finish`, o alinhamento de chegada é omitido. Os blocos
 `alignment` e `departure` de uma service area sobrescrevem parcialmente
 `alignment_defaults` e `departure_defaults`, respectivamente.
+
+Os limites `follow_wall.max_alignment_error_mm` e
+`follow_wall.alignment_recovery_distance_mm` do `mission_manager.yaml` são
+enviados somente quando o goal possui deslocamento lateral. Durante o
+alinhamento frontal de chegada ou o recuo de uma mesa, ambos são enviados como
+`0`. Aborto durante o percurso lateral por desalinhamento, conclusão da
+recuperação ou obstáculo na folga lateral mínima é registrado como aviso e o
+fluxo da missão continua usando o deslocamento efetivamente medido. Timeout,
+falha de sensores, odometria inválida e comunicação continuam encerrando a
+missão.
 
 ## Recuperação de coleta fora do alcance
 
@@ -76,6 +86,10 @@ atual, o robô visita a posição de busca ainda não observada mais próxima. A
 posições são coordenadas absolutas em milímetros, configuradas em
 `pickup_recovery.search_positions_mm`; o padrão da arena é `[0, 250, -250]`.
 Todas as posições de busca precisam estar dentro dos limites laterais.
+Cada destino é marcado como tentado depois que o movimento termina, inclusive
+quando `FollowWall` é interrompida por uma proteção tolerada. Assim, a busca
+avança para a próxima posição sem repetir indefinidamente um extremo bloqueado;
+a posição física interna continua usando somente o deslocamento medido.
 Em cada posição, todas as outras tags encontradas também atualizam a memória.
 Uma tag coletada é removida, sem apagar as demais observações. Se a próxima tag
 não apareceu na última análise e a base continua na mesma posição, essa análise

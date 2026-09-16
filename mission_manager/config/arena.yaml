@@ -23,8 +23,8 @@ pickup_recovery:
   minimum_wall_distance_mm: 15
   maximum_wall_distance_mm: 250
   # Limites laterais absolutos relativos ao alinhamento inicial (posição 0).
-  minimum_lateral_position_mm: -275
-  maximum_lateral_position_mm: 275
+  minimum_lateral_position_mm: -900
+  maximum_lateral_position_mm: 900
   preferred_tag_x_m: 0.0
   preferred_tag_y_m: -0.22
   wall_tolerance_mm: 5

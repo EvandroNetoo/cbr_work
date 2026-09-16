@@ -101,11 +101,14 @@ def test_wall_control_requires_valid_distance_and_odometry():
 def test_wall_control_uses_zero_travel_for_alignment():
     manager = MissionManager.__new__(MissionManager)
     manager._wall_control_client = object()
+    manager._wall_max_alignment_error_mm = 100
+    manager._wall_alignment_recovery_distance_mm = 100
+    manager._wall_minimum_lateral_clearance_mm = 10
     manager._duration = lambda seconds: seconds
     calls = []
 
-    def call_action(client, goal, *args):
-        calls.append((client, goal, args))
+    def call_action(client, goal, *args, **kwargs):
+        calls.append((client, goal, args, kwargs))
         return FollowWall.Result()
 
     manager._call_action = call_action
@@ -116,9 +119,91 @@ def test_wall_control_uses_zero_travel_for_alignment():
     assert goal.travel_distance_mm == 0
     assert goal.wall_tolerance_mm == 5
     assert goal.travel_tolerance_mm == 5
+    # Protecoes de alinhamento sao exclusivas do deslocamento lateral.
     assert goal.max_alignment_error_mm == 0
     assert goal.alignment_recovery_distance_mm == 0
-    assert goal.minimum_lateral_clearance_mm == 0
+    assert goal.minimum_lateral_clearance_mm == 10
+    assert calls[0][3]['accept_unsuccessful_result'] == (
+        manager._accept_wall_control_abort)
+
+
+def test_wall_control_uses_configured_recovery_for_lateral_travel():
+    manager = MissionManager.__new__(MissionManager)
+    manager._wall_control_client = object()
+    manager._wall_max_alignment_error_mm = 100
+    manager._wall_alignment_recovery_distance_mm = 100
+    manager._wall_minimum_lateral_clearance_mm = 10
+    manager._duration = lambda seconds: seconds
+    goals = []
+    manager._call_action = lambda _client, goal, *_args, **_kwargs: (
+        goals.append(goal) or FollowWall.Result())
+
+    manager._control_wall(
+        50,
+        5,
+        10.0,
+        'movimento lateral',
+        travel_distance_mm=500,
+    )
+
+    assert goals[0].max_alignment_error_mm == 100
+    assert goals[0].alignment_recovery_distance_mm == 100
+    assert goals[0].minimum_lateral_clearance_mm == 10
+
+
+@pytest.mark.parametrize(
+    'message',
+    (
+        'Desalinhamento de 101 mm excede o limite de 100 mm.',
+        'Recuperação concluída após retorno lateral de 100 mm.',
+        'Obstaculo no lado direito a 8 mm do footprint; minimo solicitado: 10 mm.',
+    ),
+)
+def test_wall_control_safety_abort_is_tolerated(message):
+    manager = MissionManager.__new__(MissionManager)
+    warnings = []
+    manager.get_logger = lambda: SimpleNamespace(
+        warning=lambda text: warnings.append(text))
+    result = FollowWall.Result()
+    result.has_valid_reading = True
+    result.has_valid_odometry = True
+    result.message = message
+
+    assert manager._accept_wall_control_abort(result)
+    MissionManager._validate_action_status(
+        GoalStatus.STATUS_ABORTED,
+        result,
+        'FollowWall',
+        allow_unsuccessful_status=False,
+        accept_unsuccessful_result=manager._accept_wall_control_abort,
+    )
+    assert warnings
+
+
+@pytest.mark.parametrize(
+    'message',
+    (
+        'Timeout antes de concluir o seguimento da parede.',
+        'Odometria ficou indisponível ou obsoleta.',
+        'Número máximo de falhas consecutivas atingido.',
+    ),
+)
+def test_other_wall_control_aborts_still_fail_the_mission(message):
+    manager = MissionManager.__new__(MissionManager)
+    manager.get_logger = lambda: SimpleNamespace(warning=lambda _text: None)
+    result = FollowWall.Result()
+    result.has_valid_reading = True
+    result.has_valid_odometry = True
+    result.message = message
+
+    with pytest.raises(StepFailed, match='estado'):
+        MissionManager._validate_action_status(
+            GoalStatus.STATUS_ABORTED,
+            result,
+            'FollowWall',
+            allow_unsuccessful_status=False,
+            accept_unsuccessful_result=manager._accept_wall_control_abort,
+        )
 
 
 def test_manipulation_validator_uses_semantic_outcome():
@@ -409,6 +494,14 @@ def test_search_selects_nearest_unvisited_absolute_position():
 
     assert manager._move_to_next_search_position(3)
     assert moves[0][1] == 250
+    assert manager._visited_search_positions['ws_1'] == {0, 250}
+
+    # Mesmo sem atualizar a posicao fisica (caso de interrupcao tolerada), o
+    # destino anterior nao pode entrar em loop; o proximo deve ser -250.
+    assert manager._move_to_next_search_position(3)
+    assert moves[1][1] == -250
+    assert manager._visited_search_positions['ws_1'] == {0, 250, -250}
+    assert not manager._move_to_next_search_position(3)
 
 
 def test_unknown_pick_skips_detection_at_last_observed_adjusted_position():
