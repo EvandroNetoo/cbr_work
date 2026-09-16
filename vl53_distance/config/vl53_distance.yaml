@@ -12,7 +12,7 @@ vl53_distance_action:
     sensor.right.channel: 0
     sensor.right.offset_mm: 45
     sensor.left.channel: 1
-    sensor.left.offset_mm: 107
+    sensor.left.offset_mm: 95
     sensor.raw_min_mm: 0
     sensor.raw_max_mm: 8191
     sensor.median_window: 3

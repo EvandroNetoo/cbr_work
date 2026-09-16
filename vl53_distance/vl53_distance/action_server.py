@@ -163,6 +163,10 @@ class VL53DistanceAction(Node):
 
         self._lock = threading.RLock()
         self._resource_lock = threading.RLock()
+        self._subscription_request_lock = threading.Lock()
+        self._subscription_request_done = threading.Event()
+        self._subscription_request: tuple[bool, bool] | None = None
+        self._subscription_request_error: Exception | None = None
         self._latest_odom: OdometryPose | None = None
         self._odom_updated = float('-inf')
         self._latest_lateral_clearances: LateralClearances | None = None
@@ -187,6 +191,11 @@ class VL53DistanceAction(Node):
             self._publish_command_cycle,
             autostart=False,
         )
+        # Goals rodam em uma thread dedicada, mas entidades ROS precisam ser
+        # criadas e destruidas pela thread do executor. O guard condition nao
+        # e periodico: ele somente acorda o executor nas transicoes do goal.
+        self._resource_guard = self.create_guard_condition(
+            self._process_subscription_request)
         action_name = str(self.get_parameter('action_name').value)
         self._action_server = ActionServer(
             self,
@@ -511,6 +520,93 @@ class VL53DistanceAction(Node):
             self._worker_thread = worker
         worker.start()
 
+    def _set_subscription_state(
+        self,
+        active: bool,
+        lateral_safety_enabled: bool,
+    ) -> None:
+        """Cria ou remove subscriptions; chamado somente pelo executor."""
+        if active:
+            if self._odom_subscription is None:
+                self._odom_subscription = self.create_subscription(
+                    Odometry,
+                    self._odom_topic,
+                    self._odom_callback,
+                    qos_profile_sensor_data,
+                )
+            if (
+                lateral_safety_enabled
+                and self._scan_subscription is None
+            ):
+                self._scan_subscription = self.create_subscription(
+                    LaserScan,
+                    self._scan_topic,
+                    self._scan_callback,
+                    qos_profile_sensor_data,
+                )
+            return
+
+        subscription = self._odom_subscription
+        self._odom_subscription = None
+        if subscription is not None:
+            self.destroy_subscription(subscription)
+
+        scan_subscription = self._scan_subscription
+        self._scan_subscription = None
+        if scan_subscription is not None:
+            self.destroy_subscription(scan_subscription)
+
+    def _process_subscription_request(self) -> None:
+        """Executa no SingleThreadedExecutor uma transicao solicitada."""
+        with self._subscription_request_lock:
+            request = self._subscription_request
+        if request is None:
+            return
+        error = None
+        try:
+            self._set_subscription_state(*request)
+        except Exception as caught:
+            error = caught
+        with self._subscription_request_lock:
+            self._subscription_request_error = error
+            self._subscription_request = None
+            self._subscription_request_done.set()
+
+    def _request_subscription_state(
+        self,
+        active: bool,
+        lateral_safety_enabled: bool = False,
+    ) -> None:
+        """Solicita ao executor uma transicao sem polling em standby."""
+        guard = getattr(self, '_resource_guard', None)
+        if guard is None:
+            # Permite testes unitarios sem construir um Node ROS completo.
+            self._set_subscription_state(active, lateral_safety_enabled)
+            return
+        if self._shutdown_event.is_set():
+            if active:
+                raise RuntimeError(
+                    'Servidor encerrando antes de ativar as subscriptions.')
+            return
+
+        with self._subscription_request_lock:
+            self._subscription_request = (
+                bool(active), bool(lateral_safety_enabled))
+            self._subscription_request_error = None
+            self._subscription_request_done.clear()
+        guard.trigger()
+        while not self._subscription_request_done.wait(timeout=0.1):
+            if self._shutdown_event.is_set():
+                if active:
+                    raise RuntimeError(
+                        'Servidor encerrado durante a ativacao das '
+                        'subscriptions.')
+                return
+        with self._subscription_request_lock:
+            error = self._subscription_request_error
+        if error is not None:
+            raise error
+
     def _activate_goal_resources(
         self,
         lateral_safety_enabled: bool = False,
@@ -525,20 +621,8 @@ class VL53DistanceAction(Node):
                 self._lateral_scan_started = time.monotonic()
 
             try:
-                if self._odom_subscription is None:
-                    self._odom_subscription = self.create_subscription(
-                        Odometry,
-                        self._odom_topic,
-                        self._odom_callback,
-                        qos_profile_sensor_data,
-                    )
-                if lateral_safety_enabled and self._scan_subscription is None:
-                    self._scan_subscription = self.create_subscription(
-                        LaserScan,
-                        self._scan_topic,
-                        self._scan_callback,
-                        qos_profile_sensor_data,
-                    )
+                self._request_subscription_state(
+                    True, lateral_safety_enabled)
                 if self._sensor_pair is None:
                     self._sensor_pair = self._sensor_pair_factory()
                 self._command_timer.reset()
@@ -552,15 +636,7 @@ class VL53DistanceAction(Node):
             if hasattr(self, '_command_timer'):
                 self._command_timer.cancel()
 
-            subscription = self._odom_subscription
-            self._odom_subscription = None
-            if subscription is not None:
-                self.destroy_subscription(subscription)
-
-            scan_subscription = self._scan_subscription
-            self._scan_subscription = None
-            if scan_subscription is not None:
-                self.destroy_subscription(scan_subscription)
+            self._request_subscription_state(False)
 
             with self._lock:
                 self._latest_odom = None

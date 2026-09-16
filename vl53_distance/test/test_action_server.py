@@ -141,6 +141,11 @@ def _bare_server(pair):
     server._scan_subscription = None
     server._lock = threading.RLock()
     server._resource_lock = threading.RLock()
+    server._subscription_request_lock = threading.Lock()
+    server._subscription_request_done = threading.Event()
+    server._subscription_request = None
+    server._subscription_request_error = None
+    server._resource_guard = None
     server._latest_lateral_clearances = None
     server._lateral_scan_updated = float('-inf')
     server._lateral_scan_started = float('-inf')
@@ -205,6 +210,55 @@ def test_lidar_subscription_is_created_only_when_safety_is_enabled():
 
     server._deactivate_goal_resources()
     assert server._scan_subscription is None
+
+
+def test_subscription_lifecycle_is_dispatched_to_executor_thread():
+    server = _bare_server(SequencePair([]))
+    subscriptions = []
+    destroyed = []
+    server.create_subscription = lambda *args: subscriptions.append(
+        args[0]) or object()
+    server.destroy_subscription = lambda subscription: destroyed.append(
+        subscription) or True
+
+    class DeferredGuard:
+        def __init__(self):
+            self.triggered = threading.Event()
+
+        def trigger(self):
+            self.triggered.set()
+
+    guard = DeferredGuard()
+    server._resource_guard = guard
+    activation = threading.Thread(
+        target=server._activate_goal_resources,
+        kwargs={'lateral_safety_enabled': True},
+    )
+    activation.start()
+
+    assert guard.triggered.wait(timeout=1.0)
+    assert activation.is_alive()
+    assert subscriptions == []
+
+    server._process_subscription_request()
+    activation.join(timeout=1.0)
+
+    assert not activation.is_alive()
+    assert subscriptions == [action_module.Odometry, action_module.LaserScan]
+
+    guard.triggered.clear()
+    deactivation = threading.Thread(target=server._deactivate_goal_resources)
+    deactivation.start()
+
+    assert guard.triggered.wait(timeout=1.0)
+    assert deactivation.is_alive()
+    assert destroyed == []
+
+    server._process_subscription_request()
+    deactivation.join(timeout=1.0)
+
+    assert not deactivation.is_alive()
+    assert len(destroyed) == 2
 
 
 def _follow_request(

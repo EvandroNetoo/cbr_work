@@ -9,6 +9,10 @@ assina `/odom` e o barramento/sensores VL53L0X permanecem fechados. Esses
 recursos são ativados ao iniciar cada goal e liberados em qualquer término
 (sucesso, cancelamento, timeout ou erro). A inicialização e calibração dos
 sensores, portanto, fazem parte da latência inicial de cada execução.
+As subscriptions ROS são criadas e removidas pela thread do executor através
+de um guard condition acionado somente nessas transições. Assim, o nó não
+processa odometria ou LaserScan em standby e evita destruir handles enquanto o
+executor monta seu wait set.
 
 ```bash
 ros2 launch vl53_distance vl53_distance.launch.py
