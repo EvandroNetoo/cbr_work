@@ -21,6 +21,7 @@ ros2 action send_goal /vl53/follow_wall interfaces/action/FollowWall \
   "{wall_distance_mm: 50, travel_distance_mm: 0, wall_tolerance_mm: 5, \
   travel_tolerance_mm: 5, max_alignment_error_mm: 0, \
   alignment_recovery_distance_mm: 0, \
+  minimum_lateral_clearance_mm: 0, \
   timeout: {sec: 10, nanosec: 0}}" --feedback
 ```
 
@@ -31,6 +32,7 @@ ros2 action send_goal /vl53/follow_wall interfaces/action/FollowWall \
   "{wall_distance_mm: 300, travel_distance_mm: 500, wall_tolerance_mm: 10, \
   travel_tolerance_mm: 10, max_alignment_error_mm: 100, \
   alignment_recovery_distance_mm: 200, \
+  minimum_lateral_clearance_mm: 100, \
   timeout: {sec: 15, nanosec: 0}}" --feedback
 ```
 
@@ -39,6 +41,15 @@ negativos para a esquerda. O percurso é o deslocamento líquido de `/odom`
 projetado sobre o eixo direito que o robô possuía no início do goal. A action
 aborta e publica parada se a odometria deixar de chegar dentro do prazo
 configurado.
+
+`minimum_lateral_clearance_mm` define a folga minima entre a borda do footprint
+e um obstaculo no lado do movimento. O valor `0` desativa a protecao e preserva
+o comportamento anterior. Um comando lateral positivo no frame ROS verifica o
+lado esquerdo; um comando negativo verifica o direito. Rotacao sem movimento
+lateral nao aciona a verificacao. A velocidade lateral e reduzida dentro da
+margem configurada e a action para e aborta ao atingir a folga minima. Com a
+protecao habilitada, um `/scan_front` ausente ou obsoleto tambem causa parada e
+aborto.
 
 `max_alignment_error_mm` limita a diferença absoluta entre as distâncias dos
 dois sensores. Se uma leitura válida ultrapassar esse valor, a action publica

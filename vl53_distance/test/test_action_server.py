@@ -7,13 +7,14 @@ import pytest
 from rclpy.action import GoalResponse
 
 import vl53_distance.action_server as action_module
-from vl53_distance.action_server import VL53DistanceAction
 from vl53_distance.action_server import (
-    OdometryPose,
     odometry_pose,
+    OdometryPose,
     rightward_displacement_mm,
+    VL53DistanceAction,
 )
 from vl53_distance.control import FollowWallCommand
+from vl53_distance.lateral_safety import LateralClearances
 from vl53_distance.sensor_pair import DistanceSample, SensorPairConfig
 
 
@@ -64,6 +65,7 @@ class FakeFollowWallGoal(FakeGoal):
             travel_tolerance_mm=10,
             max_alignment_error_mm=0,
             alignment_recovery_distance_mm=0,
+            minimum_lateral_clearance_mm=0,
             timeout=SimpleNamespace(sec=10, nanosec=0),
         )
 
@@ -122,14 +124,26 @@ def _bare_server(pair):
     server._failure_limit = 3
     server._wheel_linear_speed = 0.370
     server._kinematic_lever = 0.2225
+    server._lateral_scan_timeout = 0.35
+    server._lateral_scan_start_timeout = 1.0
+    server._lateral_slowdown_margin_mm = 150.0
+    server._footprint_half_length_m = 0.119
+    server._footprint_half_width_m = 0.155
+    server._lateral_longitudinal_margin_m = 0.0
+    server._lateral_minimum_points = 2
     server._follow_wall_controller = FakeFollowWallController()
     server._owns_sensor_pair = False
     server._sensor_pair = pair
     server._sensor_pair_factory = lambda: pair
     server._odom_topic = '/odom'
+    server._scan_topic = '/scan_front'
     server._odom_subscription = None
+    server._scan_subscription = None
     server._lock = threading.RLock()
     server._resource_lock = threading.RLock()
+    server._latest_lateral_clearances = None
+    server._lateral_scan_updated = float('-inf')
+    server._lateral_scan_started = float('-inf')
     server._state = 'idle'
     server._desired_command = (0.0, 0.0, 0.0)
     server._desired_updated = float('-inf')
@@ -166,6 +180,7 @@ def test_goal_resources_are_active_only_during_execution():
 
     assert server._sensor_pair is pair
     assert server._odom_subscription is subscriptions[0]
+    assert server._scan_subscription is None
     assert server._command_timer.reset_count == 1
 
     server._deactivate_goal_resources()
@@ -177,6 +192,21 @@ def test_goal_resources_are_active_only_during_execution():
     assert server._command_timer.cancel_count == 1
 
 
+def test_lidar_subscription_is_created_only_when_safety_is_enabled():
+    server = _bare_server(SequencePair([]))
+    subscriptions = []
+    server.create_subscription = lambda *args: subscriptions.append(
+        args[0]) or object()
+
+    server._activate_goal_resources(lateral_safety_enabled=True)
+
+    assert subscriptions == [action_module.Odometry, action_module.LaserScan]
+    assert server._scan_subscription is not None
+
+    server._deactivate_goal_resources()
+    assert server._scan_subscription is None
+
+
 def _follow_request(
     wall=300,
     travel=500,
@@ -184,6 +214,7 @@ def _follow_request(
     travel_tolerance=10,
     max_alignment_error=0,
     recovery_distance=0,
+    minimum_lateral_clearance=0,
     timeout=10,
 ):
     return SimpleNamespace(
@@ -193,6 +224,7 @@ def _follow_request(
         travel_tolerance_mm=travel_tolerance,
         max_alignment_error_mm=max_alignment_error,
         alignment_recovery_distance_mm=recovery_distance,
+        minimum_lateral_clearance_mm=minimum_lateral_clearance,
         timeout=SimpleNamespace(sec=timeout, nanosec=0),
     )
 
@@ -217,6 +249,9 @@ def test_follow_wall_goal_validation_and_single_goal_reservation():
         _follow_request(wall_tolerance=0)).name == GoalResponse.REJECT.name
     assert server._follow_wall_goal_callback(
         _follow_request(travel_tolerance=0)).name == GoalResponse.REJECT.name
+    assert server._follow_wall_goal_callback(_follow_request(
+        minimum_lateral_clearance=-1,
+    )).name == GoalResponse.REJECT.name
     assert server._follow_wall_goal_callback(
         _follow_request(max_alignment_error=-1)).name == GoalResponse.REJECT.name
     assert server._follow_wall_goal_callback(_follow_request(
@@ -254,6 +289,42 @@ def test_command_watchdog_replaces_stale_velocity_with_stop():
     server._state = 'idle'
     server._publish_command_cycle()
     assert len(published) == 2
+
+
+def test_lateral_safety_uses_only_the_side_of_linear_y():
+    server = _bare_server(SequencePair([]))
+    now = time.monotonic()
+    server._latest_lateral_clearances = LateralClearances(
+        left_mm=50.0, right_mm=200.0)
+    server._lateral_scan_updated = now
+    command = FollowWallCommand(
+        0.02, -0.10, 0.3, 300.0, 0.0, 0.0, 0.0, 500.0, False)
+
+    safe, error = server._apply_lateral_safety(command, 100, now)
+
+    assert error is None
+    assert safe.linear_x_velocity_mps == command.linear_x_velocity_mps
+    assert safe.angular_velocity_rad_s == command.angular_velocity_rad_s
+    assert safe.linear_y_velocity_mps == pytest.approx(-0.10 * 2.0 / 3.0)
+
+    command_left = FollowWallCommand(
+        0.02, 0.10, 0.3, 300.0, 0.0, 0.0, 0.0, 500.0, False)
+    stopped, error = server._apply_lateral_safety(command_left, 100, now)
+    assert stopped.linear_y_velocity_mps == 0.0
+    assert 'lado esquerdo' in error
+    assert '50 mm' in error
+
+
+def test_lateral_safety_ignores_rotation_without_lateral_motion():
+    server = _bare_server(SequencePair([]))
+    command = FollowWallCommand(
+        0.0, 0.0, 0.5, 300.0, 0.0, 0.0, 0.0, 0.0, False)
+
+    safe, error = server._apply_lateral_safety(
+        command, 100, time.monotonic())
+
+    assert safe == command
+    assert error is None
 
 
 def test_rightward_displacement_uses_initial_robot_axis():

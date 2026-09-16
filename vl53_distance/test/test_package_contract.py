@@ -17,6 +17,7 @@ def test_action_interface_contains_goal_result_and_feedback_contract():
     assert 'uint32 travel_tolerance_mm' in follow_wall
     assert 'uint32 max_alignment_error_mm' in follow_wall
     assert 'uint32 alignment_recovery_distance_mm' in follow_wall
+    assert 'uint32 minimum_lateral_clearance_mm' in follow_wall
     assert 'bool has_valid_odometry' in follow_wall
     assert 'float32 traveled_distance_mm' in follow_wall
     assert 'float32 linear_y_velocity_mps' in follow_wall
@@ -36,10 +37,14 @@ def test_physical_defaults_match_the_validated_example():
     assert parameters['max_consecutive_read_failures'] == 3
     assert parameters['action_name'] == '/vl53/follow_wall'
     assert parameters['odom_topic'] == '/odom'
+    assert parameters['scan_topic'] == '/scan_front'
     assert parameters['odom_start_timeout_sec'] > 0.0
     assert parameters['odom_freshness_timeout_sec'] > 0.0
     assert parameters['wheel_linear_speed_limit'] == 0.370
     assert parameters['kinematic_lever'] == 0.2225
+    assert parameters['lateral_safety.scan_timeout_sec'] > 0.0
+    assert parameters['lateral_safety.slowdown_margin_mm'] >= 0
+    assert parameters['lateral_safety.longitudinal_margin_m'] == 0.0
     assert parameters['linear_pid.ki'] == 0.0
     assert parameters['linear_pid.kd'] == 0.0
     assert parameters['angular_pid.ki'] == 0.0

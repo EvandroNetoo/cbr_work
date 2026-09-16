@@ -6,6 +6,8 @@ uint32 travel_tolerance_mm
 uint32 max_alignment_error_mm
 # Distância lateral de retorno após desalinhamento; 0 aborta imediatamente.
 uint32 alignment_recovery_distance_mm
+# Folga minima entre o footprint e obstaculos no lado do movimento; 0 desativa.
+uint32 minimum_lateral_clearance_mm
 builtin_interfaces/Duration timeout
 ---
 bool has_valid_reading

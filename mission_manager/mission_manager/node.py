@@ -468,6 +468,9 @@ class MissionManager(Node):
         goal.max_alignment_error_mm = int(max_alignment_error_mm)
         goal.alignment_recovery_distance_mm = int(
             alignment_recovery_distance_mm)
+        # Missoes existentes mantem a protecao lateral opt-in. Chamadas que
+        # precisem dela podem definir o campo diretamente em um FollowWall.Goal.
+        goal.minimum_lateral_clearance_mm = 0
         goal.timeout = self._duration(timeout_s)
         return self._call_action(
             self._wall_control_client,

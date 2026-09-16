@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 import math
 import threading
 import time
 import traceback
-from dataclasses import dataclass
 from typing import Iterable
 
 from builtin_interfaces.msg import Duration as DurationMsg
@@ -19,11 +19,19 @@ from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.logging import get_logger
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.time import Time
+from sensor_msgs.msg import LaserScan
+from tf2_ros import Buffer, TransformException, TransformListener
 
 from .control import (
     FollowWallCommand,
     FollowWallController,
     limit_mecanum_command,
+)
+from .lateral_safety import (
+    lateral_clearances_from_scan,
+    LateralClearances,
+    PlanarTransform,
 )
 from .pid import PIDConfig, PIDController
 from .sensor_pair import DistanceSample, SensorPairConfig, VL53SensorPair
@@ -103,6 +111,35 @@ class VL53DistanceAction(Node):
         self._wheel_linear_speed = self._positive_float(
             'wheel_linear_speed_limit')
         self._kinematic_lever = self._positive_float('kinematic_lever')
+        self._lateral_scan_timeout = self._positive_float(
+            'lateral_safety.scan_timeout_sec')
+        self._lateral_scan_start_timeout = self._positive_float(
+            'lateral_safety.scan_start_timeout_sec')
+        self._lateral_slowdown_margin_mm = float(self.get_parameter(
+            'lateral_safety.slowdown_margin_mm').value)
+        self._footprint_half_length_m = self._positive_float(
+            'lateral_safety.footprint_half_length_m')
+        self._footprint_half_width_m = self._positive_float(
+            'lateral_safety.footprint_half_width_m')
+        self._lateral_longitudinal_margin_m = float(self.get_parameter(
+            'lateral_safety.longitudinal_margin_m').value)
+        self._lateral_minimum_points = int(self.get_parameter(
+            'lateral_safety.minimum_consecutive_points').value)
+        if (
+            not math.isfinite(self._lateral_slowdown_margin_mm)
+            or self._lateral_slowdown_margin_mm < 0.0
+        ):
+            raise ValueError(
+                'lateral_safety.slowdown_margin_mm nao pode ser negativo.')
+        if (
+            not math.isfinite(self._lateral_longitudinal_margin_m)
+            or self._lateral_longitudinal_margin_m < 0.0
+        ):
+            raise ValueError(
+                'lateral_safety.longitudinal_margin_m nao pode ser negativa.')
+        if self._lateral_minimum_points <= 0:
+            raise ValueError(
+                'lateral_safety.minimum_consecutive_points deve ser positivo.')
         self._failure_limit = int(
             self.get_parameter('max_consecutive_read_failures').value)
         if self._failure_limit <= 0:
@@ -122,14 +159,21 @@ class VL53DistanceAction(Node):
         self._sensor_pair_factory = lambda: VL53SensorPair(self._sensor_config)
         self._command_frame = str(self.get_parameter('command_frame').value)
         self._odom_topic = str(self.get_parameter('odom_topic').value)
+        self._scan_topic = str(self.get_parameter('scan_topic').value)
 
         self._lock = threading.RLock()
         self._resource_lock = threading.RLock()
         self._latest_odom: OdometryPose | None = None
         self._odom_updated = float('-inf')
+        self._latest_lateral_clearances: LateralClearances | None = None
+        self._lateral_scan_updated = float('-inf')
+        self._lateral_scan_started = float('-inf')
         self._publisher = self.create_publisher(
             TwistStamped, str(self.get_parameter('cmd_vel_topic').value), 1)
         self._odom_subscription = None
+        self._scan_subscription = None
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
 
         self._state = 'idle'
         self._desired_command = (0.0, 0.0, 0.0)
@@ -161,6 +205,7 @@ class VL53DistanceAction(Node):
             'action_name': '/vl53/follow_wall',
             'cmd_vel_topic': '/cmd_vel',
             'odom_topic': '/odom',
+            'scan_topic': '/scan_front',
             'command_frame': 'base_footprint',
             'sensor.i2c_bus': 1,
             'sensor.mux_address': 0x70,
@@ -181,6 +226,15 @@ class VL53DistanceAction(Node):
             'max_consecutive_read_failures': 3,
             'wheel_linear_speed_limit': 0.370,
             'kinematic_lever': 0.2225,
+            'lateral_safety.scan_timeout_sec': 0.35,
+            'lateral_safety.scan_start_timeout_sec': 1.0,
+            'lateral_safety.slowdown_margin_mm': 150,
+            'lateral_safety.footprint_half_length_m': 0.119,
+            'lateral_safety.footprint_half_width_m': 0.155,
+            # Movimento lateral puro varre somente o comprimento do footprint;
+            # margem aqui poderia classificar a parede frontal como lateral.
+            'lateral_safety.longitudinal_margin_m': 0.0,
+            'lateral_safety.minimum_consecutive_points': 2,
             'linear_pid.kp': 0.8,
             'linear_pid.ki': 0.0,
             'linear_pid.kd': 0.0,
@@ -204,7 +258,9 @@ class VL53DistanceAction(Node):
             self.declare_parameter(name, value)
 
     def _read_sensor_config(self) -> SensorPairConfig:
-        value = lambda name: self.get_parameter(name).value
+        def value(name):
+            return self.get_parameter(name).value
+
         return SensorPairConfig(
             i2c_bus=int(value('sensor.i2c_bus')),
             mux_address=int(value('sensor.mux_address')),
@@ -219,8 +275,9 @@ class VL53DistanceAction(Node):
         )
 
     def _read_pid_config(self, prefix: str) -> PIDConfig:
-        value = lambda suffix: float(
-            self.get_parameter(f'{prefix}.{suffix}').value)
+        def value(suffix):
+            return float(self.get_parameter(f'{prefix}.{suffix}').value)
+
         return PIDConfig(
             kp=value('kp'),
             ki=value('ki'),
@@ -260,6 +317,126 @@ class VL53DistanceAction(Node):
         )
         return pose, fresh
 
+    def _scan_callback(self, message: LaserScan) -> None:
+        """Atualiza as folgas laterais no frame da base."""
+        source_frame = message.header.frame_id
+        if not source_frame:
+            self.get_logger().warning(
+                'LaserScan ignorado porque header.frame_id esta vazio.',
+                throttle_duration_sec=2.0,
+            )
+            return
+        try:
+            stamped = self._tf_buffer.lookup_transform(
+                self._command_frame,
+                source_frame,
+                Time(),
+            )
+            translation = stamped.transform.translation
+            rotation = stamped.transform.rotation
+            transform = PlanarTransform.from_quaternion(
+                translation.x,
+                translation.y,
+                rotation.x,
+                rotation.y,
+                rotation.z,
+                rotation.w,
+            )
+            clearances = lateral_clearances_from_scan(
+                message.ranges,
+                angle_min_rad=float(message.angle_min),
+                angle_increment_rad=float(message.angle_increment),
+                range_min_m=float(message.range_min),
+                range_max_m=float(message.range_max),
+                transform=transform,
+                footprint_half_length_m=self._footprint_half_length_m,
+                footprint_half_width_m=self._footprint_half_width_m,
+                longitudinal_margin_m=self._lateral_longitudinal_margin_m,
+                minimum_consecutive_points=self._lateral_minimum_points,
+            )
+        except (TransformException, ValueError) as error:
+            self.get_logger().warning(
+                f'LaserScan lateral ignorado: {error}',
+                throttle_duration_sec=2.0,
+            )
+            return
+        with self._lock:
+            self._latest_lateral_clearances = clearances
+            self._lateral_scan_updated = time.monotonic()
+
+    def _lateral_clearance_snapshot(
+        self,
+        linear_y: float,
+        now: float,
+    ) -> tuple[str, float | None, bool]:
+        """Retorna somente o lado para o qual linear.y esta movimentando."""
+        side = 'esquerdo' if linear_y > 0.0 else 'direito'
+        with self._lock:
+            clearances = self._latest_lateral_clearances
+            updated = self._lateral_scan_updated
+        fresh = (
+            clearances is not None
+            and now - updated <= self._lateral_scan_timeout
+        )
+        if not fresh:
+            return side, None, False
+        clearance = (
+            clearances.left_mm if linear_y > 0.0 else clearances.right_mm)
+        return side, clearance, True
+
+    def _apply_lateral_safety(
+        self,
+        command: FollowWallCommand,
+        minimum_clearance_mm: int,
+        now: float,
+    ) -> tuple[FollowWallCommand, str | None]:
+        """Limita apenas linear.y; angular.z isolado e ignorado."""
+        linear_y = command.linear_y_velocity_mps
+        if minimum_clearance_mm <= 0 or linear_y == 0.0:
+            return command, None
+
+        side, clearance, fresh = self._lateral_clearance_snapshot(
+            linear_y, now)
+        if not fresh:
+            if now - self._lateral_scan_started <= self._lateral_scan_start_timeout:
+                return replace(command, linear_y_velocity_mps=0.0), None
+            stopped = replace(
+                command,
+                linear_x_velocity_mps=0.0,
+                linear_y_velocity_mps=0.0,
+                angular_velocity_rad_s=0.0,
+            )
+            return stopped, (
+                f'LiDAR lateral indisponivel ou obsoleto ao mover para o '
+                f'lado {side}.')
+
+        # Nenhum cluster no corredor significa lado livre dentro do alcance.
+        if clearance is None:
+            return command, None
+        if clearance <= float(minimum_clearance_mm):
+            stopped = replace(
+                command,
+                linear_x_velocity_mps=0.0,
+                linear_y_velocity_mps=0.0,
+                angular_velocity_rad_s=0.0,
+            )
+            return stopped, (
+                f'Obstaculo no lado {side} a {clearance:.0f} mm do footprint; '
+                f'minimo solicitado: {minimum_clearance_mm} mm.')
+
+        slowdown_end = (
+            float(minimum_clearance_mm) + self._lateral_slowdown_margin_mm)
+        if self._lateral_slowdown_margin_mm > 0.0 and clearance < slowdown_end:
+            scale = (
+                (clearance - float(minimum_clearance_mm))
+                / self._lateral_slowdown_margin_mm
+            )
+            return replace(
+                command,
+                linear_y_velocity_mps=linear_y * max(0.0, min(1.0, scale)),
+            ), None
+        return command, None
+
     def _reserve_goal(self, description: str) -> GoalResponse:
         with self._lock:
             if self._state != 'idle':
@@ -276,6 +453,8 @@ class VL53DistanceAction(Node):
         travel_tolerance = int(request.travel_tolerance_mm)
         max_alignment_error = int(request.max_alignment_error_mm)
         recovery_distance = int(request.alignment_recovery_distance_mm)
+        minimum_lateral_clearance = int(
+            request.minimum_lateral_clearance_mm)
         timeout = duration_seconds(request.timeout)
         minimum = max(1, self._sensor_config.minimum_target_mm)
         maximum = self._sensor_config.maximum_target_mm
@@ -297,6 +476,10 @@ class VL53DistanceAction(Node):
             self.get_logger().warning(
                 'Goal rejeitado: distância de recuperação não pode ser '
                 'negativa.')
+            return GoalResponse.REJECT
+        if minimum_lateral_clearance < 0:
+            self.get_logger().warning(
+                'Goal rejeitado: folga lateral minima nao pode ser negativa.')
             return GoalResponse.REJECT
         if recovery_distance > 0 and max_alignment_error == 0:
             self.get_logger().warning(
@@ -329,12 +512,18 @@ class VL53DistanceAction(Node):
             self._worker_thread = worker
         worker.start()
 
-    def _activate_goal_resources(self) -> None:
+    def _activate_goal_resources(
+        self,
+        lateral_safety_enabled: bool = False,
+    ) -> None:
         """Ativa somente os recursos necessarios durante um goal."""
         with self._resource_lock:
             with self._lock:
                 self._latest_odom = None
                 self._odom_updated = float('-inf')
+                self._latest_lateral_clearances = None
+                self._lateral_scan_updated = float('-inf')
+                self._lateral_scan_started = time.monotonic()
 
             try:
                 if self._odom_subscription is None:
@@ -342,6 +531,13 @@ class VL53DistanceAction(Node):
                         Odometry,
                         self._odom_topic,
                         self._odom_callback,
+                        qos_profile_sensor_data,
+                    )
+                if lateral_safety_enabled and self._scan_subscription is None:
+                    self._scan_subscription = self.create_subscription(
+                        LaserScan,
+                        self._scan_topic,
+                        self._scan_callback,
                         qos_profile_sensor_data,
                     )
                 if self._sensor_pair is None:
@@ -362,9 +558,17 @@ class VL53DistanceAction(Node):
             if subscription is not None:
                 self.destroy_subscription(subscription)
 
+            scan_subscription = self._scan_subscription
+            self._scan_subscription = None
+            if scan_subscription is not None:
+                self.destroy_subscription(scan_subscription)
+
             with self._lock:
                 self._latest_odom = None
                 self._odom_updated = float('-inf')
+                self._latest_lateral_clearances = None
+                self._lateral_scan_updated = float('-inf')
+                self._lateral_scan_started = float('-inf')
 
             if self._owns_sensor_pair and self._sensor_pair is not None:
                 sensor_pair = self._sensor_pair
@@ -383,6 +587,8 @@ class VL53DistanceAction(Node):
         recovery_target_mm: float | None = None
         recovery_distance_mm = int(
             goal_handle.request.alignment_recovery_distance_mm)
+        minimum_lateral_clearance_mm = int(
+            goal_handle.request.minimum_lateral_clearance_mm)
         requested_travel_mm = int(goal_handle.request.travel_distance_mm)
         active_travel_target_mm = float(requested_travel_mm)
         try:
@@ -394,7 +600,8 @@ class VL53DistanceAction(Node):
                 return result
 
             goal_handle.executing()
-            self._activate_goal_resources()
+            self._activate_goal_resources(
+                lateral_safety_enabled=minimum_lateral_clearance_mm > 0)
             self._follow_wall_controller.reset()
             assert self._sensor_pair is not None
             self._sensor_pair.reset_filter()
@@ -574,7 +781,22 @@ class VL53DistanceAction(Node):
                         int(goal_handle.request.travel_tolerance_mm),
                         dt,
                     )
+                    command, lateral_safety_error = self._apply_lateral_safety(
+                        command,
+                        minimum_lateral_clearance_mm,
+                        now,
+                    )
                     last_iteration = now
+                    if lateral_safety_error is not None:
+                        self._follow_wall_controller.reset()
+                        self._invalidate_command(publish=True)
+                        self._publish_follow_wall_feedback(
+                            goal_handle, sample, command, 0, elapsed)
+                        result = self._follow_wall_result(
+                            sample, True, traveled_mm, elapsed,
+                            lateral_safety_error)
+                        goal_handle.abort(result)
+                        return result
                     if command.inside_tolerance:
                         self._follow_wall_controller.reset()
                         self._set_desired_command(0.0, 0.0, 0.0)
