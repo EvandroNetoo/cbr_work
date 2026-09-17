@@ -5,7 +5,7 @@ pickup:
     observation_state: detect_apriltags
     approach_height_m: 0.08
     cube_size_m: 0.042
-    yaw_offset_deg: -90.0
+    yaw_offset_deg: 0.0
     attempts: 1
     # RL, CP e CL exclusivos da coleta; calibrar independentemente do depósito.
     reachability_filter_enabled: true
@@ -38,8 +38,8 @@ placements:
     reach_max_radius_m: 0.28
     search_x_min_m: -0.2
     search_x_max_m: 0.2
-    search_y_min_m: -0.25
-    search_y_max_m: -0.15
+    search_y_min_m: -0.27
+    search_y_max_m: -0.17
     search_step_m: 0.01
     approach_height_m: 0.06
     retreat_height_m: 0.06
@@ -70,7 +70,7 @@ placements:
     approach_height_m: 0.03
     retreat_height_m: 0.08
     calibrated_reference: true
-    reference_offset_xyz: [0.0, 0.0, 0.03]
+    reference_offset_xyz: [0.0, 0.0, 0.01]
     yaw_offset_deg: 0.0
 
   shelf:

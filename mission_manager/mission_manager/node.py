@@ -1204,6 +1204,7 @@ class MissionManager(Node):
         try:
             arena, plan = self._load_goal_files(str(goal_handle.request.plan_id))
             self._arena = arena
+            self._current_location = plan.initial_location
             self._world_state.reset()
             self._publish_world_state()
             total = len(plan.steps)

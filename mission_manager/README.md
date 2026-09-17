@@ -16,6 +16,11 @@ As poses vazias de `arena.yaml` devem ser medidas antes da execução. O nó ini
 normalmente, mas um goal retorna `CONFIGURATION_ERROR` sem movimentar o robô se
 a arena ou o plano não forem válidos.
 
+Um plano que começa com o robô já posicionado em uma área de serviço pode
+declarar `initial_location: ws_1`. Essa opção define apenas o contexto da área
+(por exemplo, a altura da mesa) e não envia um goal de navegação. Sem esse campo,
+o plano começa em `start`, preservando o comportamento anterior.
+
 ## Navegação
 
 Para uma service area, `navigate` executa:

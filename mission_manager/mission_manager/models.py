@@ -126,3 +126,4 @@ class Step:
 class Plan:
     plan_id: str
     steps: tuple[Step, ...]
+    initial_location: str = 'start'

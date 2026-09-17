@@ -1,0 +1,46 @@
+schema_version: 1
+plan_id: cubos_1_2_3
+initial_location: ws_1
+
+steps:
+  - id: pegar_cubo_1
+    action: pick
+    tag_id: 1
+
+  - id: guardar_cubo_1_na_esquerda
+    action: store
+    slot_id: left
+
+  - id: pegar_cubo_2
+    action: pick
+    tag_id: 2
+
+  - id: guardar_cubo_2_na_direita
+    action: store
+    slot_id: right
+
+  - id: pegar_cubo_3
+    action: pick
+    tag_id: 3
+
+  - id: depositar_cubo_3
+    action: place_on_table
+    analyze_apriltags: true
+    analyze_containers: false
+
+  - id: retirar_cubo_1_da_esquerda
+    action: retrieve
+    slot_id: left
+
+  - id: depositar_cubo_1
+    action: place_on_table
+    analyze_apriltags: true
+    analyze_containers: false
+
+  - id: retirar_cubo_2_da_direita
+    action: retrieve
+    slot_id: right
+
+  - id: empilhar_cubo_2_sobre_cubo_3
+    action: stack
+    support_tag_id: 3

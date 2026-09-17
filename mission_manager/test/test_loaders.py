@@ -197,6 +197,45 @@ steps:
         validate_plan(load_plan(plan_path), arena)
 
 
+def test_plan_allows_manipulation_at_declared_initial_location(tmp_path):
+    arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
+    plan_path = _write(
+        tmp_path,
+        'positioned.yaml',
+        """
+schema_version: 1
+plan_id: positioned
+initial_location: ws_1
+steps:
+  - {action: pick, tag_id: 1}
+""",
+    )
+
+    plan = load_plan(plan_path)
+    validate_plan(plan, arena)
+
+    assert plan.initial_location == 'ws_1'
+    assert plan.steps[0].action == 'pick'
+
+
+def test_plan_rejects_unknown_initial_location(tmp_path):
+    arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
+    plan_path = _write(
+        tmp_path,
+        'positioned.yaml',
+        """
+schema_version: 1
+plan_id: positioned
+initial_location: missing
+steps:
+  - {action: pick, tag_id: 1}
+""",
+    )
+
+    with pytest.raises(ConfigurationError, match='initial_location'):
+        validate_plan(load_plan(plan_path), arena)
+
+
 def test_finish_must_be_last_step(tmp_path):
     arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
     plan_path = _write(

@@ -40,13 +40,13 @@
     <joint name="link4_to_link5" value="1.5707963267"/>
   </group_state>
 
-  <!-- Posição de depósito do compartimento esquerdo: [95, 48, -60, -77, 90]°. -->
+  <!-- Espelho da posição de depósito direita, invertendo somente a primeira junta: [95, 46, -54, -89, 94]°. -->
   <group_state name="deposit_cube_left" group="arm">
     <joint name="base_link_to_link1" value="1.6580627894"/>
-    <joint name="link1_to_link2" value="0.8377580410"/>
-    <joint name="link2_to_link3" value="-1.0471975512"/>
-    <joint name="link3_to_link4" value="-1.3439035240"/>
-    <joint name="link4_to_link5" value="1.5707963268"/>
+    <joint name="link1_to_link2" value="0.8028514559"/>
+    <joint name="link2_to_link3" value="-0.9424777961"/>
+    <joint name="link3_to_link4" value="-1.5533430343"/>
+    <joint name="link4_to_link5" value="1.6406094969"/>
   </group_state>
 
   <!-- Posição segura do compartimento esquerdo: [95, 44, -37, -100, 90]°. -->
@@ -67,13 +67,13 @@
     <joint name="link4_to_link5" value="1.5533430343"/>
   </group_state>
 
-  <!-- Espelho da posição de depósito esquerda, invertendo somente a primeira junta. -->
+  <!-- Posição de depósito do compartimento direito medida: [-95, 46, -54, -89, 94]°. -->
   <group_state name="deposit_cube_right" group="arm">
     <joint name="base_link_to_link1" value="-1.6580627894"/>
-    <joint name="link1_to_link2" value="0.8377580410"/>
-    <joint name="link2_to_link3" value="-1.0471975512"/>
-    <joint name="link3_to_link4" value="-1.3439035240"/>
-    <joint name="link4_to_link5" value="1.5707963268"/>
+    <joint name="link1_to_link2" value="0.8028514559"/>
+    <joint name="link2_to_link3" value="-0.9424777961"/>
+    <joint name="link3_to_link4" value="-1.5533430343"/>
+    <joint name="link4_to_link5" value="1.6406094969"/>
   </group_state>
 
   <!-- Espelho da posição segura esquerda, invertendo somente a primeira junta. -->

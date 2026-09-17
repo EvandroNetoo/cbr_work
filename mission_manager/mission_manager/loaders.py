@@ -498,7 +498,11 @@ def _step(raw_value: Any, index: int) -> Step:
 def load_plan(path: str | Path) -> Plan:
     """Load a sequential plan without embedding execution behavior in YAML."""
     root = _load_yaml(path)
-    _only_keys(root, {'schema_version', 'plan_id', 'steps'}, 'plan')
+    _only_keys(
+        root,
+        {'schema_version', 'plan_id', 'initial_location', 'steps'},
+        'plan',
+    )
     plan_id = _nonempty_string(root.get('plan_id'), 'plan.plan_id')
     if not PLAN_ID_PATTERN.fullmatch(plan_id):
         raise ConfigurationError(
@@ -511,12 +515,24 @@ def load_plan(path: str | Path) -> Plan:
     ids = [step.step_id for step in steps]
     if len(ids) != len(set(ids)):
         raise ConfigurationError('plan.steps contém IDs duplicados.')
-    return Plan(plan_id=plan_id, steps=steps)
+    initial_location = _nonempty_string(
+        root.get('initial_location', 'start'), 'plan.initial_location'
+    )
+    return Plan(
+        plan_id=plan_id,
+        steps=steps,
+        initial_location=initial_location,
+    )
 
 
 def validate_plan(plan: Plan, arena: Arena) -> None:
     """Validate static references without duplicating manipulation inventory."""
-    current_location = 'start'
+    if not arena.has_target(plan.initial_location):
+        raise ConfigurationError(
+            'plan.initial_location referencia target desconhecido: '
+            f"'{plan.initial_location}'."
+        )
+    current_location = plan.initial_location
     for index, step in enumerate(plan.steps):
         if step.action == 'navigate':
             assert step.target is not None
