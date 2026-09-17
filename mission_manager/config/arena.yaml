@@ -40,7 +40,7 @@ pickup_recovery:
   max_reposition_attempts: 1
   # Coordenadas laterais absolutas relativas ao alinhamento inicial da área.
   # A próxima posição ainda não observada é escolhida pela menor distância.
-  search_positions_mm: [0, 270, -270]
+  search_positions_mm: [0, 325, -325]
 
 # Preencher com poses medidas no mapa antes da primeira execução.
 start:
