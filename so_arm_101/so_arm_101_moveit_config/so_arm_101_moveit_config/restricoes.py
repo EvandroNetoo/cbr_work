@@ -109,6 +109,31 @@ def restricoes_de_deposito_acima(posicao: PoseStamped) -> ListaDeRestricoes:
     return [restricoes]
 
 
+def restricoes_de_deposito_em_container(
+    posicao: PoseStamped,
+) -> tuple[ListaDeRestricoes, Constraints]:
+    """Cria alvo XYZ e mantém link4_to_link5 em +90° ±5°.
+
+    A orientação cartesiana do TCP fica deliberadamente livre. A mesma
+    restrição articular é usada como restrição de caminho, para que não seja
+    suficiente atingir 90 graus apenas no último ponto.
+    """
+    alvo = Constraints()
+    alvo.position_constraints.append(_criar_restricao_de_posicao(posicao))
+
+    junta = JointConstraint()
+    junta.joint_name = "link4_to_link5"
+    junta.position = math.pi / 2.0
+    junta.tolerance_above = math.pi / 36.0
+    junta.tolerance_below = math.pi / 36.0
+    junta.weight = 1.0
+    alvo.joint_constraints.append(junta)
+
+    caminho = Constraints()
+    caminho.joint_constraints.append(junta)
+    return [alvo], caminho
+
+
 def restricoes_de_pre_pegada(posicao: PoseStamped) -> ListaDeRestricoes:
     """Permite inclinar a garra na aproximação para ampliar as soluções de IK."""
     restricoes = Constraints()

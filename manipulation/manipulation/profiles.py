@@ -79,6 +79,16 @@ class PlacementProfile:
     search_y_min_m: float | None = None
     search_y_max_m: float | None = None
     search_step_m: float = 0.01
+    placement_offset_m: float = 0.0
+    minimum_detection_confidence: float = 0.45
+    maximum_detection_age_s: float = 1.0
+    obstacle_uncertainty_m: float = 0.01
+    gripper_footprint_x_m: float = 0.13
+    gripper_footprint_y_m: float = 0.25
+    usable_x_min_m: float | None = None
+    usable_x_max_m: float | None = None
+    usable_y_min_m: float | None = None
+    usable_y_max_m: float | None = None
 
 
 @dataclass(frozen=True)
@@ -252,6 +262,11 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 'reach_min_radius_m', 'reach_max_radius_m',
                 'search_x_min_m', 'search_x_max_m',
                 'search_y_min_m', 'search_y_max_m', 'search_step_m',
+                'placement_offset_m', 'minimum_detection_confidence',
+                'maximum_detection_age_s', 'obstacle_uncertainty_m',
+                'gripper_footprint_x_m', 'gripper_footprint_y_m',
+                'usable_x_min_m', 'usable_x_max_m',
+                'usable_y_min_m', 'usable_y_max_m',
             },
             f'placements.{name}',
         )
@@ -367,7 +382,48 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 f'placements.{name}.search_step_m',
                 positive=True,
             ),
+            placement_offset_m=_number(
+                raw.get('placement_offset_m', 0.0),
+                f'placements.{name}.placement_offset_m',
+            ),
+            minimum_detection_confidence=_number(
+                raw.get('minimum_detection_confidence', 0.45),
+                f'placements.{name}.minimum_detection_confidence',
+            ),
+            maximum_detection_age_s=_number(
+                raw.get('maximum_detection_age_s', 1.0),
+                f'placements.{name}.maximum_detection_age_s', positive=True,
+            ),
+            obstacle_uncertainty_m=_number(
+                raw.get('obstacle_uncertainty_m', 0.01),
+                f'placements.{name}.obstacle_uncertainty_m', positive=True,
+            ),
+            gripper_footprint_x_m=_number(
+                raw.get('gripper_footprint_x_m', 0.13),
+                f'placements.{name}.gripper_footprint_x_m', positive=True,
+            ),
+            gripper_footprint_y_m=_number(
+                raw.get('gripper_footprint_y_m', 0.25),
+                f'placements.{name}.gripper_footprint_y_m', positive=True,
+            ),
+            **{
+                field: (None if raw.get(field) is None else _number(
+                    raw[field], f'placements.{name}.{field}'))
+                for field in (
+                    'usable_x_min_m', 'usable_x_max_m',
+                    'usable_y_min_m', 'usable_y_max_m')
+            },
         )
+        usable = (
+            profile.usable_x_min_m, profile.usable_x_max_m,
+            profile.usable_y_min_m, profile.usable_y_max_m)
+        if all(value is not None for value in usable) and (
+                usable[0] >= usable[1] or usable[2] >= usable[3]):
+            raise ConfigurationError(
+                f'placements.{name}: limites da região utilizável inválidos.')
+        if not 0.0 <= profile.minimum_detection_confidence <= 1.0:
+            raise ConfigurationError(
+                f'placements.{name}.minimum_detection_confidence deve estar em [0, 1].')
         if profile.enabled and strategy == 'named_state' and not profile.named_state:
             raise ConfigurationError(
                 f'placements.{name}.named_state é obrigatório quando habilitado.'

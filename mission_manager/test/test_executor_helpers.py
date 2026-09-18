@@ -834,11 +834,7 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     manager._execute_manipulation(Step('store', 'store', slot_id='left'))
     manager._execute_manipulation(Step('retrieve', 'retrieve', slot_id='left'))
     manager._execute_manipulation(
-        Step(
-                'table', 'place_on_table',
-                analyze_apriltags=True,
-                analyze_containers=False,
-        )
+        Step('table', 'place_on_table')
     )
     for tag_id, step in (
         (8, Step('container', 'place_in_container', container_color='blue')),
@@ -856,8 +852,8 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     assert calls[2][1].slot_id == 'left'
     assert calls[2][1].object_tag_id == 7
     assert calls[3][1].ws_height_cm == 12.5
-    assert calls[3][1].analyze_apriltags is True
-    assert calls[3][1].analyze_containers is False
+    assert not hasattr(calls[3][1], 'analyze_apriltags')
+    assert not hasattr(calls[3][1], 'analyze_containers')
     assert calls[4][1].ws_height_cm == 12.5
     assert calls[4][1].container_color == calls[4][1].BLUE
     assert calls[5][1].support_tag_id == 3

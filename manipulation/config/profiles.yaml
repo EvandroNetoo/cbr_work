@@ -41,6 +41,16 @@ placements:
     search_y_min_m: -0.27
     search_y_max_m: -0.17
     search_step_m: 0.01
+    obstacle_uncertainty_m: 0.01
+    # Envelope XY conservador do URDF/meshes com link5 deslocado do TCP.
+    gripper_footprint_x_m: 0.13
+    gripper_footprint_y_m: 0.25
+    # Limites REAIS da superfície utilizável em arm_base_link: ainda não
+    # medidos. Sem eles o depósito na mesa falha fechado antes de mover.
+    usable_x_min_m: null
+    usable_x_max_m: null
+    usable_y_min_m: null
+    usable_y_max_m: null
     approach_height_m: 0.06
     retreat_height_m: 0.06
 
@@ -55,13 +65,16 @@ placements:
 
   container:
     strategy: perception
-    # Habilitar somente quando a detecção de contêiner estiver disponível.
-    enabled: false
+    enabled: true
     approach_height_m: 0.10
     retreat_height_m: 0.10
     calibrated_reference: false
     reference_offset_xyz: [0.0, 0.0, 0.0]
     yaw_offset_deg: 90.0
+    # Valor inicial deliberadamente não calibrado no robô físico.
+    placement_offset_m: 0.0
+    minimum_detection_confidence: 0.45
+    maximum_detection_age_s: 3.0
 
   stack:
     strategy: tag_relative

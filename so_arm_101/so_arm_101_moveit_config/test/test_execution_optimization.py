@@ -131,8 +131,8 @@ def test_xyz_continua_configurado_quando_apriltag_esta_desativada():
     assert APRIL_TAG_ID is None or isinstance(APRIL_TAG_ID, int)
 
 
-def test_tamanho_inicial_do_cubo_e_cinco_centimetros():
-    assert TAMANHO_DO_CUBO == 0.05
+def test_tamanho_do_cubo_corresponde_ao_objeto_da_prova():
+    assert TAMANHO_DO_CUBO == 0.042
 
 
 def test_sequencia_subtrai_tamanho_do_cubo_do_z_da_apriltag():

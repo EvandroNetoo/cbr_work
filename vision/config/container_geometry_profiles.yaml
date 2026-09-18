@@ -1,0 +1,10 @@
+schema_version: 1
+profiles:
+  current_team_model:
+    physical_object: "Current team container model (not the 2026 rulebook type-28 bin)"
+    external_dimensions_m: [0.173, 0.102, 0.073]  # depth, width, height
+    internal_dimensions_m: [0.140, 0.090, 0.057]
+  robocup_2026_type_28:
+    physical_object: "RoboCup@Work 2026 industrial stacking container, type 28"
+    external_dimensions_m: [0.160, 0.135, 0.082]
+    internal_dimensions_m: [0.125, 0.120, 0.065]

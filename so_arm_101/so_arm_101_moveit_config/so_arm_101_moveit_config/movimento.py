@@ -10,9 +10,10 @@ from collections.abc import Callable
 
 import rclpy
 from action_msgs.msg import GoalStatus
-from interfaces.action import AnalyzeAprilTags
-from interfaces.msg import AprilTagStampedDetection
-from moveit_msgs.action import MoveGroup
+from interfaces.action import SceneAnalyzer
+from interfaces.msg import AprilTagStampedDetection, ContainerStampedDetection
+from moveit_msgs.action import ExecuteTrajectory, MoveGroup
+from moveit_msgs.msg import Constraints
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
@@ -61,7 +62,8 @@ class ExecutorDoMoveIt:
         cancelamento_solicitado: Callable[[], bool] | None = None,
         callback_group=None,
         move_group_action: str = "/move_action",
-        apriltag_action: str = "/apriltags/analyze",
+        vision_action: str = "/vision/analyze",
+        execute_trajectory_action: str = "/execute_trajectory",
         joint_states_topic: str = "/joint_states",
         monitorar_estados_continuamente: bool = True,
     ) -> None:
@@ -74,8 +76,12 @@ class ExecutorDoMoveIt:
         self.cliente_do_move_group = ActionClient(
             self.no, MoveGroup, move_group_action, callback_group=callback_group
         )
-        self.cliente_da_april_tag = ActionClient(
-            self.no, AnalyzeAprilTags, apriltag_action, callback_group=callback_group
+        self.cliente_da_visao = ActionClient(
+            self.no, SceneAnalyzer, vision_action, callback_group=callback_group
+        )
+        self.cliente_de_execucao = ActionClient(
+            self.no, ExecuteTrajectory, execute_trajectory_action,
+            callback_group=callback_group,
         )
         self.posicoes_juntas_atuais: dict[str, float] = {}
         self.velocidades_juntas_atuais: dict[str, float] = {}
@@ -83,6 +89,8 @@ class ExecutorDoMoveIt:
         self._topico_dos_estados_das_juntas = joint_states_topic
         self._grupo_de_callbacks = callback_group
         self._geracao_do_monitoramento = 0
+        self.ultimas_apriltags_rejeitadas: list[AprilTagStampedDetection] = []
+        self.ultimos_containers_rejeitados: list[ContainerStampedDetection] = []
         self.inscricao_nos_estados_das_juntas = None
         if monitorar_estados_continuamente:
             self.iniciar_monitoramento_dos_estados()
@@ -204,28 +212,48 @@ class ExecutorDoMoveIt:
         if duracao_da_analise <= 0.0:
             raise ValueError("A duração da análise da AprilTag deve ser positiva.")
 
-        self.no.get_logger().info(
-            "Aguardando /apriltags/analyze para analisar as AprilTags da mesa..."
+        deteccoes, _ = self.analisar_cena(
+            duracao_da_analise, analisar_apriltags=True,
+            analisar_containers=False, altura_da_mesa_m=0.0,
         )
-        if not self.cliente_da_april_tag.wait_for_server(timeout_sec=10.0):
+        return deteccoes
+
+    def analisar_cena(
+        self,
+        duracao_da_analise: float,
+        *,
+        analisar_apriltags: bool,
+        analisar_containers: bool,
+        altura_da_mesa_m: float,
+    ) -> tuple[list[AprilTagStampedDetection], list[ContainerStampedDetection]]:
+        """Executa uma única análise sincronizada no frame do braço."""
+        if duracao_da_analise <= 0.0 or not math.isfinite(duracao_da_analise):
+            raise ValueError("A duração da análise deve ser positiva e finita.")
+        if not math.isfinite(altura_da_mesa_m) or altura_da_mesa_m < 0.0:
+            raise ValueError("A altura da mesa deve ser finita e não negativa.")
+        if not analisar_apriltags and not analisar_containers:
+            raise ValueError("Ao menos um tipo de objeto deve ser analisado.")
+        if not self.cliente_da_visao.wait_for_server(timeout_sec=10.0):
             raise RuntimeError(
-                "A ação /apriltags/analyze não está disponível. "
-                "Inicie o detector AprilTag antes da sequência."
+                "A ação /vision/analyze não está disponível. Inicie o nó vision."
             )
 
-        objetivo = AnalyzeAprilTags.Goal()
+        objetivo = SceneAnalyzer.Goal()
+        objetivo.analyze_apriltags = analisar_apriltags
+        objetivo.analyze_containers = analisar_containers
+        objetivo.table_height_m = altura_da_mesa_m
         nanossegundos_totais = round(duracao_da_analise * 1_000_000_000)
         segundos, nanossegundos = divmod(nanossegundos_totais, 1_000_000_000)
         objetivo.duration.sec = segundos
         objetivo.duration.nanosec = nanossegundos
 
-        futuro_do_envio = self.cliente_da_april_tag.send_goal_async(objetivo)
+        futuro_do_envio = self.cliente_da_visao.send_goal_async(objetivo)
         try:
             manipulador_do_objetivo = self._aguardar_futuro(futuro_do_envio, 5.0)
         except TimeoutError as error:
             raise RuntimeError("O detector não respondeu ao pedido de análise.") from error
         if manipulador_do_objetivo is None or not manipulador_do_objetivo.accepted:
-            raise RuntimeError("O detector rejeitou o pedido de análise de AprilTags.")
+            raise RuntimeError("O vision rejeitou o pedido de análise da cena.")
 
         futuro_do_resultado = manipulador_do_objetivo.get_result_async()
         self._definir_objetivo_ativo(manipulador_do_objetivo)
@@ -254,25 +282,32 @@ class ExecutorDoMoveIt:
                 and resultado_da_acao.result is not None
                 else "sem detalhes"
             )
-            raise RuntimeError(
-                f"A análise de AprilTags falhou (estado {estado}): {detalhe}"
-            )
+            raise RuntimeError(f"A análise da cena falhou (estado {estado}): {detalhe}")
 
-        deteccoes = list(resultado_da_acao.result.best_detections_base)
-        referencias_invalidas = sorted({
+        deteccoes = list(resultado_da_acao.result.apriltags)
+        containers = list(resultado_da_acao.result.containers)
+        self.ultimas_apriltags_rejeitadas = list(
+            resultado_da_acao.result.rejected_apriltags)
+        self.ultimos_containers_rejeitados = list(
+            resultado_da_acao.result.rejected_containers)
+        referencias_invalidas = {
             item.header.frame_id
             for item in deteccoes
+            if item.header.frame_id != REFERENCIAL_BASE
+        }
+        referencias_invalidas.update({
+            item.header.frame_id for item in containers
             if item.header.frame_id != REFERENCIAL_BASE
         })
         if referencias_invalidas:
             raise RuntimeError(
-                f"A análise retornou AprilTags fora de {REFERENCIAL_BASE}: "
-                f"{referencias_invalidas}."
+                f"A análise retornou objetos fora de {REFERENCIAL_BASE}: "
+                f"{sorted(referencias_invalidas)}."
             )
         self.no.get_logger().info(
-            f"Análise encontrou {len(deteccoes)} AprilTag(s) em {REFERENCIAL_BASE}."
+            f"Cena: {len(deteccoes)} AprilTag(s), {len(containers)} container(s)."
         )
-        return deteccoes
+        return deteccoes, containers
 
     def obter_pose_da_april_tag(
         self,
@@ -508,6 +543,100 @@ class ExecutorDoMoveIt:
         )
         self._aguardar_assentamento(grupo, resultado.planned_trajectory)
         self.no.get_logger().info(f"Estado físico parado confirmado para '{grupo}'.")
+
+    def planejar_validar_e_executar(
+        self,
+        grupo: str,
+        restricoes: ListaDeRestricoes,
+        restricoes_de_caminho: Constraints,
+        *,
+        junta_validada: str,
+        posicao_da_junta: float,
+        tolerancia_da_junta: float,
+        velocidade: float = VELOCIDADE_MAXIMA,
+        aceleracao: float = ACELERACAO_MAXIMA,
+    ) -> None:
+        """Planeja sem executar, valida cada ponto e só então executa."""
+        objetivo = MoveGroup.Goal()
+        objetivo.request.group_name = grupo
+        objetivo.request.num_planning_attempts = TENTATIVAS_DE_PLANEJAMENTO
+        objetivo.request.allowed_planning_time = TEMPO_DE_PLANEJAMENTO
+        objetivo.request.max_velocity_scaling_factor = velocidade
+        objetivo.request.max_acceleration_scaling_factor = aceleracao
+        objetivo.request.goal_constraints = restricoes
+        objetivo.request.path_constraints = restricoes_de_caminho
+        objetivo.request.start_state.is_diff = True
+        objetivo.planning_options.plan_only = True
+        objetivo.planning_options.replan = False
+        objetivo.planning_options.planning_scene_diff.is_diff = True
+        objetivo.planning_options.planning_scene_diff.robot_state.is_diff = True
+
+        self._verificar_cancelamento()
+        envio = self.cliente_do_move_group.send_goal_async(objetivo)
+        manipulador = self._aguardar_futuro(envio)
+        if manipulador is None or not manipulador.accepted:
+            raise FalhaDoMoveIt("O MoveIt rejeitou o planejamento do depósito.")
+        self._definir_objetivo_ativo(manipulador)
+        try:
+            resposta = self._aguardar_futuro(manipulador.get_result_async())
+        finally:
+            self._definir_objetivo_ativo(None)
+        erro = getattr(getattr(resposta.result, 'error_code', None), 'val', None)
+        if resposta.status != GoalStatus.STATUS_SUCCEEDED or erro not in (None, 1):
+            raise FalhaDoMoveIt(
+                f"O planejamento do depósito falhou (código {erro}).", erro)
+        trajetoria = resposta.result.planned_trajectory
+        self.validar_restricao_articular_da_trajetoria(
+            trajetoria, junta_validada, posicao_da_junta, tolerancia_da_junta)
+
+        if not self.cliente_de_execucao.wait_for_server(timeout_sec=15.0):
+            raise RuntimeError("Servidor /execute_trajectory não encontrado.")
+        executar = ExecuteTrajectory.Goal()
+        executar.trajectory = trajetoria
+        envio = self.cliente_de_execucao.send_goal_async(executar)
+        manipulador = self._aguardar_futuro(envio)
+        if manipulador is None or not manipulador.accepted:
+            raise FalhaDoMoveIt("O MoveIt rejeitou a trajetória já validada.")
+        self._definir_objetivo_ativo(manipulador)
+        try:
+            resposta_execucao = self._aguardar_futuro(
+                manipulador.get_result_async())
+        finally:
+            self._definir_objetivo_ativo(None)
+        erro = getattr(
+            getattr(resposta_execucao.result, 'error_code', None), 'val', None)
+        if (resposta_execucao.status != GoalStatus.STATUS_SUCCEEDED
+                or erro not in (None, 1)):
+            raise FalhaDoMoveIt(
+                f"A execução da trajetória validada falhou (código {erro}).", erro)
+        self._aguardar_assentamento(grupo, trajetoria)
+
+    @staticmethod
+    def validar_restricao_articular_da_trajetoria(
+        trajetoria_planejada: object,
+        nome_da_junta: str,
+        alvo: float,
+        tolerancia: float,
+    ) -> None:
+        """Rejeita plano que viole a restrição em qualquer ponto amostrado."""
+        trajetoria = getattr(trajetoria_planejada, 'joint_trajectory', None)
+        if trajetoria is None or not trajetoria.points:
+            raise FalhaDoMoveIt("O planejamento devolveu uma trajetória vazia.")
+        try:
+            indice = list(trajetoria.joint_names).index(nome_da_junta)
+        except ValueError as error:
+            raise FalhaDoMoveIt(
+                f"A trajetória não contém a junta obrigatória '{nome_da_junta}'."
+            ) from error
+        for numero, ponto in enumerate(trajetoria.points):
+            if indice >= len(ponto.positions):
+                raise FalhaDoMoveIt(
+                    f"O ponto {numero} não contém posição para '{nome_da_junta}'.")
+            valor = float(ponto.positions[indice])
+            if not math.isfinite(valor) or abs(valor - alvo) > tolerancia + 1e-9:
+                raise FalhaDoMoveIt(
+                    f"O ponto {numero} viola '{nome_da_junta}': {valor:.6f} rad; "
+                    f"esperado {alvo:.6f} ± {tolerancia:.6f} rad.")
 
     def _aguardar_assentamento(self, grupo: str, trajetoria_planejada: object) -> None:
         """Confirma por /joint_states que o robô físico parou de se mover."""

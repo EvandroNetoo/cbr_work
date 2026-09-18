@@ -12,7 +12,7 @@ def test_robot_profile_is_headless_and_always_starts_vision():
     assert 'arm_command_heartbeat_hz' not in source
     assert "'base_deduplicate_commands', default_value='true'" in source
     assert "'base_command_heartbeat_hz', default_value='5.0'" in source
-    assert "FindPackageShare('apriltag')" in source
+    assert "FindPackageShare('vision')" in source
     assert "parameters=[{'timeout_sec': hardware_timeout}]" in source
     assert "FindPackageShare('base_hardware')" in source
     assert "FindPackageShare('lidar')" in source

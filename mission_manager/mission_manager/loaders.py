@@ -418,9 +418,7 @@ _STEP_FIELDS = {
     'pick': {'id', 'action', 'tag_id'},
     'store': {'id', 'action', 'slot_id'},
     'retrieve': {'id', 'action', 'slot_id'},
-    'place_on_table': {
-        'id', 'action', 'analyze_apriltags', 'analyze_containers',
-    },
+    'place_on_table': {'id', 'action'},
     'place_in_container': {'id', 'action', 'container_color'},
     'stack': {'id', 'action', 'support_tag_id'},
     'place_on_shelf': {'id', 'action'},
@@ -461,18 +459,7 @@ def _step(raw_value: Any, index: int) -> Step:
             slot_id=_nonempty_string(raw.get('slot_id'), f'{context}.slot_id'),
         )
     if action == 'place_on_table':
-        return Step(
-            step_id,
-            action,
-            analyze_apriltags=_boolean(
-                raw.get('analyze_apriltags', False),
-                f'{context}.analyze_apriltags',
-            ),
-            analyze_containers=_boolean(
-                raw.get('analyze_containers', False),
-                f'{context}.analyze_containers',
-            ),
-        )
+        return Step(step_id, action)
     if action == 'place_in_container':
         color = _nonempty_string(
             raw.get('container_color'), f'{context}.container_color'

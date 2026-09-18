@@ -41,7 +41,7 @@ ros2 launch bringup processing.launch.py \
 Quando `enable_manipulation` está ativo, MoveIt e o servidor semântico só são
 iniciados depois que os controllers remotos do braço respondem como ativos.
 
-O perfil distribuído usa câmera a 15 FPS, detector AprilTag limitado a 10 Hz e
+O perfil distribuído usa câmera a 15 FPS, `vision` limitado a 10 Hz durante goals e
 `controller_manager` a 30 Hz. O braço amostra o setpoint mais recente a 60 Hz,
 mas só escreve na serial quando ele muda; a taxa maior evita alias com o loop
 de controle. A base mantém somente o comando mais recente e reenvia o alvo
@@ -127,7 +127,7 @@ Meça por 60 segundos em repouso e durante uso, ocultando threads no `htop`
 # Raspberry Pi
 pidstat -durwt -p ALL 1 60
 ros2 topic hz /camera/image_rect
-ros2 topic hz /apriltags/detections_camera
+ros2 action list | rg /vision/analyze
 
 # Banana Pi
 pidstat -durwt -p ALL 1 60

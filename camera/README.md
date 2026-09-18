@@ -1,11 +1,11 @@
 # CBR Camera
 
-Este pacote isola a câmera do braço, do MoveIt e do detector AprilTag. A visão
+Este pacote mantém o driver `usb_cam` separado de MoveIt e do nó `vision`. A visão
 deve ser montada e validada nesta ordem:
 
 ```text
 dispositivo V4L2 -> imagem bruta ROS -> calibração intrínseca
-                 -> imagem retificada -> TF de montagem -> AprilTag
+                 -> imagem retificada -> TF de montagem -> vision
 ```
 
 Cada seta é uma etapa separada. Não use o AprilTag para testar se a câmera

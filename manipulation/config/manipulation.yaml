@@ -3,7 +3,8 @@ manipulation_server:
     profiles_file: ""
     cargo_slots_file: ""
     move_group_action: /move_action
-    apriltag_action: /apriltags/analyze
+    vision_action: /vision/analyze
+    execute_trajectory_action: /execute_trajectory
     joint_states_topic: /joint_states
     pick_action: manipulation/pick
     store_action: manipulation/store
@@ -15,4 +16,7 @@ manipulation_server:
     place_at_pose_action: manipulation/place_at_pose
     prepare_action: manipulation/prepare
     moveit_server_timeout_s: 20.0
-    apriltag_analysis_duration_s: 2.0
+    vision_analysis_duration_s: 2.0
+    # ws_height_cm is above the floor; resolve this TF before planning in arm_base_link.
+    work_surface_height_frame: base_footprint
+    height_transform_timeout_s: 0.5

@@ -5,3 +5,16 @@ float64 decision_margin
 uint8 hamming
 float64 pose_error
 geometry_msgs/Pose pose
+float64 size_m
+float64 confidence
+bool pose_valid
+bool partial
+float64 position_uncertainty_m
+float64 yaw_uncertainty_deg
+uint8 REJECTION_NONE=0
+uint8 REJECTION_HAMMING=1
+uint8 REJECTION_LOW_MARGIN=2
+uint8 REJECTION_INVALID_POSE=3
+uint8 REJECTION_TF_UNAVAILABLE=4
+uint8 rejection_code
+string rejection_detail

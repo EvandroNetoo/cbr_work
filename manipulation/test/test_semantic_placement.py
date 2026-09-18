@@ -2,8 +2,11 @@ import math
 from types import SimpleNamespace
 
 from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import TransformStamped
 from interfaces.action import PlaceInContainer, PlaceOnTable
-from interfaces.msg import AprilTagStampedDetection, ManipulationResult
+from interfaces.msg import (
+    AprilTagStampedDetection, ContainerStampedDetection, ManipulationResult,
+)
 
 from manipulation.errors import (
     ConfigurationError,
@@ -64,6 +67,10 @@ def _search_profile(**overrides):
         'search_y_min_m': -0.30,
         'search_y_max_m': -0.10,
         'search_step_m': 0.01,
+        'usable_x_min_m': -0.40,
+        'usable_x_max_m': 0.40,
+        'usable_y_min_m': -0.45,
+        'usable_y_max_m': 0.05,
     }
     values.update(overrides)
     return PlacementProfile(**values)
@@ -146,47 +153,56 @@ def _operation_only_server(tag_id=5):
         return operation()
 
     server._run = run
+    server._table_height_in_arm_frame = lambda height: height
     return server
 
 
-def test_table_container_analysis_fails_before_motion_while_detector_is_absent():
+def test_floor_to_arm_height_uses_real_mount_and_allows_below_arm_plane():
+    transform = TransformStamped()
+    transform.transform.translation.z = -0.112
+    transform.transform.rotation.w = 1.0
+    assert ManipulationServer._height_via_transform(0.05, transform) == pytest.approx(-0.062)
+    assert ManipulationServer._height_via_transform(0.10, transform) == pytest.approx(-0.012)
+    assert ManipulationServer._height_via_transform(0.15, transform) == pytest.approx(0.038)
+    transform.transform.rotation.x = 0.1
+    with pytest.raises(PerceptionUnavailable, match='não são horizontais'):
+        ManipulationServer._height_via_transform(0.10, transform)
+
+
+def test_table_requires_calibrated_search_before_any_motion():
     server = _operation_only_server()
     goal = PlaceOnTable.Goal()
     goal.object_tag_id = 5
     goal.ws_height_cm = 12.5
-    goal.analyze_containers = True
-
-    with pytest.raises(PerceptionUnavailable, match='contêineres'):
+    with pytest.raises(FeatureUnavailable, match='release_x_m'):
         server._execute_place_on_table(SimpleNamespace(request=goal))
 
 
-def test_table_without_detectors_requires_nominal_pose_calibration():
+def test_table_rejects_negative_height():
     server = _operation_only_server()
     goal = PlaceOnTable.Goal()
     goal.object_tag_id = 5
     goal.ws_height_cm = -200.25
 
-    with pytest.raises(FeatureUnavailable, match='release_x_m'):
+    with pytest.raises(ConfigurationError, match='não negativa'):
         server._execute_place_on_table(SimpleNamespace(request=goal))
 
 
-def test_table_without_detectors_uses_fixed_xy_and_height_plus_tcp_offset():
+def test_table_uses_unified_scene_and_height_plus_tcp_offset():
     server = _operation_only_server()
-    server._profiles.placements['table'] = PlacementProfile(
-        name='table',
-        strategy='perception',
-        enabled=True,
-        named_state='',
-        approach_height_m=0.08,
-        retreat_height_m=0.08,
-        reference_offset_xyz=(0.0, 0.0, 0.0),
-        yaw_offset_deg=0.0,
-        calibrated_reference=False,
-        release_x_m=0.21,
-        release_y_m=-0.04,
+    server._profiles.placements['table'] = _search_profile(
+        release_x_m=0.02,
+        release_y_m=-0.20,
         release_yaw_deg=15.0,
         tcp_release_offset_cm=3.5,
     )
+    server._profiles.pickup_profile = lambda _name: SimpleNamespace(
+        observation_state='detect_apriltags', cube_size_m=0.042)
+    server._arm_state = lambda *_args: None
+    server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
+    server._motion = SimpleNamespace(
+        analisar_cena=lambda *_args, **_kwargs: ([], []),
+        ultimas_apriltags_rejeitadas=[], ultimos_containers_rejeitados=[])
     captured = {}
 
     def release(_handle, _action, object_id, pose, _profile, _destination):
@@ -203,8 +219,8 @@ def test_table_without_detectors_uses_fixed_xy_and_height_plus_tcp_offset():
 
     pose = captured['pose']
     assert captured['object_id'] == 5
-    assert pose.pose.position.x == pytest.approx(0.21)
-    assert pose.pose.position.y == pytest.approx(-0.04)
+    assert pose.pose.position.x == pytest.approx(0.02)
+    assert pose.pose.position.y == pytest.approx(-0.20)
     assert pose.pose.position.z == pytest.approx(0.16)
 
 
@@ -309,15 +325,14 @@ def test_table_apriltag_analysis_ignores_object_held_by_gripper():
     server._profiles = SimpleNamespace(
         placements={'table': _search_profile()},
         pickup_profile=lambda _name: SimpleNamespace(
-            observation_state='detect_apriltags'
+            observation_state='detect_apriltags', cube_size_m=0.042
         ),
     )
     server._arm_state = lambda *_args: None
     server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
     server._motion = SimpleNamespace(
-        obter_deteccoes_de_april_tags=lambda _duration: [
-            _detection(5, 0.0, -0.20)
-        ]
+        analisar_cena=lambda *_args, **_kwargs: ([_detection(5, 0.0, -0.20)], []),
+        ultimas_apriltags_rejeitadas=[], ultimos_containers_rejeitados=[],
     )
     captured = {}
 
@@ -329,7 +344,6 @@ def test_table_apriltag_analysis_ignores_object_held_by_gripper():
     goal = PlaceOnTable.Goal()
     goal.object_tag_id = 5
     goal.ws_height_cm = 10.0
-    goal.analyze_apriltags = True
 
     server._execute_place_on_table(SimpleNamespace(request=goal))
 
@@ -344,7 +358,6 @@ def test_table_apriltag_analysis_requires_complete_search_bounds_before_motion()
     goal = PlaceOnTable.Goal()
     goal.object_tag_id = 5
     goal.ws_height_cm = 10.0
-    goal.analyze_apriltags = True
 
     with pytest.raises(FeatureUnavailable, match='search_x_min_m'):
         server._execute_place_on_table(SimpleNamespace(request=goal))
@@ -359,3 +372,30 @@ def test_container_rejects_color_outside_enum_before_detection():
 
     with pytest.raises(ConfigurationError, match='Cor de contêiner inválida'):
         server._execute_place_in_container(SimpleNamespace(request=goal))
+
+
+def test_rotated_rectangle_sat_distinguishes_corner_clearance():
+    obstacle = ManipulationServer._rectangle(0.0, 0.0, 0.18, 0.10, math.pi/4)
+    at_corner = ManipulationServer._rectangle(0.09, 0.0, 0.04, 0.04)
+    away = ManipulationServer._rectangle(0.16, 0.0, 0.04, 0.04)
+    assert ManipulationServer._polygons_overlap(at_corner, obstacle)
+    assert not ManipulationServer._polygons_overlap(away, obstacle)
+
+
+def test_container_selection_uses_color_recency_confidence_and_z_formula():
+    item = ContainerStampedDetection()
+    item.color = item.BLUE
+    item.pose_valid = True
+    item.confidence = 0.8
+    item.header.stamp.sec = 9
+    item.external_dimensions_m.z = 0.073
+    selected = ManipulationServer._select_container_detection(
+        [item], item.BLUE, 0.45, 2.0, 10_000_000_000)
+    assert selected is item
+    assert ManipulationServer._container_tcp_z(0.10, item, 0.0) == pytest.approx(0.173)
+    with pytest.raises(PerceptionUnavailable, match='encontrados 0'):
+        ManipulationServer._select_container_detection(
+            [item], item.RED, 0.45, 2.0, 10_000_000_000)
+    with pytest.raises(PerceptionUnavailable, match='encontrados 2'):
+        ManipulationServer._select_container_detection(
+            [item, item], item.BLUE, 0.45, 2.0, 10_000_000_000)

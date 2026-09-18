@@ -23,9 +23,10 @@ Situação atual dos depósitos:
 - `place_at_pose`: funcional, para calibração, testes e poses explícitas;
 - `stack`: lógica implementada e habilitada com o offset configurado no perfil;
 - `place_on_shelf`: lógica implementada, bloqueada até medir a pose no SRDF;
-- `place_on_table`: depósito nominal disponível após preencher X/Y/yaw/offset;
-  análise de obstáculos por AprilTags disponível após calibrar a região de busca;
-- `place_in_container`: interface pronta, aguardando o detector de contêineres;
+- `place_on_table`: análise conjunta de AprilTags/containers implementada, mas
+  bloqueada até medir a região útil da mesa e o offset de soltura;
+- `place_in_container`: percepção e planejamento implementados; exige validação
+  física do container, do TCP, da câmera/LED e da trajetória antes do uso real;
 - mesa de precisão: deliberadamente fora do escopo atual.
 
 Todas as actions que movem um objeto recebem seu ID explicitamente.
@@ -54,24 +55,41 @@ fechar a garra, o MoveIt planeja explicitamente o retorno primeiro para
 `approach` e depois para `detect_apriltags`. Não há ponto elevado adicional nem
 reprodução de trajetórias armazenadas.
 
-Quando `analyze_apriltags` e `analyze_containers` são falsos,
-`place_on_table` usa `release_x_m`, `release_y_m` e `release_yaw_deg` fixos do
-perfil `table`. A altura do TCP é calculada por
-`(ws_height_cm + tcp_release_offset_cm) / 100`.
+`ws_height_cm` nas actions é a altura da WS acima do piso (`base_footprint`),
+não a coordenada Z de `arm_base_link`. O TF `base_footprint → arm_base_link`
+deve existir para converter o Z de planejamento; o `vision` faz a mesma
+conversão no instante da imagem. No URDF composto atual a origem do braço
+está aproximadamente 112 mm acima do piso; mesas de 5/10 cm portanto têm
+Z negativo no frame do braço, válido geometricamente. Se faltar TF ou os
+planos não forem paralelos, o depósito é abortado.
 
-Quando `analyze_apriltags` é verdadeiro, o servidor posiciona a câmera, analisa
-todas as tags em `arm_base_link` e procura a partir da posição nominal. Os candidatos
-são ordenados pela distância até `release_x_m/release_y_m` e devem manter
-`free_space_preferred_distance_m` de todas as tags, exceto a do objeto na garra.
-Se não houver uma posição com essa folga, a busca passa a aceitar o limite de
-`free_space_min_distance_m`. A
-busca usa uma grade delimitada por `search_x_min_m`, `search_x_max_m`,
+`place_on_table` sempre posiciona a câmera e solicita AprilTags e containers
+no mesmo goal de `/vision/analyze`; não existe modo de depósito cego. A busca
+usa uma grade delimitada por `search_x_min_m`, `search_x_max_m`,
 `search_y_min_m` e `search_y_max_m`. Essa grade é recortada pela faixa circular
 centrada em `reach_center_x_m/reach_center_y_m`: pontos abaixo de
 `reach_min_radius_m` (CP) ou acima de `reach_max_radius_m` (CL) são descartados.
-Se nenhuma tag for detectada, o candidato alcançável mais próximo do nominal é
-usado; se nenhum candidato for livre, a action retorna `NO_FREE_SPACE` sem
-iniciar o depósito.
+Cada cubo é um quadrado de 42 mm e cada container é um retângulo orientado.
+Os obstáculos são expandidos pela folga, incerteza e envelope XY da garra
+derivado do URDF/meshes; a contenção completa na região útil e o sweep da
+aproximação vertical são obrigatórios. Detecções rejeitadas sem pose tornam a
+cena insegura e abortam antes do movimento.
+`usable_x_min_m`, `usable_x_max_m`, `usable_y_min_m` e `usable_y_max_m`
+continuam `null`: a região realmente utilizável da mesa em `arm_base_link`
+não consta do repositório e precisa ser medida no robô. Enquanto isso,
+`place_on_table` falha antes de qualquer movimento, mesmo com cena válida.
+O envelope conservador inicial da garra (0,13 × 0,25 m) inclui o deslocamento
+de 0,12 m entre `link5_1` e `gripper_tcp` no URDF; não é calibração física.
+
+`place_in_container` seleciona exatamente uma detecção recente da cor pedida e
+usa `z_tcp = table_height + external_height + placement_offset_m`. O offset
+inicial é zero e ainda não foi medido. O MoveIt planeja sem executar, com alvo
+XYZ e orientação livre, e mantém `link4_to_link5` em +90° ±5° durante todos os
+pontos. Só a trajetória validada é executada. A sequência é direta: pose de
+detecção → abertura → abrir garra → `detect_apriltags`.
+Se a junta inicial não satisfizer a restrição de caminho, o MoveIt pode
+recusar o planejamento; o fluxo não insere uma manobra intermediária nem
+libera o cubo em uma trajetória não validada.
 
 Após liberar o objeto e recuar pela pose de aproximação, os depósitos
 cartesianos levam o braço diretamente para `detect_apriltags`. O retorno para
@@ -141,8 +159,7 @@ Interface para depósito automático em mesa:
 
 ```bash
 ros2 action send_goal manipulation/place_on_table interfaces/action/PlaceOnTable \
-  "{object_tag_id: 5, ws_height_cm: 12.5, analyze_apriltags: true, \
-    analyze_containers: false}" --feedback
+  "{object_tag_id: 5, ws_height_cm: 12.5}" --feedback
 ```
 
 Interface para depósito em contêiner:

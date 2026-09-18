@@ -11,6 +11,7 @@ from so_arm_101_moveit_config.restricoes import (
     criar_pose,
     normalizar_angulo_de_pegada,
     restricoes_de_pegada,
+    restricoes_de_deposito_em_container,
     restricoes_de_pre_pegada,
 )
 
@@ -60,3 +61,15 @@ def test_pre_pegada_limita_inclinacao_e_preserva_angulo_do_objeto():
 
     assert 0.0 < TOLERANCIA_DE_INCLINACAO_DA_PRE_PEGADA < math.pi / 2.0
     assert pre_pegada.absolute_y_axis_tolerance == TOLERANCIA_DE_ANGULO
+
+
+def test_container_restricts_xyz_not_tcp_orientation_and_joint_in_radians():
+    goal, path = restricoes_de_deposito_em_container(
+        criar_pose(0.01, -0.20, 0.173, 0.0))
+    assert len(goal[0].position_constraints) == 1
+    assert goal[0].orientation_constraints == []
+    joint = goal[0].joint_constraints[0]
+    assert joint.joint_name == 'link4_to_link5'
+    assert joint.position == math.pi / 2.0
+    assert joint.tolerance_above == math.pi / 36.0
+    assert path.joint_constraints[0] == joint

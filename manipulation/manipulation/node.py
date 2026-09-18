@@ -27,6 +27,9 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.exceptions import InvalidHandle
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.duration import Duration
+from rclpy.time import Time
+from tf2_ros import Buffer, TransformListener, TransformException
 from so_arm_101_moveit_config.configuracao import (
     ACELERACAO_MAXIMA,
     ACELERACAO_MAXIMA_DA_GARRA,
@@ -48,6 +51,7 @@ from so_arm_101_moveit_config.restricoes import (
     criar_pose,
     normalizar_angulo_de_pegada,
     restricoes_de_pegada,
+    restricoes_de_deposito_em_container,
     restricoes_de_pre_pegada,
 )
 
@@ -97,7 +101,8 @@ class ManipulationServer(Node):
             'profiles_file': str(share / 'config' / 'profiles.yaml'),
             'cargo_slots_file': str(share / 'config' / 'cargo_slots.yaml'),
             'move_group_action': '/move_action',
-            'apriltag_action': '/apriltags/analyze',
+            'vision_action': '/vision/analyze',
+            'execute_trajectory_action': '/execute_trajectory',
             'joint_states_topic': '/joint_states',
             'pick_action': 'manipulation/pick',
             'store_action': 'manipulation/store',
@@ -109,7 +114,9 @@ class ManipulationServer(Node):
             'place_at_pose_action': 'manipulation/place_at_pose',
             'prepare_action': 'manipulation/prepare',
             'moveit_server_timeout_s': 15.0,
-            'apriltag_analysis_duration_s': 2.0,
+            'vision_analysis_duration_s': 2.0,
+            'work_surface_height_frame': 'base_footprint',
+            'height_transform_timeout_s': 0.5,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -126,6 +133,8 @@ class ManipulationServer(Node):
         self._validate_named_states(self._profiles)
 
         self._callback_group = ReentrantCallbackGroup()
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
         self._busy = False
         self._active_operation = ''
         self._effect_known = True
@@ -137,7 +146,9 @@ class ManipulationServer(Node):
             cancelamento_solicitado=self._cancel_event.is_set,
             callback_group=self._callback_group,
             move_group_action=str(self.get_parameter('move_group_action').value),
-            apriltag_action=str(self.get_parameter('apriltag_action').value),
+            vision_action=str(self.get_parameter('vision_action').value),
+            execute_trajectory_action=str(
+                self.get_parameter('execute_trajectory_action').value),
             joint_states_topic=str(self.get_parameter('joint_states_topic').value),
             monitorar_estados_continuamente=False,
         )
@@ -443,7 +454,7 @@ class ManipulationServer(Node):
                         0.20, f'Localizando AprilTag {tag_id}',
                     )
                     duration = float(
-                        self.get_parameter('apriltag_analysis_duration_s').value
+                        self.get_parameter('vision_analysis_duration_s').value
                     )
                     attempt_detections: list[Any] = []
                     try:
@@ -857,6 +868,103 @@ class ManipulationServer(Node):
             f'{minimum_distance_m:.3f} m das AprilTags.'
         )
 
+    @staticmethod
+    def _rectangle(
+        x: float, y: float, size_x: float, size_y: float, yaw: float = 0.0,
+    ) -> list[tuple[float, float]]:
+        cosine, sine = math.cos(yaw), math.sin(yaw)
+        return [
+            (x + cosine*dx - sine*dy, y + sine*dx + cosine*dy)
+            for dx, dy in (
+                (-size_x/2, -size_y/2), (size_x/2, -size_y/2),
+                (size_x/2, size_y/2), (-size_x/2, size_y/2),
+            )
+        ]
+
+    @staticmethod
+    def _polygons_overlap(
+        first: list[tuple[float, float]], second: list[tuple[float, float]],
+    ) -> bool:
+        """Separating-axis test for convex footprints; touching is collision."""
+        for polygon in (first, second):
+            for index, point in enumerate(polygon):
+                following = polygon[(index + 1) % len(polygon)]
+                axis = (-(following[1] - point[1]), following[0] - point[0])
+                norm = math.hypot(*axis)
+                if norm <= 1e-12:
+                    continue
+                axis = (axis[0]/norm, axis[1]/norm)
+                projected_a = [x*axis[0] + y*axis[1] for x, y in first]
+                projected_b = [x*axis[0] + y*axis[1] for x, y in second]
+                if max(projected_a) < min(projected_b) or max(projected_b) < min(projected_a):
+                    return False
+        return True
+
+    @staticmethod
+    def _yaw_from_pose(pose: Any) -> float:
+        q = pose.orientation
+        return math.atan2(
+            2.0 * (q.w*q.z + q.x*q.y),
+            1.0 - 2.0 * (q.y*q.y + q.z*q.z),
+        )
+
+    @classmethod
+    def _select_safe_table_position(
+        cls,
+        candidates: list[tuple[float, float]],
+        tags: list[Any],
+        containers: list[Any],
+        profile: PlacementProfile,
+        cube_size_m: float,
+    ) -> tuple[float, float]:
+        """Select a fully-contained footprint using oriented rectangles."""
+        usable = (
+            profile.usable_x_min_m, profile.usable_x_max_m,
+            profile.usable_y_min_m, profile.usable_y_max_m)
+        if any(value is None for value in usable):
+            raise FeatureUnavailable(
+                'Meça e configure usable_x_min_m, usable_x_max_m, '
+                'usable_y_min_m e usable_y_max_m no frame do braço antes '
+                'de depositar sobre a mesa.')
+        bounds = tuple(map(float, usable))
+        # The vertical approach has the same XY sweep as this conservative
+        # union of the carried cube and the gripper envelope.
+        footprint_x = max(cube_size_m, profile.gripper_footprint_x_m)
+        footprint_y = max(cube_size_m, profile.gripper_footprint_y_m)
+        clearance = profile.free_space_min_distance_m
+        obstacles: list[list[tuple[float, float]]] = []
+        tag_centers: list[tuple[float, float]] = []
+        for tag in tags:
+            x, y = float(tag.pose.position.x), float(tag.pose.position.y)
+            tag_centers.append((x, y))
+            inflation = clearance + profile.obstacle_uncertainty_m
+            obstacles.append(cls._rectangle(
+                x, y, cube_size_m + 2*inflation,
+                cube_size_m + 2*inflation, cls._yaw_from_pose(tag.pose)))
+        for container in containers:
+            x, y = float(container.pose.position.x), float(container.pose.position.y)
+            inflation = (clearance + profile.obstacle_uncertainty_m
+                         + float(container.position_uncertainty_m))
+            obstacles.append(cls._rectangle(
+                x, y,
+                float(container.external_dimensions_m.x) + 2*inflation,
+                float(container.external_dimensions_m.y) + 2*inflation,
+                cls._yaw_from_pose(container.pose)))
+        for x, y in candidates:
+            candidate = cls._rectangle(x, y, footprint_x, footprint_y)
+            if any(not (bounds[0] <= px <= bounds[1] and bounds[2] <= py <= bounds[3])
+                   for px, py in candidate):
+                continue
+            if any(math.hypot(x-tx, y-ty) + 1e-9 < clearance
+                   for tx, ty in tag_centers):
+                continue
+            if not any(cls._polygons_overlap(candidate, obstacle)
+                       for obstacle in obstacles):
+                return x, y
+        raise NoFreeSpace(
+            'Nenhuma posição mantém o footprint completo do cubo/garra, a '
+            'folga dos cubos e os retângulos orientados dos containers.')
+
     def _placement_profile(self, name: str, capability: str) -> PlacementProfile:
         profile = self._profiles.placements.get(name)
         if profile is None:
@@ -866,6 +974,69 @@ class ManipulationServer(Node):
                 f'{capability} ainda não está habilitado/calibrado.'
             )
         return profile
+
+    @staticmethod
+    def _select_container_detection(
+        detections: list[Any], color: int, minimum_confidence: float,
+        maximum_age_s: float, now_ns: int,
+    ) -> Any:
+        candidates = []
+        for item in detections:
+            stamp_ns = (int(item.header.stamp.sec)*1_000_000_000
+                        + int(item.header.stamp.nanosec))
+            age = (int(now_ns) - stamp_ns) * 1e-9
+            if (int(item.color) == color and bool(item.pose_valid)
+                    and not bool(item.partial)
+                    and float(item.confidence) >= minimum_confidence
+                    and 0.0 <= age <= maximum_age_s):
+                candidates.append(item)
+        if len(candidates) != 1:
+            raise PerceptionUnavailable(
+                'Esperado exatamente um container recente e seguro da cor '
+                f'solicitada; encontrados {len(candidates)}.')
+        return candidates[0]
+
+    @staticmethod
+    def _container_tcp_z(
+        table_height_m: float, detection: Any, placement_offset_m: float,
+    ) -> float:
+        return (float(table_height_m)
+                + float(detection.external_dimensions_m.z)
+                + float(placement_offset_m))
+
+    @staticmethod
+    def _height_via_transform(height_m: float, transform: Any) -> float:
+        """Convert a horizontal floor-referenced plane to the arm Z axis."""
+        q = transform.transform.rotation
+        norm = math.sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w)
+        if not math.isfinite(norm) or norm < 1e-9:
+            raise PerceptionUnavailable('TF da altura da mesa tem rotação inválida.')
+        x, y, z, w = q.x/norm, q.y/norm, q.z/norm, q.w/norm
+        axis_x = 2.0*(x*z + y*w)
+        axis_y = 2.0*(y*z - x*w)
+        axis_z = 1.0 - 2.0*(x*x + y*y)
+        if max(abs(axis_x), abs(axis_y)) > 0.001 or axis_z < 0.999:
+            raise PerceptionUnavailable(
+                'O piso e arm_base_link não são horizontais entre si; '
+                'uma altura única não descreve o plano da mesa.')
+        converted = float(transform.transform.translation.z) + height_m*axis_z
+        if not math.isfinite(converted):
+            raise PerceptionUnavailable('Altura convertida da mesa não é finita.')
+        return converted
+
+    def _table_height_in_arm_frame(self, floor_height_m: float) -> float:
+        """WS heights from missions are above ground, not above the arm mount."""
+        source = str(self.get_parameter('work_surface_height_frame').value)
+        timeout = float(self.get_parameter('height_transform_timeout_s').value)
+        if not source or not math.isfinite(timeout) or timeout <= 0.0:
+            raise ConfigurationError('Configure o frame do piso e timeout TF positivo.')
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                REFERENCIAL_BASE, source, Time(), timeout=Duration(seconds=timeout))
+        except TransformException as error:
+            raise PerceptionUnavailable(
+                f'TF {source} → {REFERENCIAL_BASE} indisponível: {error}') from error
+        return self._height_via_transform(floor_height_m, transform)
 
     def _release_at_pose(
         self,
@@ -927,10 +1098,9 @@ class ManipulationServer(Node):
             if tag_id < 0:
                 raise ConfigurationError('object_tag_id não pode ser negativo.')
             height_cm = float(goal_handle.request.ws_height_cm)
-            if bool(goal_handle.request.analyze_containers):
-                raise PerceptionUnavailable(
-                    'A análise de contêineres ainda não foi implementada.'
-                )
+            if not math.isfinite(height_cm) or height_cm < 0.0:
+                raise ConfigurationError('ws_height_cm deve ser finita e não negativa.')
+            table_height_m = self._table_height_in_arm_frame(height_cm / 100.0)
             profile = self._placement_profile('table', 'Depósito nominal na mesa')
             calibration = (
                 profile.release_x_m,
@@ -944,59 +1114,55 @@ class ManipulationServer(Node):
                     'tcp_release_offset_cm no perfil table antes do depósito nominal.'
                 )
             release_x_m, release_y_m, release_yaw_deg, tcp_offset_cm = calibration
-            if bool(goal_handle.request.analyze_apriltags):
-                candidates = self._table_search_candidates(profile)
-                observation = self._profiles.pickup_profile(
-                    'tabletop'
-                ).observation_state
-                self._feedback(
-                    goal_handle, PlaceOnTable, ManipulationFeedback.OBSERVING,
-                    0.10, 'Preparando a câmera para analisar as AprilTags da mesa',
-                )
-                self._arm_state(observation, 'Preparando câmera para depósito na mesa')
-                duration = float(
-                    self.get_parameter('apriltag_analysis_duration_s').value
-                )
-                try:
-                    detections = self._motion.obter_deteccoes_de_april_tags(duration)
-                except OperacaoCancelada:
-                    raise
-                except RuntimeError as error:
-                    raise PerceptionUnavailable(str(error)) from error
-                obstacles: list[tuple[float, float]] = []
-                for detection in detections:
-                    if int(detection.id) == tag_id:
-                        continue
-                    x = float(detection.pose.position.x)
-                    y = float(detection.pose.position.y)
-                    if not math.isfinite(x) or not math.isfinite(y):
-                        raise PerceptionUnavailable(
-                            f'AprilTag {detection.id} possui posição XY inválida.'
-                        )
-                    obstacles.append((x, y))
-                release_x_m, release_y_m = self._select_free_table_position(
-                    candidates,
-                    obstacles,
-                    float(profile.free_space_min_distance_m),
-                    float(profile.free_space_preferred_distance_m),
-                )
-                self._feedback(
-                    goal_handle, PlaceOnTable, ManipulationFeedback.OBSERVING,
-                    0.30,
-                    f'Posição livre selecionada a partir da nominal: '
-                    f'x={release_x_m:.3f}, y={release_y_m:.3f} m; '
-                    f'{len(obstacles)} obstáculo(s)',
-                )
-            else:
-                self._feedback(
-                    goal_handle, PlaceOnTable, ManipulationFeedback.OBSERVING,
-                    0.10,
-                    f'Usando posição nominal na mesa de {height_cm:g} cm',
-                )
+            candidates = self._table_search_candidates(profile)
+            observation = self._profiles.pickup_profile('tabletop').observation_state
+            self._feedback(
+                goal_handle, PlaceOnTable, ManipulationFeedback.OBSERVING,
+                0.10, 'Analisando AprilTags e containers no mesmo frame de imagem',
+            )
+            self._arm_state(observation, 'Preparando câmera para depósito na mesa')
+            duration = float(self.get_parameter('vision_analysis_duration_s').value)
+            try:
+                detections, containers = self._motion.analisar_cena(
+                    duration, analisar_apriltags=True, analisar_containers=True,
+                    altura_da_mesa_m=height_cm / 100.0)
+            except OperacaoCancelada:
+                raise
+            except RuntimeError as error:
+                raise PerceptionUnavailable(str(error)) from error
+            tags = [item for item in detections if int(item.id) != tag_id]
+            rejected_scene = (
+                self._motion.ultimas_apriltags_rejeitadas
+                + self._motion.ultimos_containers_rejeitados)
+            uncertain = [
+                item for item in rejected_scene
+                if (not bool(item.pose_valid)
+                    or item.header.frame_id != REFERENCIAL_BASE)
+            ]
+            if uncertain:
+                raise PerceptionUnavailable(
+                    'A cena contém detecções rejeitadas sem pose localizável; '
+                    'o depósito cego foi bloqueado.')
+            tags.extend([
+                item for item in self._motion.ultimas_apriltags_rejeitadas
+                if int(item.id) != tag_id and bool(item.pose_valid)
+            ])
+            containers.extend([
+                item for item in self._motion.ultimos_containers_rejeitados
+                if bool(item.pose_valid)
+            ])
+            cube_size = self._profiles.pickup_profile('tabletop').cube_size_m
+            release_x_m, release_y_m = self._select_safe_table_position(
+                candidates, tags, containers, profile, cube_size)
+            self._feedback(
+                goal_handle, PlaceOnTable, ManipulationFeedback.OBSERVING,
+                0.30, f'Posição segura x={release_x_m:.3f}, y={release_y_m:.3f} m; '
+                f'{len(tags)} cubo(s), {len(containers)} container(s)',
+            )
             release_pose = criar_pose(
                 float(release_x_m),
                 float(release_y_m),
-                (height_cm + float(tcp_offset_cm)) / 100.0,
+                table_height_m + float(tcp_offset_cm) / 100.0,
                 float(release_yaw_deg),
             )
             return self._release_at_pose(
@@ -1013,7 +1179,7 @@ class ManipulationServer(Node):
     ) -> PlaceInContainer.Result:
         tag_id = int(goal_handle.request.object_tag_id)
 
-        def operation() -> tuple[str, int]:
+        def operation() -> tuple[str, int, Any]:
             if tag_id < 0:
                 raise ConfigurationError('object_tag_id não pode ser negativo.')
             color = int(goal_handle.request.container_color)
@@ -1024,19 +1190,64 @@ class ManipulationServer(Node):
             if color not in colors:
                 raise ConfigurationError(f'Cor de contêiner inválida: {color}.')
             height_cm = float(goal_handle.request.ws_height_cm)
+            if not math.isfinite(height_cm) or height_cm < 0.0:
+                raise ConfigurationError('ws_height_cm deve ser finita e não negativa.')
+            table_height_m = self._table_height_in_arm_frame(height_cm / 100.0)
+            profile = self._placement_profile('container', 'Depósito em container')
+            observation = self._profiles.pickup_profile('tabletop').observation_state
             self._feedback(
                 goal_handle, PlaceInContainer, ManipulationFeedback.OBSERVING,
                 0.10,
                 f'Buscando contêiner {colors[color]} sobre WS de {height_cm:g} cm',
             )
-            raise PerceptionUnavailable(
-                'A detecção de contêineres ainda não foi implementada. '
-                'Nenhum movimento foi executado.'
+            self._arm_state(observation, 'Preparando visão do container')
+            duration = float(self.get_parameter('vision_analysis_duration_s').value)
+            try:
+                _, detected = self._motion.analisar_cena(
+                    duration, analisar_apriltags=False, analisar_containers=True,
+                    altura_da_mesa_m=height_cm / 100.0)
+            except RuntimeError as error:
+                raise PerceptionUnavailable(str(error)) from error
+            now_ns = self.get_clock().now().nanoseconds
+            selected = self._select_container_detection(
+                detected, color, profile.minimum_detection_confidence,
+                profile.maximum_detection_age_s, now_ns)
+            target = criar_pose(
+                float(selected.pose.position.x), float(selected.pose.position.y),
+                self._container_tcp_z(
+                    table_height_m, selected, profile.placement_offset_m),
+                0.0,
+            )
+            constraints, path_constraints = restricoes_de_deposito_em_container(target)
+            self._feedback(
+                goal_handle, PlaceInContainer, ManipulationFeedback.APPROACHING,
+                0.40, 'Planejando diretamente para o centro da abertura',
+            )
+            self._motion.planejar_validar_e_executar(
+                GRUPO_BRACO, constraints, path_constraints,
+                junta_validada='link4_to_link5',
+                posicao_da_junta=math.pi/2.0,
+                tolerancia_da_junta=math.pi/36.0,
+                velocidade=VELOCIDADE_MAXIMA, aceleracao=ACELERACAO_MAXIMA,
+            )
+            self._feedback(
+                goal_handle, PlaceInContainer, ManipulationFeedback.RELEASING,
+                0.75, f'Abrindo a garra no container {colors[color]}',
+            )
+            try:
+                self._gripper('open', 'Abrindo a garra no container')
+            except Exception:
+                self._mark_effect_unknown()
+                raise
+            self._record_effect(ManipulationResult.LOCATION_DESTINATION)
+            self._transfer_state('Retornando diretamente para detect_apriltags')
+            return (
+                f'Objeto {tag_id} depositado no container {colors[color]}.',
+                ManipulationResult.LOCATION_DESTINATION, target,
             )
 
         return self._run(
             PlaceInContainer, goal_handle, 'place_in_container', tag_id, operation,
-            requires_moveit=False,
         )
 
     def _execute_stack(self, goal_handle: Any) -> StackObject.Result:
@@ -1062,7 +1273,7 @@ class ManipulationServer(Node):
                 f'Localizando cubo de apoio {support_tag_id} pela AprilTag',
             )
             self._arm_state(observation, 'Preparando câmera para empilhamento')
-            duration = float(self.get_parameter('apriltag_analysis_duration_s').value)
+            duration = float(self.get_parameter('vision_analysis_duration_s').value)
             try:
                 x, y, z, yaw = self._motion.obter_pose_da_april_tag(
                     support_tag_id, duration

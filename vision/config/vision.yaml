@@ -1,0 +1,59 @@
+vision:
+  ros__parameters:
+    image_topic: /camera/image_rect
+    camera_info_topic: /camera/camera_info
+    output_frame: arm_base_link
+    work_surface_height_frame: base_footprint
+    geometry_profiles_file: ""
+    geometry_profile: current_team_model
+
+    family: tag36h11
+    tag_size_m: 0.032
+    tag_frame_prefix: apriltag
+    nthreads: 1
+    quad_decimate: 1.0
+    min_decision_margin: 30.0
+    max_hamming: 0
+
+    min_saturation: 80
+    min_value: 45
+    red_hue_low_1: 0
+    red_hue_high_1: 12
+    red_hue_low_2: 150
+    red_hue_high_2: 179
+    blue_hue_low: 70
+    blue_hue_high: 138
+    morphology_open_px: 3
+    morphology_close_px: 5
+    min_component_area_px: 80.0
+    max_component_area_fraction: 0.85
+    cube_size_m: 0.042
+    min_visible_fraction: 0.30
+    min_rim_support: 0.22
+    min_opening_score: 0.25
+    min_area_ratio: 0.25
+    max_area_ratio: 2.20
+    max_dimension_relative_error: 0.55
+    cube_model_margin: 0.10
+    min_confidence: 0.20
+    partial_ambiguity_visible_fraction: 0.48
+    rim_segmentable_fraction: 0.85
+    side_segmentable_fraction: 0.55
+    max_opening_cubes: 2
+    minimum_observable_opening_fraction: 0.18
+    temporal_association_distance_m: 0.08
+    min_container_observations: 2
+    max_temporal_position_spread_m: 0.025
+    max_temporal_yaw_spread_deg: 12.0
+
+    max_detection_rate_hz: 10.0
+    feedback_rate_hz: 5.0
+    tf_timeout_sec: 0.12
+    publish_debug_images: false
+    manage_camera_capture: true
+    camera_capture_service: /camera/set_capture
+    camera_capture_timeout_sec: 5.0
+    manage_vision_led: true
+    vision_led_service: /base_hardware/set_vision_led
+    vision_led_timeout_sec: 5.0
+    hardware_idle_grace_sec: 0.75

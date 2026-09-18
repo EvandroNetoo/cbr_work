@@ -17,8 +17,8 @@ def test_actions_cover_pick_cargo_and_semantic_placements():
 
     table = (actions / 'PlaceOnTable.action').read_text()
     assert 'float32 ws_height_cm' in table
-    assert 'bool analyze_apriltags' in table
-    assert 'bool analyze_containers' in table
+    assert 'analyze_apriltags' not in table
+    assert 'analyze_containers' not in table
 
     container = (actions / 'PlaceInContainer.action').read_text()
     assert 'uint8 RED=1' in container
@@ -127,6 +127,18 @@ def test_cartesian_deposit_finishes_in_apriltag_observation_pose():
 
     assert open_gripper < retreat < return_detection
     assert 'self._safe(False)' not in release
+
+
+def test_container_sequence_has_no_operational_waypoints():
+    source = (PACKAGE / 'manipulation' / 'node.py').read_text()
+    container = source.split('def _execute_place_in_container', 1)[1]
+    container = container.split('def _execute_stack', 1)[0]
+    plan = container.index('planejar_validar_e_executar')
+    opening = container.index("self._gripper('open'", plan)
+    detection_pose = container.index('self._transfer_state(', opening)
+    assert plan < opening < detection_pose
+    assert 'restricoes_de_pre_pegada' not in container
+    assert 'retreat_pose' not in container
 
 
 def test_launch_installs_profiles_from_package_share():

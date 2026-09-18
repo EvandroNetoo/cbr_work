@@ -1,0 +1,34 @@
+# A zero duration keeps processing until the goal is cancelled.
+bool analyze_apriltags
+bool analyze_containers
+builtin_interfaces/Duration duration
+# Height above work_surface_height_frame (ground), in metres; vision transforms
+# the horizontal table plane to output_frame at the original image timestamp.
+float64 table_height_m
+---
+interfaces/AprilTagStampedDetection[] apriltags
+interfaces/ContainerStampedDetection[] containers
+interfaces/AprilTagStampedDetection[] rejected_apriltags
+interfaces/ContainerStampedDetection[] rejected_containers
+uint64 frames_processed
+uint64 frames_with_transform
+uint64 transform_failures
+builtin_interfaces/Duration elapsed
+string message
+---
+interfaces/AprilTagStampedDetection[] apriltags
+interfaces/ContainerStampedDetection[] containers
+interfaces/AprilTagStampedDetection[] rejected_apriltags
+interfaces/ContainerStampedDetection[] rejected_containers
+uint8 IDLE=0
+uint8 ACQUIRING=1
+uint8 ANALYZING=2
+uint8 RELEASING=3
+uint8 phase
+bool hardware_active
+uint64 frames_processed
+uint64 frames_with_transform
+uint64 transform_failures
+builtin_interfaces/Duration elapsed
+builtin_interfaces/Duration remaining
+bool continuous

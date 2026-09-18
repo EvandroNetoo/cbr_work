@@ -37,8 +37,6 @@ steps:
 
   - id: place_tag_10_at_ws_2
     action: place_on_table
-    analyze_apriltags: true
-    analyze_containers: false
 
   - id: retrieve_left_slot_at_ws_2
     action: retrieve
@@ -46,8 +44,6 @@ steps:
 
   - id: place_left_slot_object_at_ws_2
     action: place_on_table
-    analyze_apriltags: true
-    analyze_containers: false
 
   - id: retrieve_right_slot_at_ws_2
     action: retrieve
@@ -55,8 +51,6 @@ steps:
 
   - id: place_right_slot_object_at_ws_2
     action: place_on_table
-    analyze_apriltags: true
-    analyze_containers: false
 
 
   - id: pick_tag_3
@@ -87,8 +81,6 @@ steps:
 
   - id: place_tag_5_at_ws_3
     action: place_on_table
-    analyze_apriltags: true
-    analyze_containers: false
 
   - id: retrieve_tag_4_from_right_slot
     action: retrieve
@@ -96,8 +88,6 @@ steps:
 
   - id: place_tag_4_at_ws_3
     action: place_on_table
-    analyze_apriltags: true
-    analyze_containers: false
 
   - id: retrieve_tag_3_from_left_slot
     action: retrieve
@@ -105,8 +95,6 @@ steps:
 
   - id: place_tag_3_at_ws_3
     action: place_on_table
-    analyze_apriltags: true
-    analyze_containers: false
 
 
   - id: pick_tag_6
@@ -136,8 +124,6 @@ steps:
 
   - id: place_tag_12_at_ws_4
     action: place_on_table
-    analyze_apriltags: true
-    analyze_containers: false
 
   - id: retrieve_tag_11_from_right_slot
     action: retrieve
@@ -145,8 +131,6 @@ steps:
 
   - id: place_tag_11_at_ws_4
     action: place_on_table
-    analyze_apriltags: true
-    analyze_containers: false
 
   - id: retrieve_tag_6_from_left_slot
     action: retrieve
@@ -154,8 +138,6 @@ steps:
 
   - id: place_tag_6_at_ws_4
     action: place_on_table
-    analyze_apriltags: true
-    analyze_containers: false
 
   - id: pick_tag_13
     action: pick
@@ -167,8 +149,6 @@ steps:
 
   - id: place_tag_13_at_ws_4
     action: place_on_table
-    analyze_apriltags: false
-    analyze_containers: false
 
 
   - id: finish_transport_plan
