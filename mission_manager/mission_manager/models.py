@@ -116,8 +116,6 @@ class Step:
     target: str | None = None
     tag_id: int | None = None
     slot_id: str | None = None
-    analyze_apriltags: bool = False
-    analyze_containers: bool = False
     container_color: str | None = None
     support_tag_id: int | None = None
 

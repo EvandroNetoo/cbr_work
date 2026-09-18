@@ -163,7 +163,7 @@ APRIL_TAG_ID: Final[int | None] = 7
 ```
 
 A sequência move a câmera para o estado `detect_apriltags`, chama a ação
-`/apriltags/analyze` por `TEMPO_DE_ANALISE_DA_APRIL_TAG`, procura o ID no
+`/vision/analyze_scene` solicitando AprilTags, procura o ID no
 resultado transformado para `arm_base_link` e usa a posição da tag como
 `OBJETO_X`, `OBJETO_Y` e `OBJETO_Z`. Como a tag fica sobre o cubo e o TCP está
 na ponta da garra, a sequência subtrai `TAMANHO_DO_CUBO` do `Z` detectado para

@@ -1,4 +1,4 @@
-"""Start the physical arm, MoveIt, wrist camera, and AprilTag detector."""
+"""Start the physical arm, MoveIt, wrist camera, and scene analyzer."""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -31,9 +31,9 @@ def generate_launch_description() -> LaunchDescription:
             'rectify': 'true',
             'framerate': LaunchConfiguration('camera_framerate'),
         }.items())
-    apriltag = IncludeLaunchDescription(
+    vision = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
-            FindPackageShare('apriltag'), 'launch', 'apriltag.launch.py',
+            FindPackageShare('vision'), 'launch', 'vision.launch.py',
         ])),
         launch_arguments={
             'image_topic': LaunchConfiguration('image_topic'),
@@ -53,5 +53,5 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('base_frame', default_value='arm_base_link'),
         arm_planning,
         camera,
-        apriltag,
+        vision,
     ])

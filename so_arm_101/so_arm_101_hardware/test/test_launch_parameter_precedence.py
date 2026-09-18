@@ -53,7 +53,7 @@ def test_all_arm_wrappers_remove_disable_torque_cli_argument():
         PACKAGE_ROOT.parent / 'so_arm_101_moveit_config' / 'launch'
         / 'real_planning.launch.py',
         PACKAGE_ROOT.parent / 'so_arm_101_moveit_config' / 'launch'
-        / 'real_planning_camera_apriltag.launch.py',
+        / 'real_planning_camera_vision.launch.py',
         PACKAGE_ROOT.parents[1] / 'bringup' / 'launch' / 'robot.launch.py',
     ]
     for path in paths:

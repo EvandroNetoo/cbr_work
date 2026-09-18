@@ -1080,8 +1080,6 @@ class MissionManager(Node):
                     goal = PlaceOnTable.Goal()
                     goal.object_tag_id = tag_id
                     goal.ws_height_cm = float(area.height_cm)
-                    goal.analyze_apriltags = step.analyze_apriltags
-                    goal.analyze_containers = step.analyze_containers
                     client = self._place_table_client
                 elif step.action == 'place_in_container':
                     goal = PlaceInContainer.Goal()

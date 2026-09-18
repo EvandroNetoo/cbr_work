@@ -30,7 +30,10 @@ def test_telemetry_config_uses_live_robot_topics():
         (PACKAGE_ROOT / 'config' / 'telemetry.rviz').read_text())
     manager = config['Visualization Manager']
 
-    assert manager['Global Options']['Fixed Frame'] == 'odom'
+    assert manager['Global Options']['Fixed Frame'] == '/map'
+
+    assert [panel['Class'] for panel in config['Panels']] == [
+        'rviz_common/Displays']
 
     robot = _display(config, 'RobotModel')
     assert robot['Enabled'] is True
@@ -48,9 +51,24 @@ def test_telemetry_config_uses_live_robot_topics():
     tf_display = _display(config, 'TF (diagnostico)')
     assert tf_display['Enabled'] is False
 
-    camera = _display(config, 'Camera retificada')
-    assert camera['Enabled'] is False
-    assert camera['Topic']['Value'] == '/camera/image_rect'
+    apriltag_debug = _display(config, 'Debug AprilTag')
+    assert apriltag_debug['Enabled'] is True
+    assert apriltag_debug['Topic']['Value'] == '/apriltags/debug_image'
+
+    containers_debug = _display(config, 'Debug containers')
+    assert containers_debug['Enabled'] is True
+    assert containers_debug['Topic']['Value'] == '/containers/debug_image'
+
+    motion_planning = _display(config, 'MotionPlanning')
+    assert motion_planning['Class'] == 'moveit_rviz_plugin/MotionPlanning'
+    assert motion_planning['Enabled'] is False
+    assert motion_planning['Value'] is False
+    assert motion_planning['Robot Description'] == 'robot_description'
+    assert motion_planning['Planning Scene Topic'] == 'monitored_planning_scene'
+
+    tool_classes = [tool['Class'] for tool in manager['Tools']]
+    assert 'rviz_default_plugins/SetGoal' in tool_classes
+    assert 'nav2_rviz_plugins/GoalTool' not in tool_classes
 
 
 def test_rviz_config_is_installed_by_setup():

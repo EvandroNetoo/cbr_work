@@ -2,7 +2,7 @@ from glob import glob
 from setuptools import setup
 
 
-package_name = 'container_detection'
+package_name = 'vision'
 
 setup(
     name=package_name,
@@ -20,11 +20,11 @@ setup(
     zip_safe=True,
     maintainer='author',
     maintainer_email='todo@todo.com',
-    description='On-demand color and pose detection for known containers.',
+    description='Unified AprilTag and container scene analysis.',
     license='GPL-3.0-only',
     entry_points={
         'console_scripts': [
-            'container_detector = container_detection.container_detector:main',
+            'scene_analyzer = vision.scene_analyzer:main',
         ],
     },
 )

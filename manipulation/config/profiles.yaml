@@ -29,8 +29,12 @@ placements:
     release_yaw_deg: 0.0
     tcp_release_offset_cm: -7.5
     # Região segura e alcançável para buscar espaço livre. Calibrar os vazios.
-    free_space_min_distance_m: 0.07
-    free_space_preferred_distance_m: 0.10
+    # Meias dimensões da área ocupada pela garra/TCP com yaw 0°.
+    # Ao testar o yaw alternativo, os eixos são girados junto com a garra.
+    free_space_half_extent_x_m: 0.07
+    free_space_half_extent_y_m: 0.04
+    free_space_preferred_padding_m: 0.03
+    free_space_alternate_yaw_offset_deg: -90.0
     # Faixa de alcance XY em torno do centro do braço.
     reach_center_x_m: 0.0
     reach_center_y_m: 0.0
@@ -55,13 +59,14 @@ placements:
 
   container:
     strategy: perception
-    # Habilitar somente quando a detecção de contêiner estiver disponível.
-    enabled: false
-    approach_height_m: 0.10
-    retreat_height_m: 0.10
-    calibrated_reference: false
-    reference_offset_xyz: [0.0, 0.0, 0.0]
-    yaw_offset_deg: 90.0
+    # X/Y partem da detecção; Z = altura da mesa + altura externa + offset Z.
+    # Verificar a queda na abertura no robô.
+    enabled: true
+    calibrated_reference: true
+    reference_offset_xyz: [0.0, 0.0, -0.04]
+    # Partial image-edge contours may be targets when the fit is plausible.
+    partial_target_min_overlap: 0.35
+    partial_target_max_uncertainty_m: 1
 
   stack:
     strategy: tag_relative

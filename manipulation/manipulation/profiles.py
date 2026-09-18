@@ -68,8 +68,10 @@ class PlacementProfile:
     release_y_m: float | None = None
     release_yaw_deg: float | None = None
     tcp_release_offset_cm: float | None = None
-    free_space_min_distance_m: float = 0.08
-    free_space_preferred_distance_m: float = 0.12
+    free_space_half_extent_x_m: float = 0.07
+    free_space_half_extent_y_m: float = 0.04
+    free_space_preferred_padding_m: float = 0.03
+    free_space_alternate_yaw_offset_deg: float = -90.0
     reach_center_x_m: float = 0.0
     reach_center_y_m: float = 0.0
     reach_min_radius_m: float | None = None
@@ -79,6 +81,8 @@ class PlacementProfile:
     search_y_min_m: float | None = None
     search_y_max_m: float | None = None
     search_step_m: float = 0.01
+    partial_target_min_overlap: float = 0.35
+    partial_target_max_uncertainty_m: float = 0.03
 
 
 @dataclass(frozen=True)
@@ -247,11 +251,15 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 'calibrated_reference',
                 'release_x_m', 'release_y_m', 'release_yaw_deg',
                 'tcp_release_offset_cm',
-                'free_space_min_distance_m', 'free_space_preferred_distance_m',
+                'free_space_half_extent_x_m', 'free_space_half_extent_y_m',
+                'free_space_preferred_padding_m',
+                'free_space_alternate_yaw_offset_deg',
                 'reach_center_x_m', 'reach_center_y_m',
                 'reach_min_radius_m', 'reach_max_radius_m',
                 'search_x_min_m', 'search_x_max_m',
                 'search_y_min_m', 'search_y_max_m', 'search_step_m',
+                'partial_target_min_overlap',
+                'partial_target_max_uncertainty_m',
             },
             f'placements.{name}',
         )
@@ -309,18 +317,23 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                     f'placements.{name}.tcp_release_offset_cm',
                 )
             ),
-            free_space_min_distance_m=_number(
-                raw.get('free_space_min_distance_m', 0.08),
-                f'placements.{name}.free_space_min_distance_m',
+            free_space_half_extent_x_m=_number(
+                raw.get('free_space_half_extent_x_m', 0.07),
+                f'placements.{name}.free_space_half_extent_x_m',
                 positive=True,
             ),
-            free_space_preferred_distance_m=_number(
-                raw.get(
-                    'free_space_preferred_distance_m',
-                    raw.get('free_space_min_distance_m', 0.08),
-                ),
-                f'placements.{name}.free_space_preferred_distance_m',
+            free_space_half_extent_y_m=_number(
+                raw.get('free_space_half_extent_y_m', 0.04),
+                f'placements.{name}.free_space_half_extent_y_m',
                 positive=True,
+            ),
+            free_space_preferred_padding_m=_number(
+                raw.get('free_space_preferred_padding_m', 0.03),
+                f'placements.{name}.free_space_preferred_padding_m',
+            ),
+            free_space_alternate_yaw_offset_deg=_number(
+                raw.get('free_space_alternate_yaw_offset_deg', -90.0),
+                f'placements.{name}.free_space_alternate_yaw_offset_deg',
             ),
             reach_center_x_m=_number(
                 raw.get('reach_center_x_m', 0.0),
@@ -367,18 +380,29 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 f'placements.{name}.search_step_m',
                 positive=True,
             ),
+            partial_target_min_overlap=_number(
+                raw.get('partial_target_min_overlap', 0.35),
+                f'placements.{name}.partial_target_min_overlap',
+                positive=True,
+            ),
+            partial_target_max_uncertainty_m=_number(
+                raw.get('partial_target_max_uncertainty_m', 0.03),
+                f'placements.{name}.partial_target_max_uncertainty_m',
+                positive=True,
+            ),
         )
+        if profile.partial_target_min_overlap > 1.0:
+            raise ConfigurationError(
+                f'placements.{name}.partial_target_min_overlap deve ser '
+                'menor ou igual a 1.')
         if profile.enabled and strategy == 'named_state' and not profile.named_state:
             raise ConfigurationError(
                 f'placements.{name}.named_state é obrigatório quando habilitado.'
             )
-        if (
-            profile.free_space_preferred_distance_m
-            < profile.free_space_min_distance_m
-        ):
+        if profile.free_space_preferred_padding_m < 0.0:
             raise ConfigurationError(
-                f'placements.{name}.free_space_preferred_distance_m deve ser '
-                'maior ou igual a free_space_min_distance_m.'
+                f'placements.{name}.free_space_preferred_padding_m deve ser '
+                'maior ou igual a zero.'
             )
         reach_radii = (profile.reach_min_radius_m, profile.reach_max_radius_m)
         if (reach_radii[0] is None) != (reach_radii[1] is None):

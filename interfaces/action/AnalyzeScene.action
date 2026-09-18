@@ -1,0 +1,29 @@
+uint8 APRILTAGS=1
+uint8 CONTAINERS=2
+
+# Bit mask of the requested detectors. At least one known bit is required.
+uint8 requested_detectors
+# Zero duration means continuous processing until cancellation.
+builtin_interfaces/Duration duration
+# Height of the work surface in the requested base frame. Used to recover
+# partially visible container poses from the known top-surface plane.
+float64 work_surface_height_m
+---
+interfaces/AprilTagStampedDetection[] best_apriltags_camera
+interfaces/AprilTagStampedDetection[] best_apriltags_base
+interfaces/ContainerStampedDetection[] best_containers_camera
+interfaces/ContainerStampedDetection[] best_containers_base
+uint64 frames_processed
+uint64 frames_with_base_transform
+builtin_interfaces/Duration elapsed
+string message
+---
+interfaces/AprilTagStampedDetection[] apriltags_camera
+interfaces/AprilTagStampedDetection[] apriltags_base
+interfaces/ContainerStampedDetection[] containers_camera
+interfaces/ContainerStampedDetection[] containers_base
+uint64 frames_processed
+uint64 frames_with_base_transform
+builtin_interfaces/Duration elapsed
+builtin_interfaces/Duration remaining
+bool continuous

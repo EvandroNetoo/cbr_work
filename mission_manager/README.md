@@ -140,6 +140,19 @@ do resultado confirmado faz o commit da transição. Timeout, perda de comunica�
 cancelamento sem resultado ou efeito físico ambíguo tornam o estado desconhecido
 e bloqueiam novas operações automáticas.
 
+Para soltar o objeto que está na garra em um contêiner detectado na área atual,
+use um passo como este em um plano YAML:
+
+```yaml
+- id: depositar_no_azul
+  action: place_in_container
+  container_color: blue
+```
+
+`container_color` aceita `red` ou `blue`. O gerenciador envia a altura da área
+de serviço e confirma a saída do objeto da garra somente quando a action relata
+o depósito físico.
+
 O snapshot atual é publicado em `/mission/state` com QoS `transient_local`.
 Não existe uma API de estado usada pelo servidor de manipulação: `WorldState`
 permanece interno ao gerenciador e é o ponto de extensão para incorporar

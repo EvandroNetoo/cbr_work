@@ -21,7 +21,7 @@
   <exec_depend>so_arm_101_description</exec_depend>
   <exec_depend>so_arm_101_hardware</exec_depend>
   <exec_depend>camera</exec_depend>
-  <exec_depend>apriltag</exec_depend>
+  <exec_depend>vision</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>xacro</exec_depend>
 

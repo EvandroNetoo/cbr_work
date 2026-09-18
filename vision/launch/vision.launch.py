@@ -1,20 +1,19 @@
-"""Launch AprilTag using the virtualenv that owns pupil_apriltags."""
+"""Launch unified scene analysis using the pupil_apriltags virtualenv."""
 
 import os
-import sys
 from pathlib import Path
+import sys
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-from launch.substitutions import PathJoinSubstitution
 
 
 def _default_python_executable() -> str:
     """Find the Python containing the optional pupil_apriltags wheel."""
-    configured = os.environ.get('CBR_APRILTAG_PYTHON')
+    configured = os.environ.get('CBR_VISION_PYTHON')
     if configured and Path(configured).is_file():
         return configured
 
@@ -28,7 +27,7 @@ def _default_python_executable() -> str:
         from ament_index_python.packages import get_package_share_directory
 
         share_directory = Path(
-            get_package_share_directory('apriltag')).resolve()
+            get_package_share_directory('vision')).resolve()
         for parent in (share_directory, *share_directory.parents):
             candidate = parent / '.venv' / 'bin' / 'python'
             if candidate.is_file():
@@ -40,7 +39,8 @@ def _default_python_executable() -> str:
 
 
 def generate_launch_description() -> LaunchDescription:
-    config = PathJoinSubstitution([FindPackageShare('apriltag'), 'config', 'apriltag.yaml'])
+    config = PathJoinSubstitution([
+        FindPackageShare('vision'), 'config', 'vision.yaml'])
     return LaunchDescription([
         DeclareLaunchArgument('image_topic', default_value='/camera/image_rect'),
         DeclareLaunchArgument('camera_info_topic', default_value='/camera/camera_info'),
@@ -50,9 +50,9 @@ def generate_launch_description() -> LaunchDescription:
             default_value=_default_python_executable(),
             description='Python interpreter containing pupil_apriltags.'),
         Node(
-            package='apriltag',
-            executable='apriltag_detector',
-            name='apriltag_detector',
+            package='vision',
+            executable='scene_analyzer',
+            name='scene_analyzer',
             output='screen',
             prefix=LaunchConfiguration('python_executable'),
             parameters=[config, {

@@ -17,13 +17,17 @@ def test_actions_cover_pick_cargo_and_semantic_placements():
 
     table = (actions / 'PlaceOnTable.action').read_text()
     assert 'float32 ws_height_cm' in table
-    assert 'bool analyze_apriltags' in table
-    assert 'bool analyze_containers' in table
+    assert 'analyze_apriltags' not in table
+    assert 'analyze_containers' not in table
 
     container = (actions / 'PlaceInContainer.action').read_text()
     assert 'uint8 RED=1' in container
     assert 'uint8 BLUE=2' in container
     assert 'float32 ws_height_cm' in container
+    stamped_container = (
+        SOURCE_ROOT / 'interfaces' / 'msg' / 'ContainerStampedDetection.msg'
+    ).read_text()
+    assert 'float64 external_height_m' in stamped_container
 
     stack = (actions / 'StackObject.action').read_text()
     assert 'int32 support_tag_id' in stack
@@ -31,6 +35,24 @@ def test_actions_cover_pick_cargo_and_semantic_placements():
 
     explicit = (actions / 'PlaceAtPose.action').read_text()
     assert 'geometry_msgs/PoseStamped release_pose' in explicit
+
+
+def test_scene_analysis_routes_modalities_by_operation():
+    actions = SOURCE_ROOT / 'interfaces' / 'action'
+    source = (
+        Path(__file__).parents[1] / 'manipulation' / 'node.py'
+    ).read_text()
+    table = source.split(
+        '    def _execute_place_on_table', 1)[1].split(
+        '    def _execute_place_in_container', 1)[0]
+    container = source.split(
+        '    def _execute_place_in_container', 1)[1].split(
+        '    def _execute_stack', 1)[0]
+    assert 'self._motion.analisar_cena(' in table
+    assert 'analisar_apriltags=True' in table
+    assert 'analisar_containers=True' in table
+    assert 'obter_deteccoes_de_containers' in container
+    assert 'obter_deteccoes_de_april_tags' not in container
 
     pick = (actions / 'PickObject.action').read_text()
     assert 'uint8 RECOVERY_OUT_OF_REACH=1' in pick
@@ -112,21 +134,6 @@ def test_pick_returns_to_approach_before_detection_pose():
 
     assert close_gripper < return_approach < return_detection
     assert 'executar_trajetoria_invertida' not in pick
-
-
-def test_cartesian_deposit_finishes_in_apriltag_observation_pose():
-    source = (PACKAGE / 'manipulation' / 'node.py').read_text()
-    release = source.split('def _release_at_pose', 1)[1]
-    release = release.split('def _execute_place_on_table', 1)[0]
-
-    open_gripper = release.index("self._gripper('open'")
-    retreat = release.index(
-        'restricoes_de_pre_pegada(retreat_pose)', open_gripper
-    )
-    return_detection = release.index('self._transfer_state(', retreat)
-
-    assert open_gripper < retreat < return_detection
-    assert 'self._safe(False)' not in release
 
 
 def test_launch_installs_profiles_from_package_share():

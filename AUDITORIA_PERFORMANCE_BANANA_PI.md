@@ -52,7 +52,7 @@ Ranking predominantemente **ESTÁTICO**; deve ser confirmado pelo roteiro da se�
 
 | Rank | Processo/caminho | Situação | Evidência | Impacto esperado | Prioridade |
 |---:|---|---|---|---|---|
-| 1 | `apriltag_detector`: conversão, detecção e pose | Somente durante ação | Entrada 15 FPS; detector limitado a 10 Hz, 2 threads e sem redução espacial | Ainda alto durante visão, mas sem processar todos os frames | CRÍTICA — CORRIGIDO parcialmente |
+| 1 | `scene_analyzer`: conversão, detecção e pose | Somente durante ação | Entrada 15 FPS; detector limitado a 10 Hz, 2 threads e sem redução espacial | Ainda alto durante visão, mas sem processar todos os frames | CRÍTICA — CORRIGIDO parcialmente |
 | 2 | driver SO-101 + serial Feetech | Contínuo | ciclo único a 30 Hz faz `sync_write` por mudança/heartbeat e `sync_read` | Deve reduzir contenção e trabalho em repouso; medir na Banana | CRÍTICA — CORRIGIDO |
 | 3 | `usb_cam` + `image_proc` + RGB→mono | Durante ação AprilTag | 320×240×RGB×15 = 3,46 MB/s por stream; raw + rect ≈6,91 MB/s, além de decode MJPEG | Alto em CPU/memória durante visão | ALTA — REDUZIDO |
 | 4 | I/O da base Mariola | Contínuo | leitura 30 Hz; escrita apenas quando muda ou heartbeat 5 Hz | Futures e protocolo de leitura continuam relevantes | ALTA — REDUZIDO |
@@ -61,7 +61,7 @@ Ranking predominantemente **ESTÁTICO**; deve ser confirmado pelo roteiro da se�
 | 7 | `move_group` | Contínuo após ativação | iniciado incondicionalmente após os controladores (`robot.launch.py:79,96-115`), mesmo sem nó autônomo no launch | CPU de fundo e memória; picos altos ao planejar | ALTA |
 | 8 | pick-and-place repetitivo | Se iniciado manualmente | `while True` repete visão e múltiplos planejamentos (`pegar_e_colocar.py:44-180`); script nem é instalado por `setup.py` | Picos contínuos e missão sem término | ALTA, possivelmente não utilizado |
 | 9 | menu da Mariola | Se serviço legado estiver habilitado | polling a 10 Hz e dois loops sem espera enquanto botão estava pressionado (`MariolaZero/menuPrincipal/start.py:31-65`) | Um core podia ir a 100% durante long press; polling de 10 ms aplicado | MÉDIA/ALTA — CORRIGIDO |
-| 10 | filtro global de `stderr` do AprilTag | Durante vida do nó | duplica FD 2, pipe global e thread para suprimir uma mensagem da biblioteca C (`apriltag_detector.py:51-96`) | CPU baixa, mas custo arquitetural/risco de observabilidade alto | MÉDIA |
+| 10 | filtro global de `stderr` do AprilTag | Durante vida do nó | duplica FD 2, pipe global e thread para suprimir uma mensagem da biblioteca C (`scene_analyzer.py`) | CPU baixa, mas custo arquitetural/risco de observabilidade alto | MÉDIA |
 
 No repouso, o provável top 3 é: `controller_manager`, driver do braço/base e `move_group`; durante visão, AprilTag/câmera deve assumir a liderança. Isso é uma inferência, não medição.
 
@@ -69,7 +69,7 @@ No repouso, o provável top 3 é: `controller_manager`, driver do braço/base e 
 
 ### G1 — redirecionamento global de `stderr`
 
-- **Arquivo/linha:** `apriltag/apriltag/apriltag_detector.py:51-96`.
+- **Arquivo:** `vision/vision/scene_analyzer.py`.
 - **O que faz:** substitui o FD 2 do processo por um pipe e uma thread, filtrando uma frase emitida pelo código C.
 - **Por que é gambiarra:** altera globalmente a saída de todas as bibliotecas do processo para contornar um warning específico de dependência.
 - **Risco:** perda/atraso de logs, deadlock ou erro de teardown, mascaramento acidental e diagnóstico mais difícil.
@@ -238,7 +238,7 @@ As duas pontes de hardware são justificáveis para isolar bibliotecas Python, p
 | Loop | Estado | Bloqueio/sleep | Risco |
 |---|---|---|---|
 | `LidarDriver._read_loop` (`lidar_driver.py:267-280`) | runtime ativo | serial timeout 0,1 s + Event 1 ms quando vazio | não é busy loop; parse byte a byte consome CPU proporcional ao fluxo |
-| `NativeWarningFilter._run` (`apriltag_detector.py:65-86`) | runtime ativo | `os.read` bloqueante | não é busy loop, mas hack global |
+| `NativeWarningFilter._run` (`scene_analyzer.py`) | runtime ativo | `os.read` bloqueante | não é busy loop, mas hack global |
 | espera da action AprilTag | sessão ativa | sleep ~20 ms | não é busy; uma thread daemon por goal e concorrência de goals merecem limite |
 | espera de captura de câmera | transição | Condition/intervalo ~20 ms, timeout 5 s | aceitável |
 | settle do MoveIt | movimento | `spin_once(timeout=0.05)` | não é busy; barreira real, melhor que sleep fixo |
@@ -506,7 +506,7 @@ Validação local desta revisão:
 
 ## 14. Resultados esperados e respostas diretas
 
-1. **Qual nó provavelmente mais consome CPU?** Durante visão, `apriltag_detector` junto de `usb_cam/image_proc`. Em repouso, provavelmente `controller_manager` + drivers de hardware; `move_group` deve ser medido separadamente.
+1. **Qual nó provavelmente mais consome CPU?** Durante visão, `scene_analyzer` junto de `usb_cam/image_proc`. Em repouso, provavelmente `controller_manager` + drivers de hardware; `move_group` deve ser medido separadamente.
 2. **Há processamento desnecessário?** Ainda há: LiDAR sem consumidor versionado, cinco frames retificados por segundo que não chegam ao detector, quatro saídas AprilTag sem consumidor local e MoveIt sempre residente. LiDAR e MoveIt foram mantidos por decisão operacional.
 3. **Há timers/frequências exagerados?** Os principais foram corrigidos: LiDAR 100→20 Hz e controle 50→30 Hz. Teleop 50 Hz fica no notebook e sensores legados podem alcançar 100–200 Hz se ativados.
 4. **Quais são as piores gambiarras?** Callback serial bloqueante do braço, filtro global de `stderr`, ambientes Python/portas descobertos por heurística, missão infinita não empacotada e supervisor/busy waits do menu.

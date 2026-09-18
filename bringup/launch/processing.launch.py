@@ -106,8 +106,8 @@ def _launch_setup(context):
                 }.items()),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(PathJoinSubstitution([
-                    FindPackageShare('apriltag'), 'launch',
-                    'apriltag.launch.py'])),
+                    FindPackageShare('vision'), 'launch',
+                    'vision.launch.py'])),
                 launch_arguments={
                     'image_topic': LaunchConfiguration('image_topic'),
                     'camera_info_topic': LaunchConfiguration('camera_info_topic'),

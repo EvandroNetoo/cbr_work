@@ -10,8 +10,8 @@ from collections.abc import Callable
 
 import rclpy
 from action_msgs.msg import GoalStatus
-from interfaces.action import AnalyzeAprilTags
-from interfaces.msg import AprilTagStampedDetection
+from interfaces.action import AnalyzeScene
+from interfaces.msg import AprilTagStampedDetection, ContainerStampedDetection
 from moveit_msgs.action import MoveGroup
 from rclpy.action import ActionClient
 from rclpy.node import Node
@@ -61,7 +61,7 @@ class ExecutorDoMoveIt:
         cancelamento_solicitado: Callable[[], bool] | None = None,
         callback_group=None,
         move_group_action: str = "/move_action",
-        apriltag_action: str = "/apriltags/analyze",
+        vision_action: str = "/vision/analyze_scene",
         joint_states_topic: str = "/joint_states",
         monitorar_estados_continuamente: bool = True,
     ) -> None:
@@ -74,8 +74,8 @@ class ExecutorDoMoveIt:
         self.cliente_do_move_group = ActionClient(
             self.no, MoveGroup, move_group_action, callback_group=callback_group
         )
-        self.cliente_da_april_tag = ActionClient(
-            self.no, AnalyzeAprilTags, apriltag_action, callback_group=callback_group
+        self.cliente_da_visao = ActionClient(
+            self.no, AnalyzeScene, vision_action, callback_group=callback_group
         )
         self.posicoes_juntas_atuais: dict[str, float] = {}
         self.velocidades_juntas_atuais: dict[str, float] = {}
@@ -197,35 +197,51 @@ class ExecutorDoMoveIt:
                 "Servidor /move_action não encontrado. Inicie o real_planning.launch.py na Banana Pi."
             )
 
-    def obter_deteccoes_de_april_tags(
-        self, duracao_da_analise: float
-    ) -> list[AprilTagStampedDetection]:
-        """Analisa a cena e devolve a melhor detecção no frame do braço."""
+    def analisar_cena(
+        self,
+        duracao_da_analise: float,
+        *,
+        analisar_apriltags: bool,
+        analisar_containers: bool,
+        altura_mesa_m: float = 0.0,
+    ) -> tuple[
+        list[AprilTagStampedDetection],
+        list[ContainerStampedDetection],
+    ]:
+        """Run one coherent camera session for the requested detectors."""
         if duracao_da_analise <= 0.0:
-            raise ValueError("A duração da análise da AprilTag deve ser positiva.")
+            raise ValueError("A duração da análise deve ser positiva.")
+        if not analisar_apriltags and not analisar_containers:
+            raise ValueError("A análise deve solicitar ao menos um detector.")
 
         self.no.get_logger().info(
-            "Aguardando /apriltags/analyze para analisar as AprilTags da mesa..."
+            "Aguardando /vision/analyze_scene para analisar a cena..."
         )
-        if not self.cliente_da_april_tag.wait_for_server(timeout_sec=10.0):
+        if not self.cliente_da_visao.wait_for_server(timeout_sec=10.0):
             raise RuntimeError(
-                "A ação /apriltags/analyze não está disponível. "
-                "Inicie o detector AprilTag antes da sequência."
+                "A ação /vision/analyze_scene não está disponível. "
+                "Inicie o pacote vision antes da sequência."
             )
 
-        objetivo = AnalyzeAprilTags.Goal()
+        objetivo = AnalyzeScene.Goal()
+        objetivo.requested_detectors = 0
+        if analisar_apriltags:
+            objetivo.requested_detectors |= AnalyzeScene.Goal.APRILTAGS
+        if analisar_containers:
+            objetivo.requested_detectors |= AnalyzeScene.Goal.CONTAINERS
         nanossegundos_totais = round(duracao_da_analise * 1_000_000_000)
         segundos, nanossegundos = divmod(nanossegundos_totais, 1_000_000_000)
         objetivo.duration.sec = segundos
         objetivo.duration.nanosec = nanossegundos
+        objetivo.work_surface_height_m = float(altura_mesa_m)
 
-        futuro_do_envio = self.cliente_da_april_tag.send_goal_async(objetivo)
+        futuro_do_envio = self.cliente_da_visao.send_goal_async(objetivo)
         try:
             manipulador_do_objetivo = self._aguardar_futuro(futuro_do_envio, 5.0)
         except TimeoutError as error:
             raise RuntimeError("O detector não respondeu ao pedido de análise.") from error
         if manipulador_do_objetivo is None or not manipulador_do_objetivo.accepted:
-            raise RuntimeError("O detector rejeitou o pedido de análise de AprilTags.")
+            raise RuntimeError("A visão rejeitou o pedido de análise da cena.")
 
         futuro_do_resultado = manipulador_do_objetivo.get_result_async()
         self._definir_objetivo_ativo(manipulador_do_objetivo)
@@ -255,24 +271,52 @@ class ExecutorDoMoveIt:
                 else "sem detalhes"
             )
             raise RuntimeError(
-                f"A análise de AprilTags falhou (estado {estado}): {detalhe}"
+                f"A análise da cena falhou (estado {estado}): {detalhe}"
             )
 
-        deteccoes = list(resultado_da_acao.result.best_detections_base)
+        apriltags = list(resultado_da_acao.result.best_apriltags_base)
+        containers = list(resultado_da_acao.result.best_containers_base)
+        if any(
+            not isinstance(item, ContainerStampedDetection)
+            for item in containers
+        ):
+            raise RuntimeError('A visão retornou um contêiner com tipo inválido.')
         referencias_invalidas = sorted({
             item.header.frame_id
-            for item in deteccoes
+            for item in [*apriltags, *containers]
             if item.header.frame_id != REFERENCIAL_BASE
         })
         if referencias_invalidas:
             raise RuntimeError(
-                f"A análise retornou AprilTags fora de {REFERENCIAL_BASE}: "
+                f"A análise retornou detecções fora de {REFERENCIAL_BASE}: "
                 f"{referencias_invalidas}."
             )
         self.no.get_logger().info(
-            f"Análise encontrou {len(deteccoes)} AprilTag(s) em {REFERENCIAL_BASE}."
+            f"Análise encontrou {len(apriltags)} AprilTag(s) e "
+            f"{len(containers)} container(s) em {REFERENCIAL_BASE}."
         )
-        return deteccoes
+        return apriltags, containers
+
+    def obter_deteccoes_de_april_tags(
+        self, duracao_da_analise: float
+    ) -> list[AprilTagStampedDetection]:
+        apriltags, _ = self.analisar_cena(
+            duracao_da_analise,
+            analisar_apriltags=True,
+            analisar_containers=False,
+        )
+        return apriltags
+
+    def obter_deteccoes_de_containers(
+        self, duracao_da_analise: float, altura_mesa_m: float = 0.0
+    ) -> list[ContainerStampedDetection]:
+        _, containers = self.analisar_cena(
+            duracao_da_analise,
+            analisar_apriltags=False,
+            analisar_containers=True,
+            altura_mesa_m=altura_mesa_m,
+        )
+        return containers
 
     def obter_pose_da_april_tag(
         self,

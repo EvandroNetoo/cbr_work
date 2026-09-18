@@ -86,7 +86,7 @@ def test_processing_profile_has_no_physical_driver_or_control_manager():
     assert "package='robot_state_publisher'" in source
     assert "package='robot_localization'" in source
     assert "FindPackageShare('camera')" in source
-    assert "FindPackageShare('apriltag')" in source
+    assert "FindPackageShare('vision')" in source
     assert "FindPackageShare('nav2_bringup')" in source
     assert "'navigation.launch.py'" in source
     assert 'get_combined_moveit_config' in source
@@ -129,6 +129,6 @@ def test_maps_are_installed_with_the_bringup_package():
 def test_legacy_robot_launch_remains_the_monolithic_profile():
     source = _source('robot.launch.py')
     assert "FindPackageShare('camera')" in source
-    assert "FindPackageShare('apriltag')" in source
+    assert "FindPackageShare('vision')" in source
     assert "FindPackageShare('manipulation')" in source
     assert 'generate_move_group_launch' in source

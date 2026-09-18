@@ -59,9 +59,9 @@ def generate_launch_description():
             'rectify': 'true',
             'framerate': LaunchConfiguration('camera_framerate'),
         }.items())
-    apriltag = IncludeLaunchDescription(
+    vision = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
-            FindPackageShare('apriltag'), 'launch', 'apriltag.launch.py'])),
+            FindPackageShare('vision'), 'launch', 'vision.launch.py'])),
         launch_arguments={
             'image_topic': LaunchConfiguration('image_topic'),
             'camera_info_topic': LaunchConfiguration('camera_info_topic'),
@@ -150,7 +150,7 @@ def generate_launch_description():
                 'Referencial cartesiano da manipulação. Deve permanecer na '
                 'base física do braço para ter a mesma semântica do launch '
                 'standalone.')),
-        arm_driver, base_driver, lidar, localization, camera, apriltag, rsp, readiness,
+        arm_driver, base_driver, lidar, localization, camera, vision, rsp, readiness,
         RegisterEventHandler(OnProcessExit(target_action=readiness, on_exit=start_control)),
         chain(joint, arm, 'joint_state_broadcaster'),
         chain(arm, gripper, 'arm_controller'),

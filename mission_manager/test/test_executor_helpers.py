@@ -2,7 +2,9 @@ from types import SimpleNamespace
 
 from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Time
-from interfaces.action import FollowWall, PickObject, PrepareManipulator
+from interfaces.action import (
+    FollowWall, PickObject, PlaceInContainer, PrepareManipulator,
+)
 from interfaces.msg import AprilTagStampedDetection, ManipulationResult
 from mission_manager.errors import StepFailed
 from mission_manager.models import (
@@ -278,6 +280,25 @@ def test_manager_marks_world_unknown_when_action_effect_is_ambiguous():
     manager._reconcile_manipulation_result('pick', 5, '', result)
 
     assert manager._world_state.snapshot()[0] is False
+
+
+def test_container_deposit_clears_gripper_only_after_confirmed_effect():
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._world_state.commit_pick(5)
+    result = PlaceInContainer.Result()
+    result.outcome.object_tag_id = 5
+    result.outcome.code = ManipulationResult.MOTION_FAILED
+    result.outcome.effect_known = True
+    result.outcome.final_object_location = ManipulationResult.LOCATION_SOURCE
+
+    manager._reconcile_manipulation_result('place', 5, '', result)
+    assert manager._world_state.snapshot()[1] == 5
+
+    result.outcome.code = ManipulationResult.SUCCESS
+    result.outcome.final_object_location = ManipulationResult.LOCATION_DESTINATION
+    manager._reconcile_manipulation_result('place', 5, '', result)
+    assert manager._world_state.snapshot()[1] == -1
 
 
 def test_manager_marks_world_unknown_when_action_returns_no_result():
@@ -833,13 +854,7 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     manager._execute_manipulation(Step('pick', 'pick', tag_id=7))
     manager._execute_manipulation(Step('store', 'store', slot_id='left'))
     manager._execute_manipulation(Step('retrieve', 'retrieve', slot_id='left'))
-    manager._execute_manipulation(
-        Step(
-                'table', 'place_on_table',
-                analyze_apriltags=True,
-                analyze_containers=False,
-        )
-    )
+    manager._execute_manipulation(Step('table', 'place_on_table'))
     for tag_id, step in (
         (8, Step('container', 'place_in_container', container_color='blue')),
         (9, Step('stack', 'stack', support_tag_id=3)),
@@ -848,6 +863,11 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
         manager._world_state.reset()
         manager._world_state.commit_pick(tag_id)
         manager._execute_manipulation(step)
+    manager._world_state.reset()
+    manager._world_state.commit_pick(11)
+    manager._execute_manipulation(
+        Step('red_container', 'place_in_container', container_color='red')
+    )
 
     assert calls[0][1].tag_id == 7
     assert calls[0][1].profile == ''
@@ -856,10 +876,12 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     assert calls[2][1].slot_id == 'left'
     assert calls[2][1].object_tag_id == 7
     assert calls[3][1].ws_height_cm == 12.5
-    assert calls[3][1].analyze_apriltags is True
-    assert calls[3][1].analyze_containers is False
+    assert not hasattr(calls[3][1], 'analyze_apriltags')
+    assert not hasattr(calls[3][1], 'analyze_containers')
     assert calls[4][1].ws_height_cm == 12.5
     assert calls[4][1].container_color == calls[4][1].BLUE
+    assert calls[7][1].ws_height_cm == 12.5
+    assert calls[7][1].container_color == calls[7][1].RED
     assert calls[5][1].support_tag_id == 3
     assert calls[5][1].object_tag_id == 9
     assert not hasattr(calls[5][1], 'ws_height_cm')

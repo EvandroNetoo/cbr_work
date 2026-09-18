@@ -163,6 +163,39 @@ def test_example_plan_loads_and_validates_with_calibrated_arena(tmp_path):
     assert plan.steps[-1].action == 'finish'
 
 
+@pytest.mark.parametrize('color', ['red', 'blue'])
+def test_plan_accepts_container_deposit_by_color(tmp_path, color):
+    arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
+    plan = load_plan(_write(tmp_path, 'container.yaml', f'''
+schema_version: 1
+plan_id: container
+initial_location: ws_1
+steps:
+  - id: depositar
+    action: place_in_container
+    container_color: {color}
+'''))
+
+    validate_plan(plan, arena)
+    assert plan.steps[0].action == 'place_in_container'
+    assert plan.steps[0].container_color == color
+
+
+def test_plan_rejects_unknown_container_color(tmp_path):
+    plan_path = _write(tmp_path, 'container.yaml', '''
+schema_version: 1
+plan_id: container
+initial_location: ws_1
+steps:
+  - id: depositar
+    action: place_in_container
+    container_color: green
+''')
+
+    with pytest.raises(ConfigurationError, match='red ou blue'):
+        load_plan(plan_path)
+
+
 def test_plan_rejects_unknown_target(tmp_path):
     arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
     plan_path = _write(

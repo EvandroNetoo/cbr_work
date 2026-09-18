@@ -25,7 +25,8 @@ Situação atual dos depósitos:
 - `place_on_shelf`: lógica implementada, bloqueada até medir a pose no SRDF;
 - `place_on_table`: depósito nominal disponível após preencher X/Y/yaw/offset;
   análise de obstáculos por AprilTags disponível após calibrar a região de busca;
-- `place_in_container`: interface pronta, aguardando o detector de contêineres;
+- `place_in_container`: habilitado para soltar no centro do contêiner detectado
+  da cor solicitada;
 - mesa de precisão: deliberadamente fora do escopo atual.
 
 Todas as actions que movem um objeto recebem seu ID explicitamente.
@@ -54,18 +55,23 @@ fechar a garra, o MoveIt planeja explicitamente o retorno primeiro para
 `approach` e depois para `detect_apriltags`. Não há ponto elevado adicional nem
 reprodução de trajetórias armazenadas.
 
-Quando `analyze_apriltags` e `analyze_containers` são falsos,
-`place_on_table` usa `release_x_m`, `release_y_m` e `release_yaw_deg` fixos do
-perfil `table`. A altura do TCP é calculada por
-`(ws_height_cm + tcp_release_offset_cm) / 100`.
-
-Quando `analyze_apriltags` é verdadeiro, o servidor posiciona a câmera, analisa
-todas as tags em `arm_base_link` e procura a partir da posição nominal. Os candidatos
-são ordenados pela distância até `release_x_m/release_y_m` e devem manter
-`free_space_preferred_distance_m` de todas as tags, exceto a do objeto na garra.
-Se não houver uma posição com essa folga, a busca passa a aceitar o limite de
-`free_space_min_distance_m`. A
-busca usa uma grade delimitada por `search_x_min_m`, `search_x_max_m`,
+`place_on_table` sempre posiciona a câmera e solicita uma única sessão de
+`/vision/analyze_scene` com AprilTags e containers. A busca começa em
+`release_x_m/release_y_m`; a altura do TCP é calculada por
+`(ws_height_cm + tcp_release_offset_cm) / 100`. Os candidatos são ordenados pela
+distância até a pose nominal. Em cada candidato, a busca testa primeiro
+`release_yaw_deg` e depois esse ângulo somado a
+`free_space_alternate_yaw_offset_deg`. A área ocupada pela garra é um retângulo
+orientado, com meias dimensões `free_space_half_extent_x_m` e
+`free_space_half_extent_y_m`; os eixos desse retângulo giram junto com o yaw.
+Primeiro, `free_space_preferred_padding_m` é somado aos quatro lados. Se nenhum
+candidato passar, a busca tenta novamente sem essa margem adicional.
+As AprilTags, exceto a do objeto na garra, são testadas contra esse retângulo.
+O footprint externo de cada container é incluído como outro retângulo orientado
+pelas detecções. Para contornos
+cortados pela borda da imagem, a incerteza da pose estimada amplia a região
+proibida; o depósito na mesa continua buscando os demais candidatos.
+A busca usa uma grade delimitada por `search_x_min_m`, `search_x_max_m`,
 `search_y_min_m` e `search_y_max_m`. Essa grade é recortada pela faixa circular
 centrada em `reach_center_x_m/reach_center_y_m`: pontos abaixo de
 `reach_min_radius_m` (CP) ou acima de `reach_max_radius_m` (CL) são descartados.
@@ -73,10 +79,27 @@ Se nenhuma tag for detectada, o candidato alcançável mais próximo do nominal 
 usado; se nenhum candidato for livre, a action retorna `NO_FREE_SPACE` sem
 iniciar o depósito.
 
-Após liberar o objeto e recuar pela pose de aproximação, os depósitos
-cartesianos levam o braço diretamente para `detect_apriltags`. O retorno para
-`home` fica a cargo de `PrepareManipulator` no modo `NAVIGATION`, evitando o
-desvio por `home` quando a próxima operação também acontece na mesa.
+`place_in_container` usa uma sessão do detector de contêineres, escolhe a única
+detecção da cor solicitada e solta o objeto no centro do contorno externo. O TCP
+usa X/Y da detecção com os offsets do perfil. Sua altura é
+`ws_height_cm / 100 + external_height_m + reference_offset_xyz[2]`, sem usar o
+Z visual. O objetivo MoveIt restringe a posição do TCP e mantém a junta
+`link4_to_link5` em −90° com tolerância de ±5°, sem impor orientação cartesiana
+ao TCP. A orientação neutra em `placed_pose` não representa o ângulo real
+alcançado. O braço vai diretamente à pose de soltura, sem aproximação. Após
+abrir a garra, volta diretamente para `detect_apriltags`, sem pose de recuo. A
+action rejeita ausência, duplicidade e geometria inválida antes do movimento ao
+destino. A abertura interna não é medida pelo detector; conferir no robô se a
+pose central e a altura permitem a queda do cubo.
+Uma detecção parcial na borda também pode ser escolhida como destino; o
+feedback informa a incerteza XY estimada antes do movimento. O perfil
+`placements.container` define os limites de sobreposição do ajuste e
+incerteza XY para aceitar essa pose parcial como alvo.
+
+Os demais depósitos cartesianos elevam o braço após liberar o objeto e então
+seguem para `detect_apriltags`. O retorno para `home` fica a cargo de
+`PrepareManipulator` no modo `NAVIGATION`, evitando o desvio por `home` quando a
+próxima operação também acontece na mesa.
 
 O servidor aceita somente uma operação por vez e propaga cancelamento para o
 goal ativo do MoveIt ou do detector. Após cancelar, o braço permanece parado;
@@ -141,8 +164,7 @@ Interface para depósito automático em mesa:
 
 ```bash
 ros2 action send_goal manipulation/place_on_table interfaces/action/PlaceOnTable \
-  "{object_tag_id: 5, ws_height_cm: 12.5, analyze_apriltags: true, \
-    analyze_containers: false}" --feedback
+  "{object_tag_id: 5, ws_height_cm: 12.5}" --feedback
 ```
 
 Interface para depósito em contêiner:

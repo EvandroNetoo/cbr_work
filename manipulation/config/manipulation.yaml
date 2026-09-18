@@ -3,7 +3,7 @@ manipulation_server:
     profiles_file: ""
     cargo_slots_file: ""
     move_group_action: /move_action
-    apriltag_action: /apriltags/analyze
+    vision_action: /vision/analyze_scene
     joint_states_topic: /joint_states
     pick_action: manipulation/pick
     store_action: manipulation/store
@@ -15,4 +15,4 @@ manipulation_server:
     place_at_pose_action: manipulation/place_at_pose
     prepare_action: manipulation/prepare
     moveit_server_timeout_s: 20.0
-    apriltag_analysis_duration_s: 2.0
+    vision_analysis_duration_s: 2.0
