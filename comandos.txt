@@ -1,0 +1,87 @@
+ros2 launch bringup workstation.launch.py enable_xbox_teleop:=true
+ros2 launch nav2_bringup localization_launch.py   map:=/home/evandro/ros2_ws/src/cbr_work/bringup/maps/arena.yaml   params_file:=/home/evandro/ros2_ws/tools/amcl_localization.yaml autostart:=true
+ros2 launch bringup navigation.launch.py
+ros2 launch mission_manager mission_manager.launch.py
+ros2 action send_goal /mission/execute   interfaces/action/ExecuteMission   "{plan_id: example_transport}"   --feedback
+
+
+ros2 service call /so101_hardware_node/set_torque std_srvs/srv/SetBool "{data: false}"
+
+ros2 run tf2_ros tf2_echo map base_footprint
+
+
+# Banana
+ros2 launch bringup hardware.launch.py
+# Raspberry
+ros2 launch bringup processing.launch.py map:=arena2
+ros2 launch bringup processing.launch.py \
+  enable_vision:=false \
+  enable_navigation:=false \
+  enable_manipulation:=false \
+  enable_mission:=false
+
+ros2 action send_goal /vl53/follow_wall interfaces/action/FollowWall \
+  "{wall_distance_mm: 30, travel_distance_mm: 500, wall_tolerance_mm: 10, \
+  travel_tolerance_mm: 10, max_alignment_error_mm: 100, \
+  alignment_recovery_distance_mm: 100, \
+  minimum_lateral_clearance_mm: 100, \
+  timeout: {sec: 20, nanosec: 0}}" --feedback
+
+  
+ros2 action send_goal /vision/analyze_scene interfaces/action/AnalyzeScene \
+  "{requested_detectors: 3, duration: {sec: 2, nanosec: 0}, work_surface_height_m: 0.0}" \
+  --feedback
+
+# Actions de manipulacao
+
+# Preparar para navegacao com a garra vazia
+ros2 action send_goal /manipulation/prepare interfaces/action/PrepareManipulator \
+  "{mode: 1, gripper_loaded: false}" --feedback
+
+# Preparar para navegacao carregando um objeto
+ros2 action send_goal /manipulation/prepare interfaces/action/PrepareManipulator \
+  "{mode: 1, gripper_loaded: true}" --feedback
+
+# Preparar para observar a mesa
+ros2 action send_goal /manipulation/prepare interfaces/action/PrepareManipulator \
+  "{mode: 2, gripper_loaded: false}" --feedback
+
+# Recolher o manipulador em pose segura
+ros2 action send_goal /manipulation/prepare interfaces/action/PrepareManipulator \
+  "{mode: 3, gripper_loaded: false}" --feedback
+
+# Coletar pela AprilTag (perfil atual: tabletop)
+ros2 action send_goal /manipulation/pick interfaces/action/PickObject \
+  "{tag_id: 5, profile: tabletop}" --feedback
+
+# Armazenar no compartimento interno (slot_id: left ou right)
+ros2 action send_goal /manipulation/store interfaces/action/StoreObject \
+  "{object_tag_id: 5, slot_id: left}" --feedback
+
+# Retirar do compartimento interno (slot_id: left ou right)
+ros2 action send_goal /manipulation/retrieve interfaces/action/RetrieveObject \
+  "{object_tag_id: 5, slot_id: left}" --feedback
+
+# Colocar em uma pose explicita do TCP
+ros2 action send_goal /manipulation/place_at_pose interfaces/action/PlaceAtPose \
+  "{object_tag_id: 5, release_pose: {header: {frame_id: arm_base_link}, pose: \
+  {position: {x: 0.20, y: 0.0, z: 0.10}, orientation: {w: 1.0}}}}" \
+  --feedback
+
+# Colocar sobre a mesa; ws_height_cm e a altura da superficie em centimetros
+ros2 action send_goal /manipulation/place_on_table interfaces/action/PlaceOnTable \
+  "{object_tag_id: 5, ws_height_cm: 12.5}" --feedback
+
+# Colocar em container (container_color: 1 vermelho, 2 azul)
+ros2 action send_goal /manipulation/place_in_container interfaces/action/PlaceInContainer \
+  "{object_tag_id: 5, ws_height_cm: 12.5, container_color: 1}" --feedback
+
+# Empilhar o objeto 3 sobre o objeto identificado pela AprilTag 5
+ros2 action send_goal /manipulation/stack interfaces/action/StackObject \
+  "{object_tag_id: 3, support_tag_id: 5}" --feedback
+
+# Colocar na prateleira fixa
+# O perfil shelf esta desativado em manipulation/config/profiles.yaml.
+ros2 action send_goal /manipulation/place_on_shelf interfaces/action/PlaceOnShelf \
+  "{object_tag_id: 5}" --feedback
+
