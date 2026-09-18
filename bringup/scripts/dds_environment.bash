@@ -1,16 +1,16 @@
 # Source this file in every ROS terminal, including diagnostics and RViz:
-# source /path/to/bringup/scripts/dds_environment.bash banana|rasp|notebook|fastdds
+# source /path/to/bringup/scripts/dds_environment.bash banana|rasp|notebook|wsl|fastdds
 # This only changes the current shell's environment; it does not restart nodes.
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-    echo 'Use: source dds_environment.bash banana|rasp|notebook|fastdds' >&2
+    echo 'Use: source dds_environment.bash banana|rasp|notebook|wsl|fastdds' >&2
     exit 2
 fi
 
 _cbr_dds_environment() {
     local role="${1:-}" profile script_dir
     case "$role" in
-        banana|rasp|notebook)
+        banana|rasp|notebook|wsl)
             script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || return
             profile="$script_dir/../config/cyclonedds_${role}.xml"
             if [[ ! -r "$profile" ]]; then
@@ -25,7 +25,7 @@ _cbr_dds_environment() {
             unset CYCLONEDDS_URI
             ;;
         *)
-            echo 'Use: source dds_environment.bash banana|rasp|notebook|fastdds' >&2
+            echo 'Use: source dds_environment.bash banana|rasp|notebook|wsl|fastdds' >&2
             return 2
             ;;
     esac

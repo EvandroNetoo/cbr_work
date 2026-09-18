@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- WSL 2: select an available interface. Remote discovery
+     requires LAN/multicast access, such as WSL mirrored networking. -->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain Id="any">
+    <General>
+      <Transport>udp</Transport>
+      <!-- Reject off-subnet locators advertised by the robot boards. -->
+      <DontRoute>true</DontRoute>
+      <Interfaces>
+        <NetworkInterface autodetermine="true" priority="10"/>
+      </Interfaces>
+      <AllowMulticast>spdp</AllowMulticast>
+      <MulticastRecvNetworkInterfaceAddresses>all</MulticastRecvNetworkInterfaceAddresses>
+      <EnableMulticastLoopback>true</EnableMulticastLoopback>
+      <RedundantNetworking>false</RedundantNetworking>
+      <MaxMessageSize>1400 B</MaxMessageSize>
+      <MaxRexmitMessageSize>1400 B</MaxRexmitMessageSize>
+      <FragmentSize>1200 B</FragmentSize>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>64</MaxAutoParticipantIndex>
+      <Peers>
+        <Peer Address="127.0.0.1"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

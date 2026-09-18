@@ -99,10 +99,22 @@ source "$(ros2 pkg prefix --share bringup)/scripts/dds_environment.bash" noteboo
 ```
 
 Os perfis usam `eth0` nas placas, `wlan1` na Banana, `wlan0` no Raspberry e
-`wlp0s20f3` no notebook. Antes do primeiro uso, instale as dependências com
+`wlp0s20f3` no notebook Ubuntu original. No WSL, após reconstruir o pacote
+`bringup`, use o perfil `wsl` para selecionar a interface virtual disponível:
+
+```bash
+source "$(ros2 pkg prefix --share bringup)/scripts/dds_environment.bash" wsl
+ros2 daemon start
+ros2 launch bringup workstation.launch.py
+```
+
+Antes do primeiro uso, instale as dependências com
 `rosdep` e reconstrua o pacote `bringup`. Ao trocar de middleware, pare os
-processos anteriores e execute `ros2 daemon stop` antes de iniciar os novos.
-Veja [rede, validação e retorno ao Fast DDS](bringup/README.md#rede-e-cyclone-dds).
+processos anteriores e execute `ros2 daemon stop` antes de iniciar os novos
+(no WSL espelhado, use `ros2 daemon start` e consulte com `--no-daemon` se o
+CLI ficar aguardando o daemon).
+No WSL 2 com NAT, o RViz pode abrir sem descobrir as placas; veja
+[rede, WSL, validação e retorno ao Fast DDS](bringup/README.md#rede-e-cyclone-dds).
 
 Workstation com RViz e MotionPlanning:
 

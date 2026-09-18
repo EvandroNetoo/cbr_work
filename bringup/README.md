@@ -146,7 +146,7 @@ pacotes `base_hardware`, `base_bringup` e `bringup`.
 
 ## Rede e Cyclone DDS
 
-Os perfis `config/cyclonedds_{banana,rasp,notebook}.xml` foram escritos para
+Os perfis `config/cyclonedds_{banana,rasp,notebook,wsl}.xml` foram escritos para
 Cyclone DDS 0.10.5 / ROS 2 Jazzy. O pacote declara `rmw_cyclonedds_cpp` como
 dependência. Depois de instalar as dependências nas três máquinas:
 
@@ -159,7 +159,7 @@ Use `source "$(ros2 pkg prefix --share bringup)/scripts/dds_environment.bash"`
 com o argumento da máquina em **cada terminal**, incluindo CLI, RViz e teleop.
 No checkout, também é possível usar
 `source src/cbr_work/bringup/scripts/dds_environment.bash banana` (ou `rasp`,
-`notebook`). Serviços systemd precisam receber o mesmo ambiente antes de
+`notebook`, `wsl`). Serviços systemd precisam receber o mesmo ambiente antes de
 executar o launch; um `source` no terminal não altera serviços já iniciados.
 
 | Máquina | Ethernet | Wi-Fi |
@@ -191,6 +191,59 @@ e o peer fixo da outra placa e localhost ajudam na descoberta remota e local.
 Há até 65 índices automáticos (0–64); a faixa não deve crescer sem medição,
 pois aumenta as sondagens. O XML do notebook exige seu Wi-Fi. Nas placas o
 Wi-Fi é opcional na inicialização, para permitir operação sem hotspot.
+
+### Workstation no WSL 2
+
+O perfil `notebook` exige a interface `wlp0s20f3` do Ubuntu original. No WSL,
+após reconstruir o pacote `bringup`, use:
+
+```bash
+source install/setup.bash
+source "$(ros2 pkg prefix --share bringup)/scripts/dds_environment.bash" wsl
+ros2 daemon start
+ros2 launch bringup workstation.launch.py
+```
+
+O perfil `wsl` escolhe automaticamente uma interface disponível, geralmente
+`eth0` no NAT ou `eth1` no modo espelhado. Isso resolve a falha de
+inicialização causada pelo nome antigo. Um IP como `172.30.x.x` em `eth0`
+costuma indicar NAT do WSL 2: o RViz pode abrir, mas a descoberta multicast e
+os dados DDS das placas podem não atravessar essa
+rede. Para comunicação com o robô, no Windows 11 22H2 ou superior, configure
+`networkingMode=mirrored` em `%USERPROFILE%\.wslconfig`:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+Execute `wsl --shutdown` no PowerShell e abra o WSL novamente. Confira
+`ip -br addr` e teste `ros2 topic list --no-daemon --spin-time 5` com as placas
+ligadas no mesmo hotspot. No modo espelhado, a conexão do CLI com o daemon ROS
+pode ficar aguardando se ele ainda não estiver ativo. Inicie-o explicitamente
+com `ros2 daemon start` após selecionar o perfil `wsl`; depois o comando
+`ros2 topic list` também funciona. `--no-daemon` consulta a descoberta
+diretamente e serve para diagnosticar o daemon.
+O perfil `wsl` descobre as placas por multicast, sem IPs fixos no XML.
+Se o multicast chega às placas mas não entra no WSL, configure no PowerShell
+como administrador uma regra Hyper-V para as portas UDP de DDS no domínio 10
+(9900–10039):
+
+```powershell
+New-NetFirewallHyperVRule `
+  -Name 'ROS2-WSL-Domain10' `
+  -DisplayName 'ROS 2 WSL Domain 10' `
+  -Direction Inbound -Action Allow `
+  -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' `
+  -Protocol UDP `
+  -LocalPorts '9900-10039' `
+  -RemoteAddresses '192.168.1.216','192.168.1.114'
+```
+
+Atualize também a regra se os IPs das placas mudarem. Se ainda não houver
+tópicos, verifique se o hotspot permite multicast entre clientes. O modo
+espelhado depende da versão do Windows; no Windows 10, usar um Ubuntu nativo
+na rede do robô é o caminho mais simples para a comunicação DDS.
 
 Isso implementa **preferência Ethernet**, não isolamento: SPDP continua no
 Wi-Fi, e prioridade não proíbe outros caminhos. O hotspot precisa permitir

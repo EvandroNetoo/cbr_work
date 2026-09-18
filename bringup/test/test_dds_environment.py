@@ -27,7 +27,7 @@ def shell(selector, commands, *args):
     return result.stdout.strip().splitlines()
 
 
-@pytest.mark.parametrize('role', ['banana', 'rasp', 'notebook'])
+@pytest.mark.parametrize('role', ['banana', 'rasp', 'notebook', 'wsl'])
 def test_selection_works_in_installed_layout_with_spaces(selector, role):
     lines = shell(selector, '''
         export ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1 ROS_STATIC_PEERS=old
