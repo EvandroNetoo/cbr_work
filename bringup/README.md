@@ -200,7 +200,6 @@ após reconstruir o pacote `bringup`, use:
 ```bash
 source install/setup.bash
 source "$(ros2 pkg prefix --share bringup)/scripts/dds_environment.bash" wsl
-ros2 daemon start
 ros2 launch bringup workstation.launch.py
 ```
 
@@ -219,11 +218,11 @@ networkingMode=mirrored
 
 Execute `wsl --shutdown` no PowerShell e abra o WSL novamente. Confira
 `ip -br addr` e teste `ros2 topic list --no-daemon --spin-time 5` com as placas
-ligadas no mesmo hotspot. No modo espelhado, a conexão do CLI com o daemon ROS
-pode ficar aguardando se ele ainda não estiver ativo. Inicie-o explicitamente
-com `ros2 daemon start` após selecionar o perfil `wsl`; depois o comando
-`ros2 topic list` também funciona. `--no-daemon` consulta a descoberta
-diretamente e serve para diagnosticar o daemon.
+ligadas no mesmo hotspot. No modo espelhado, o daemon do `ros2cli` pode encerrar
+após ficar inativo e a conexão local seguinte pode expirar. Use `--no-daemon`
+para uma consulta confiável. Se quiser usar `ros2 topic list` sem essa opção,
+execute `ros2 daemon start` antes; talvez seja necessário repetir isso depois
+de um período sem comandos CLI.
 O perfil `wsl` descobre as placas por multicast, sem IPs fixos no XML.
 Se o multicast chega às placas mas não entra no WSL, configure no PowerShell
 como administrador uma regra Hyper-V para as portas UDP de DDS no domínio 10

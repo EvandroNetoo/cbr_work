@@ -63,7 +63,7 @@ placements:
     # Verificar a queda na abertura no robô.
     enabled: true
     calibrated_reference: true
-    reference_offset_xyz: [0.0, 0.0, -0.04]
+    reference_offset_xyz: [0.0, 0.0, 0.01]
     # Partial image-edge contours may be targets when the fit is plausible.
     partial_target_min_overlap: 0.35
     partial_target_max_uncertainty_m: 1

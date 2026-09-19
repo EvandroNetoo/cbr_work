@@ -103,6 +103,7 @@ class ManipulationServer(Node):
             'cargo_slots_file': str(share / 'config' / 'cargo_slots.yaml'),
             'move_group_action': '/move_action',
             'vision_action': '/vision/analyze_scene',
+            'container_target_topic': '/manipulation/container_release_target',
             'joint_states_topic': '/joint_states',
             'pick_action': 'manipulation/pick',
             'store_action': 'manipulation/store',
@@ -145,6 +146,11 @@ class ManipulationServer(Node):
             vision_action=str(self.get_parameter('vision_action').value),
             joint_states_topic=str(self.get_parameter('joint_states_topic').value),
             monitorar_estados_continuamente=False,
+        )
+        self.container_target_publisher = self.create_publisher(
+            PoseStamped,
+            str(self.get_parameter('container_target_topic').value),
+            1,
         )
 
         common = {
@@ -1019,6 +1025,9 @@ class ManipulationServer(Node):
             goal_handle, PlaceInContainer, ManipulationFeedback.PREPARING,
             0.40, f'Movendo diretamente ao destino: {destination}',
         )
+        # Publish the exact TCP target used below.  The vision node projects
+        # this pose over its cached observation frame for physical diagnosis.
+        self.container_target_publisher.publish(release_pose)
         self._motion.executar_objetivo(
             GRUPO_BRACO, restricoes_de_deposito_em_container(release_pose),
             VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,

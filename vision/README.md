@@ -28,6 +28,13 @@ Debug topics remain algorithm-specific:
 - `/apriltags/debug_image`
 - `/containers/debug_image`
 
+After container perception finishes, manipulation publishes the exact TCP
+release pose on `/manipulation/container_release_target`. The vision node
+projects it over the stored observation frame and republishes
+`/containers/debug_image` with a magenta diamond labelled `MoveIt TCP target`.
+The projection deliberately uses the camera transform stored with that frame,
+because the camera moves with the arm after planning starts.
+
 The Bin 3 detector currently fits the 173 x 102 mm external silhouette. It
 does not yet distinguish the 140 x 90 mm opening. Detection results carry the
 configured external height; manipulation combines it with work-surface height

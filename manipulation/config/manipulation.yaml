@@ -4,6 +4,7 @@ manipulation_server:
     cargo_slots_file: ""
     move_group_action: /move_action
     vision_action: /vision/analyze_scene
+    container_target_topic: /manipulation/container_release_target
     joint_states_topic: /joint_states
     pick_action: manipulation/pick
     store_action: manipulation/store

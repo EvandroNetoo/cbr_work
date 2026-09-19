@@ -90,7 +90,8 @@ def test_server_serializes_actions_and_propagates_cancellation():
     assert 'MissionStateClient' not in source
     assert '_inventory' not in source
     assert 'state_service' not in source
-    assert 'create_publisher' not in source
+    assert "'container_target_topic'" in source
+    assert 'self.container_target_publisher.publish(release_pose)' in source
     for callback in (
         '_execute_place_on_table', '_execute_place_in_container',
         '_execute_stack', '_execute_place_on_shelf', '_execute_place_at_pose',

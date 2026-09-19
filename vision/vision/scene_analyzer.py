@@ -204,12 +204,24 @@ class ContainerTrack:
     observations: list[ContainerObservation] = field(default_factory=list)
 
 
+@dataclass
+class ContainerDebugFrame:
+    """Annotated observation plus the calibration valid for that frame."""
+
+    header: object
+    image: np.ndarray
+    camera_matrix: np.ndarray
+    camera_to_base: TransformStamped | None
+
+
 class SceneAnalyzer(Node):
     def __init__(self) -> None:
         super().__init__('scene_analyzer')
         self.declare_parameter('image_topic', '/camera/image_rect')
         self.declare_parameter('camera_info_topic', '/camera/camera_info')
         self.declare_parameter('base_frame', 'base_link')
+        self.declare_parameter(
+            'container_target_topic', '/manipulation/container_release_target')
         self.declare_parameter('tag_frame_prefix', 'apriltag')
         self.declare_parameter('family', 'tag36h11')
         self.declare_parameter('tag_size_m', 0.032)
@@ -327,6 +339,13 @@ class SceneAnalyzer(Node):
             ContainerDetectionArray, 'containers/detections', output_qos)
         self.container_debug_image_publisher = self.create_publisher(
             Image, 'containers/debug_image', qos_profile_sensor_data)
+        self.latest_container_debug_frame: ContainerDebugFrame | None = None
+        self.container_target_subscription = self.create_subscription(
+            PoseStamped,
+            str(self.get_parameter('container_target_topic').value),
+            self.container_target_callback,
+            output_qos,
+        )
         self.capture_condition = threading.Condition(threading.RLock())
         self.capture_state: bool | None = None
         self.capture_future = None
@@ -933,7 +952,8 @@ class SceneAnalyzer(Node):
                     container_base_items.append(self.copy_container_stamped(
                         camera_item, pose_base, self.base_frame))
         if session.requested_detectors & CONTAINERS and self.publish_debug_image:
-            self.publish_container_debug_image(message, bgr, masks, candidates)
+            self.publish_container_debug_image(
+                message, bgr, masks, candidates, camera_matrix, base_transform)
         if session.requested_detectors & APRILTAGS:
             self.camera_pose_publisher.publish(
                 self.pose_array(camera_frame, message, camera_poses))
@@ -1506,6 +1526,8 @@ class SceneAnalyzer(Node):
         bgr: np.ndarray,
         masks: dict[int, np.ndarray],
         candidates: list[ContainerCandidate],
+        camera_matrix: np.ndarray,
+        camera_to_base: TransformStamped | None,
     ) -> None:
         debug = bgr.copy()
         tint = np.zeros_like(debug)
@@ -1553,14 +1575,88 @@ class SceneAnalyzer(Node):
         cv2.putText(
             debug, summary, (5, 17), cv2.FONT_HERSHEY_SIMPLEX,
             0.42, (255, 255, 255), 1, cv2.LINE_AA)
+        self.latest_container_debug_frame = ContainerDebugFrame(
+            header=copy.deepcopy(source.header),
+            image=debug.copy(),
+            camera_matrix=camera_matrix.copy(),
+            camera_to_base=copy.deepcopy(camera_to_base),
+        )
+        self.container_debug_image_publisher.publish(
+            self._bgr_image_message(source.header, debug))
+
+    @staticmethod
+    def _bgr_image_message(header, bgr: np.ndarray) -> Image:
         output = Image()
-        output.header = source.header
-        output.height, output.width = debug.shape[:2]
+        output.header = header
+        output.height, output.width = bgr.shape[:2]
         output.encoding = 'bgr8'
         output.is_bigendian = False
         output.step = output.width * 3
-        output.data = debug.tobytes()
-        self.container_debug_image_publisher.publish(output)
+        output.data = bgr.tobytes()
+        return output
+
+    def container_target_callback(self, target: PoseStamped) -> None:
+        """Project the exact MoveIt TCP target over the cached camera frame."""
+        cached = self.latest_container_debug_frame
+        if cached is None or cached.camera_to_base is None:
+            self.get_logger().warning(
+                'Alvo do contêiner recebido sem frame/TF de visão armazenado.',
+                throttle_duration_sec=2.0)
+            return
+        if target.header.frame_id != self.base_frame:
+            self.get_logger().warning(
+                'Alvo do contêiner fora do referencial base: '
+                f'{target.header.frame_id!r}.',
+                throttle_duration_sec=2.0)
+            return
+
+        transform = cached.camera_to_base.transform
+        rotation = rotation_from_quaternion(transform.rotation)
+        origin = np.array([
+            transform.translation.x,
+            transform.translation.y,
+            transform.translation.z,
+        ], dtype=np.float64)
+        point_base = np.array([
+            target.pose.position.x,
+            target.pose.position.y,
+            target.pose.position.z,
+        ], dtype=np.float64)
+        if not np.all(np.isfinite(point_base)):
+            self.get_logger().warning('Alvo do contêiner contém posição inválida.')
+            return
+        point_camera = rotation.T @ (point_base - origin)
+        if not np.all(np.isfinite(point_camera)) or point_camera[2] <= 1e-6:
+            self.get_logger().warning(
+                'Alvo do contêiner está atrás da câmera no frame armazenado.')
+            return
+
+        matrix = cached.camera_matrix
+        pixel = np.array([
+            matrix[0, 0] * point_camera[0] / point_camera[2] + matrix[0, 2],
+            matrix[1, 1] * point_camera[1] / point_camera[2] + matrix[1, 2],
+        ])
+        if not np.all(np.isfinite(pixel)):
+            return
+        x, y = map(int, np.rint(pixel))
+        height, width = cached.image.shape[:2]
+        if not (0 <= x < width and 0 <= y < height):
+            self.get_logger().warning(
+                f'Alvo MoveIt projetado fora da imagem: ({x}, {y}).')
+            return
+
+        debug = cached.image.copy()
+        color = (255, 0, 255)
+        cv2.circle(debug, (x, y), 4, color, -1, cv2.LINE_AA)
+        cv2.drawMarker(
+            debug, (x, y), color, cv2.MARKER_DIAMOND,
+            20, 3, cv2.LINE_AA)
+        label_origin = (min(x + 8, max(0, width - 112)), max(16, y - 8))
+        cv2.putText(
+            debug, 'MoveIt TCP target', label_origin,
+            cv2.FONT_HERSHEY_SIMPLEX, 0.38, color, 1, cv2.LINE_AA)
+        self.container_debug_image_publisher.publish(
+            self._bgr_image_message(cached.header, debug))
 
     @staticmethod
     def image_to_bgr8(message: Image) -> np.ndarray:

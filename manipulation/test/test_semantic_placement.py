@@ -119,14 +119,20 @@ def test_container_release_restricts_position_and_wrist_then_returns_directly():
     events = []
     feedback = []
     motions = []
+    targets = []
 
     def move(*args):
         events.append('motion')
         motions.append(args)
 
+    def publish_target(target):
+        events.append('target')
+        targets.append(target)
+
     server._motion = SimpleNamespace(
         executar_objetivo=move
     )
+    server.container_target_publisher = SimpleNamespace(publish=publish_target)
     server._feedback = lambda _handle, _action, status, *_args: (
         feedback.append(status)
     )
@@ -137,7 +143,7 @@ def test_container_release_restricts_position_and_wrist_then_returns_directly():
         object(), 5, _pose(), 'contêiner azul',
     )
 
-    assert events == ['motion', 'open', 'observation']
+    assert events == ['target', 'motion', 'open', 'observation']
     assert ManipulationFeedback.APPROACHING not in feedback
     assert ManipulationFeedback.RETREATING not in feedback
     target_z = lambda motion: (
@@ -146,6 +152,7 @@ def test_container_release_restricts_position_and_wrist_then_returns_directly():
     )
     assert target_z(motions[0]) == pytest.approx(0.10)
     assert len(motions) == 1
+    assert targets == [placed_pose]
     constraints = motions[0][1][0]
     assert constraints.orientation_constraints == []
     assert len(constraints.joint_constraints) == 1

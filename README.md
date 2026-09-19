@@ -104,15 +104,14 @@ Os perfis usam `eth0` nas placas, `wlan1` na Banana, `wlan0` no Raspberry e
 
 ```bash
 source "$(ros2 pkg prefix --share bringup)/scripts/dds_environment.bash" wsl
-ros2 daemon start
 ros2 launch bringup workstation.launch.py
 ```
 
 Antes do primeiro uso, instale as dependências com
 `rosdep` e reconstrua o pacote `bringup`. Ao trocar de middleware, pare os
-processos anteriores e execute `ros2 daemon stop` antes de iniciar os novos
-(no WSL espelhado, use `ros2 daemon start` e consulte com `--no-daemon` se o
-CLI ficar aguardando o daemon).
+processos anteriores e execute `ros2 daemon stop` antes de iniciar os novos.
+No WSL espelhado, prefira `ros2 topic list --no-daemon --spin-time 5`; se o
+comando sem essa opção expirar, execute `ros2 daemon start` novamente.
 No WSL 2 com NAT, o RViz pode abrir sem descobrir as placas; veja
 [rede, WSL, validação e retorno ao Fast DDS](bringup/README.md#rede-e-cyclone-dds).
 
