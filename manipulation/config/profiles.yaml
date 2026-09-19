@@ -25,7 +25,7 @@ placements:
     # Pose nominal após o alinhamento externo. Preencher após calibrar.
     enabled: true
     release_x_m: 0.0
-    release_y_m: -0.20
+    release_y_m: -0.18
     release_yaw_deg: 0.0
     tcp_release_offset_cm: -7.5
     # Região segura e alcançável para buscar espaço livre. Calibrar os vazios.
@@ -40,10 +40,10 @@ placements:
     reach_center_y_m: 0.0
     reach_min_radius_m: 0.155
     reach_max_radius_m: 0.28
-    search_x_min_m: -0.2
-    search_x_max_m: 0.2
-    search_y_min_m: -0.27
-    search_y_max_m: -0.17
+    search_x_min_m: -0.12
+    search_x_max_m: 0.12
+    search_y_min_m: -0.25
+    search_y_max_m: -0.15
     search_step_m: 0.01
     approach_height_m: 0.06
     retreat_height_m: 0.06

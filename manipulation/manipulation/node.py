@@ -1133,23 +1133,11 @@ class ManipulationServer(Node):
                 )) or width <= 0.0 or depth <= 0.0:
                     raise PerceptionUnavailable(
                         'Contêiner possui geometria externa inválida.')
-                uncertainty = 0.0
-                if detection.partial:
-                    angular_error = math.radians(min(
-                        90.0,
-                        float(detection.yaw_uncertainty_deg) +
-                        float(detection.yaw_spread_deg),
-                    ))
-                    uncertainty = (
-                        float(detection.position_uncertainty_m)
-                        + float(detection.position_spread_m)
-                        + math.hypot(width, depth) *
-                        math.sin(angular_error / 2.0)
-                    )
-                    if not math.isfinite(uncertainty) or uncertainty < 0.0:
-                        raise PerceptionUnavailable(
-                            'Contêiner parcial possui incerteza inválida.')
-                obstacles.append((x, y, depth, width, yaw, uncertainty))
+                # For table clearance, partial and complete detections use the
+                # same fitted external rectangle.  The previous isotropic
+                # uncertainty expansion could make one image-edge container
+                # cover the entire reachable search region.
+                obstacles.append((x, y, depth, width, yaw, 0.0))
             release_x_m, release_y_m, release_yaw_deg = (
                 self._select_free_table_position(
                     candidates,

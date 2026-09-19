@@ -401,13 +401,58 @@ def test_table_search_uses_oriented_rectangle_instead_of_its_diagonal_circle():
     assert selected == pytest.approx((0.0, 0.08, 0.0))
 
 
-def test_table_search_rotates_container_and_inflates_partial_uncertainty():
+def test_table_search_rotates_container_and_supports_clearance_uncertainty():
     selected = ManipulationServer._select_free_table_position(
         [(0.08, 0.0), (0.0, 0.20)],
         [(0.0, 0.0, 0.173, 0.102, math.pi / 2.0, 0.02)],
         0.02, 0.02, 0.0, (0.0,),
     )
     assert selected == pytest.approx((0.0, 0.20, 0.0))
+
+
+def test_table_deposit_treats_partial_container_like_complete_obstacle():
+    server = _operation_only_server(tag_id=5)
+    server._profiles = SimpleNamespace(
+        placements={'table': _search_profile()},
+        pickup_profile=lambda _name: SimpleNamespace(
+            observation_state='detect_apriltags'
+        ),
+    )
+    server._arm_state = lambda *_args: None
+    server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
+    container = _container_detection(PlaceInContainer.Goal.RED)
+    container.partial = True
+    container.position_uncertainty_m = 0.50
+    container.position_spread_m = 0.25
+    container.yaw_uncertainty_deg = 90.0
+    container.yaw_spread_deg = 45.0
+    server._motion = SimpleNamespace(analisar_cena=lambda *_args, **_kwargs: (
+        [], [container]
+    ))
+    captured = {}
+
+    def select(_candidates, obstacles, *_args):
+        captured['obstacles'] = obstacles
+        return 0.0, -0.20, 0.0
+
+    server._select_free_table_position = select
+    server._release_at_pose = lambda *_args: ('ok', 4, _args[3])
+    goal = PlaceOnTable.Goal()
+    goal.object_tag_id = 5
+    goal.ws_height_cm = 10.0
+
+    server._execute_place_on_table(SimpleNamespace(request=goal))
+
+    assert captured['obstacles'] == pytest.approx([
+        (
+            container.pose.position.x,
+            container.pose.position.y,
+            container.external_depth_m,
+            container.external_width_m,
+            0.0,
+            0.0,
+        )
+    ])
 
 
 def test_table_apriltag_analysis_ignores_object_held_by_gripper():
