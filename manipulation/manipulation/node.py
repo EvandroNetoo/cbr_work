@@ -50,7 +50,6 @@ from so_arm_101_moveit_config.movimento import (
 from so_arm_101_moveit_config.restricoes import (
     criar_pose,
     normalizar_angulo_de_pegada,
-    restricoes_de_deposito_em_container,
     restricoes_de_pegada,
     restricoes_de_pre_pegada,
 )
@@ -1020,16 +1019,16 @@ class ManipulationServer(Node):
         self, goal_handle: Any, tag_id: int, release_pose: PoseStamped,
         destination: str,
     ) -> tuple[str, int, PoseStamped]:
-        """Move straight to the target position, release and return."""
+        """Move once to the container with the gripper pointing down."""
         self._feedback(
             goal_handle, PlaceInContainer, ManipulationFeedback.PREPARING,
-            0.40, f'Movendo diretamente ao destino: {destination}',
+            0.40, f'Movendo ao destino com a garra reta: {destination}',
         )
         # Publish the exact TCP target used below.  The vision node projects
         # this pose over its cached observation frame for physical diagnosis.
         self.container_target_publisher.publish(release_pose)
         self._motion.executar_objetivo(
-            GRUPO_BRACO, restricoes_de_deposito_em_container(release_pose),
+            GRUPO_BRACO, restricoes_de_pegada(release_pose),
             VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
         )
         self._open_for_placement(goal_handle, PlaceInContainer, destination)
@@ -1043,6 +1042,7 @@ class ManipulationServer(Node):
     @staticmethod
     def _container_release_pose(
         detection: Any, height_cm: float, offset_xyz: tuple[float, float, float],
+        yaw_deg: float,
     ) -> PoseStamped:
         position = detection.pose.position
         x, y = float(position.x), float(position.y)
@@ -1061,13 +1061,7 @@ class ManipulationServer(Node):
         z = height_cm / 100.0 + external_height + dz
         if not math.isfinite(z):
             raise PerceptionUnavailable('Altura de soltura do contêiner inválida.')
-        pose = PoseStamped()
-        pose.header.frame_id = REFERENCIAL_BASE
-        pose.pose.position.x = x + dx
-        pose.pose.position.y = y + dy
-        pose.pose.position.z = z
-        pose.pose.orientation.w = 1.0  # Placeholder; orientation is unconstrained.
-        return pose
+        return criar_pose(x + dx, y + dy, z, yaw_deg)
 
     def _execute_place_on_table(self, goal_handle: Any) -> PlaceOnTable.Result:
         tag_id = int(goal_handle.request.object_tag_id)
@@ -1259,6 +1253,7 @@ class ManipulationServer(Node):
                         f'overlap={overlap:.2f}, incerteza XY={uncertainty:.3f} m.')
             release_pose = self._container_release_pose(
                 matches[0], height_cm, profile.reference_offset_xyz,
+                profile.yaw_offset_deg,
             )
             if matches[0].partial:
                 self._feedback(

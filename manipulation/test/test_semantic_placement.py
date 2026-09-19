@@ -24,7 +24,8 @@ def _pose():
     pose = PoseStamped()
     pose.header.frame_id = 'arm_base_link'
     pose.pose.position.z = 0.10
-    pose.pose.orientation.w = 1.0
+    pose.pose.orientation.x = math.sqrt(0.5)
+    pose.pose.orientation.w = math.sqrt(0.5)
     return pose
 
 
@@ -112,7 +113,7 @@ def test_common_release_reports_physical_effect_only_after_opening_gripper():
     assert location > 0
 
 
-def test_container_release_restricts_position_and_wrist_then_returns_directly():
+def test_container_release_moves_once_with_gripper_pointing_down():
     server = ManipulationServer.__new__(ManipulationServer)
     server._effect_known = True
     server._effect_location = ManipulationResult.LOCATION_UNKNOWN
@@ -144,6 +145,7 @@ def test_container_release_restricts_position_and_wrist_then_returns_directly():
     )
 
     assert events == ['target', 'motion', 'open', 'observation']
+    assert ManipulationFeedback.PREPARING in feedback
     assert ManipulationFeedback.APPROACHING not in feedback
     assert ManipulationFeedback.RETREATING not in feedback
     target_z = lambda motion: (
@@ -154,13 +156,13 @@ def test_container_release_restricts_position_and_wrist_then_returns_directly():
     assert len(motions) == 1
     assert targets == [placed_pose]
     constraints = motions[0][1][0]
-    assert constraints.orientation_constraints == []
-    assert len(constraints.joint_constraints) == 1
-    wrist = constraints.joint_constraints[0]
-    assert wrist.joint_name == 'link4_to_link5'
-    assert wrist.position == pytest.approx(-math.pi / 2.0)
-    assert wrist.tolerance_above == pytest.approx(math.radians(5.0))
-    assert wrist.tolerance_below == pytest.approx(math.radians(5.0))
+    assert len(constraints.orientation_constraints) == 1
+    orientation = constraints.orientation_constraints[0].orientation
+    assert orientation.x == pytest.approx(math.sqrt(0.5))
+    assert orientation.y == pytest.approx(0.0)
+    assert orientation.z == pytest.approx(0.0)
+    assert orientation.w == pytest.approx(math.sqrt(0.5))
+    assert constraints.joint_constraints == []
     assert location == ManipulationResult.LOCATION_DESTINATION
     assert placed_pose.pose.position.z == pytest.approx(0.10)
 
@@ -521,7 +523,7 @@ def _container_operation_server(detections):
             approach_height_m=0.10,
             retreat_height_m=0.10,
             reference_offset_xyz=(0.0, 0.0, 0.07),
-            yaw_offset_deg=90.0,
+            yaw_offset_deg=0.0,
             calibrated_reference=True,
         )},
         pickup_profile=lambda _name: SimpleNamespace(
@@ -578,7 +580,10 @@ def test_container_release_height_uses_table_bin_and_offset(
     assert pose.pose.position.z == pytest.approx(
         height_cm / 100.0 + external_height_m + 0.07
     )
-    assert pose.pose.orientation.w == pytest.approx(1.0)
+    assert pose.pose.orientation.x == pytest.approx(math.sqrt(0.5))
+    assert pose.pose.orientation.y == pytest.approx(0.0)
+    assert pose.pose.orientation.z == pytest.approx(0.0)
+    assert pose.pose.orientation.w == pytest.approx(math.sqrt(0.5))
     assert len(released[0]) == 4
 
 

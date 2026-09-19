@@ -83,11 +83,10 @@ iniciar o depósito.
 detecção da cor solicitada e solta o objeto no centro do contorno externo. O TCP
 usa X/Y da detecção com os offsets do perfil. Sua altura é
 `ws_height_cm / 100 + external_height_m + reference_offset_xyz[2]`, sem usar o
-Z visual. O objetivo MoveIt restringe a posição do TCP e mantém a junta
-`link4_to_link5` em −90° com tolerância de ±5°, sem impor orientação cartesiana
-ao TCP. A orientação neutra em `placed_pose` não representa o ângulo real
-alcançado. O braço vai diretamente à pose de soltura, sem aproximação. Após
-abrir a garra, volta diretamente para `detect_apriltags`, sem pose de recuo. A
+Z visual. O braço faz um único movimento até a pose de soltura, restringindo a
+posição e a orientação cartesiana para chegar com a garra reta e apontada para
+baixo. Após abrir a garra, retorna diretamente para `detect_apriltags`, sem
+pré-pose nem pose de recuo. A
 action rejeita ausência, duplicidade e geometria inválida antes do movimento ao
 destino. A abertura interna não é medida pelo detector; conferir no robô se a
 pose central e a altura permitem a queda do cubo.

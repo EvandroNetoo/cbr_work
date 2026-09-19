@@ -62,6 +62,8 @@ placements:
     # X/Y partem da detecção; Z = altura da mesa + altura externa + offset Z.
     # Verificar a queda na abertura no robô.
     enabled: true
+    # Orientação da garra reta, apontada para baixo, no único movimento de depósito.
+    yaw_offset_deg: 0.0
     calibrated_reference: true
     reference_offset_xyz: [0.0, 0.0, 0.01]
     # Partial image-edge contours may be targets when the fit is plausible.
