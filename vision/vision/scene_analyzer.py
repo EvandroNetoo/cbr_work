@@ -264,6 +264,7 @@ class SceneAnalyzer(Node):
         self.declare_parameter('max_contour_area_fraction', 0.85)
         self.declare_parameter('min_rectangularity', 0.55)
         self.declare_parameter('polygon_epsilon_fraction', 0.035)
+        self.declare_parameter('container_geometry_erosion_fraction', 0.34)
         self.declare_parameter('max_container_pose_error_px', 12.0)
         self.declare_parameter('container_warmup_sec', 0.5)
         self.declare_parameter('container_association_distance_m', 0.07)
@@ -423,6 +424,8 @@ class SceneAnalyzer(Node):
         self.min_rectangularity = float(
             self.get_parameter('min_rectangularity').value)
         self.polygon_epsilon_fraction = positive('polygon_epsilon_fraction')
+        self.container_geometry_erosion_fraction = float(
+            self.get_parameter('container_geometry_erosion_fraction').value)
         self.max_container_pose_error = positive(
             'max_container_pose_error_px')
         self.container_warmup = float(
@@ -441,6 +444,9 @@ class SceneAnalyzer(Node):
             raise ValueError('max_contour_area_fraction must be in (0, 1]')
         if not 0.0 < self.min_rectangularity <= 1.0:
             raise ValueError('min_rectangularity must be in (0, 1]')
+        if not 0.0 <= self.container_geometry_erosion_fraction <= 0.4:
+            raise ValueError(
+                'container_geometry_erosion_fraction must be in [0, 0.4]')
         if self.container_border_margin_px < 0:
             raise ValueError('container_border_margin_px must be nonnegative')
         if not math.isfinite(self.container_warmup) or self.container_warmup < 0.0:
@@ -1120,25 +1126,12 @@ class SceneAnalyzer(Node):
                 mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             for contour in contours:
                 area = float(cv2.contourArea(contour))
-                rectangle = cv2.minAreaRect(contour)
-                rectangle_area = float(rectangle[1][0] * rectangle[1][1])
-                rectangularity = (
-                    area / rectangle_area if rectangle_area > 0.0 else 0.0)
-                perimeter = float(cv2.arcLength(contour, True))
-                approximation = cv2.approxPolyDP(
-                    contour, self.polygon_epsilon_fraction * perimeter, True)
-                if (
-                    len(approximation) == 4
-                    and cv2.isContourConvex(approximation)
-                ):
-                    corners = approximation.reshape(4, 2).astype(np.float64)
-                else:
-                    corners = cv2.boxPoints(rectangle).astype(np.float64)
+                corners, rectangularity = self._container_geometry(contour)
                 candidate = ContainerCandidate(
                     color=color, contour=contour, corners=corners,
                     area=area, rectangularity=rectangularity)
                 at_border = self._container_touches_border(
-                    corners, image_shape)
+                    contour.reshape(-1, 2), image_shape)
                 minimum_area = (self.min_partial_contour_area if at_border
                                 else self.min_contour_area)
                 if area < minimum_area:
@@ -1161,6 +1154,134 @@ class SceneAnalyzer(Node):
                         candidate.reason = 'ok'
                 candidates.append(candidate)
         return candidates
+
+    def _container_geometry(
+        self, contour: np.ndarray,
+    ) -> tuple[np.ndarray, float]:
+        """Fit the main rectangle while ignoring smaller attached protrusions.
+
+        A same-colour cube touching a bin becomes part of the same connected
+        component.  Relative morphological erosions isolate the main body;
+        the candidate retaining the most rectangular core supplies the pose
+        corners.  The unmodified contour remains the source of area and image
+        border decisions.
+        """
+        rectangle = cv2.minAreaRect(contour)
+        rectangle_area = float(rectangle[1][0] * rectangle[1][1])
+        area = float(cv2.contourArea(contour))
+        best_corners = cv2.boxPoints(rectangle).astype(np.float64)
+        best_rectangularity = (
+            area / rectangle_area if rectangle_area > 0.0 else 0.0)
+
+        perimeter = float(cv2.arcLength(contour, True))
+        approximation = cv2.approxPolyDP(
+            contour, self.polygon_epsilon_fraction * perimeter, True)
+        if len(approximation) == 4 and cv2.isContourConvex(approximation):
+            best_corners = approximation.reshape(4, 2).astype(np.float64)
+
+        maximum_fraction = self.container_geometry_erosion_fraction
+        short_side = min(map(float, rectangle[1]))
+        if maximum_fraction <= 0.0 or short_side < 8.0 or area <= 0.0:
+            return best_corners, best_rectangularity
+
+        x, y, width, height = cv2.boundingRect(contour)
+        maximum_radius = max(1, int(round(short_side * maximum_fraction)))
+        padding = maximum_radius + 2
+        component = np.zeros(
+            (height + 2 * padding, width + 2 * padding), dtype=np.uint8)
+        shifted = contour.astype(np.int32).copy()
+        shifted[:, 0, 0] += padding - x
+        shifted[:, 0, 1] += padding - y
+        cv2.drawContours(component, [shifted], -1, 255, cv2.FILLED)
+
+        # Several scales avoid requiring the cube size to be known. Erosion
+        # removes an appendage once the radius is wider than its narrow span;
+        # dense support in the original component restores the bin boundary.
+        fractions = np.linspace(0.04, maximum_fraction, 5)
+        distance = cv2.distanceTransform(component, cv2.DIST_L2, 5)
+        for fraction in fractions:
+            radius = max(1, int(round(short_side * float(fraction))))
+            eroded = np.where(distance > radius, 255, 0).astype(np.uint8)
+            cores, _ = cv2.findContours(
+                eroded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if not cores:
+                continue
+            core = max(cores, key=cv2.contourArea)
+            core_area = float(cv2.contourArea(core))
+            if core_area / area < 0.10:
+                continue
+            eroded_rectangle = cv2.minAreaRect(core)
+            core_rectangle = self._supported_container_rectangle(
+                component, eroded_rectangle[2])
+            core_rectangle_area = float(
+                core_rectangle[1][0] * core_rectangle[1][1])
+            if core_rectangle_area <= 0.0:
+                continue
+            local_corners = cv2.boxPoints(core_rectangle)
+            rectangle_mask = np.zeros_like(component)
+            cv2.fillConvexPoly(
+                rectangle_mask, np.rint(local_corners).astype(np.int32), 255)
+            rectangle_pixels = int(np.count_nonzero(rectangle_mask))
+            if rectangle_pixels == 0:
+                continue
+            occupied_pixels = int(np.count_nonzero(
+                cv2.bitwise_and(component, rectangle_mask)))
+            fitted_rectangularity = min(
+                1.0, occupied_pixels / rectangle_pixels)
+            fitted_area_fraction = core_rectangle_area / area
+            if fitted_area_fraction < 0.65:
+                continue
+            # Measure the fitted box against the original component. This does
+            # not penalize the rounded corners introduced by morphology.
+            score = fitted_rectangularity + 0.05 * min(
+                1.0, fitted_area_fraction)
+            best_score = best_rectangularity + 0.05
+            if score <= best_score:
+                continue
+            core_corners = local_corners.astype(np.float64)
+            core_corners[:, 0] += x - padding
+            core_corners[:, 1] += y - padding
+            best_corners = core_corners
+            best_rectangularity = fitted_rectangularity
+
+        return best_corners, best_rectangularity
+
+    @staticmethod
+    def _supported_container_rectangle(
+        component: np.ndarray, angle_deg: float,
+    ) -> tuple[tuple[float, float], tuple[float, float], float]:
+        """Bound the dense rectangular support and exclude thin appendages."""
+        rows, columns = np.nonzero(component)
+        angle = math.radians(angle_deg)
+        axis_u = np.array([math.cos(angle), math.sin(angle)])
+        axis_v = np.array([-axis_u[1], axis_u[0]])
+        points = np.column_stack((columns, rows)).astype(np.float64)
+
+        def supported_bounds(values: np.ndarray) -> tuple[float, float]:
+            low = math.floor(float(values.min()))
+            high = math.ceil(float(values.max())) + 1
+            edges = np.arange(low, high + 1, dtype=np.float64)
+            counts, _ = np.histogram(values, bins=edges)
+            positive = counts[counts > 0]
+            reference = float(np.percentile(positive, 90))
+            supported = counts >= 0.55 * reference
+            indices = np.flatnonzero(supported)
+            runs = np.split(indices, np.where(np.diff(indices) > 1)[0] + 1)
+            run = max((item for item in runs if len(item)), key=len)
+            centers = (edges[:-1] + edges[1:]) / 2.0
+            return float(centers[run[0]]), float(centers[run[-1]])
+
+        minimum_u, maximum_u = supported_bounds(points @ axis_u)
+        minimum_v, maximum_v = supported_bounds(points @ axis_v)
+        center = (
+            (minimum_u + maximum_u) / 2.0 * axis_u
+            + (minimum_v + maximum_v) / 2.0 * axis_v
+        )
+        return (
+            (float(center[0]), float(center[1])),
+            (maximum_u - minimum_u, maximum_v - minimum_v),
+            angle_deg,
+        )
 
     def _container_touches_border(
         self, corners: np.ndarray, shape: tuple[int, int],

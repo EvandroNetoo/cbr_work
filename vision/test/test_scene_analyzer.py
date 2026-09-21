@@ -84,6 +84,7 @@ def _analyzer_for_container() -> SceneAnalyzer:
     analyzer.max_contour_fraction = 0.85
     analyzer.min_rectangularity = 0.55
     analyzer.polygon_epsilon_fraction = 0.035
+    analyzer.container_geometry_erosion_fraction = 0.34
     analyzer.max_container_pose_error = 12.0
     analyzer.external_width = 0.102
     analyzer.external_depth = 0.173
@@ -281,6 +282,33 @@ def test_color_masks_separate_red_and_blue_regions():
     assert masks[RED][50, 150] == 0
     assert masks[BLUE][50, 150] == 255
     assert masks[BLUE][50, 40] == 0
+
+
+def test_container_geometry_ignores_attached_same_colour_cube():
+    analyzer = _analyzer_for_container()
+    image = np.zeros((300, 420, 3), dtype=np.uint8)
+    # 173:102 is the measured external depth:width ratio.
+    cv2.rectangle(image, (110, 90), (283, 192), (0, 0, 255), -1)
+    cv2.rectangle(image, (283, 124), (316, 158), (0, 0, 255), -1)
+    masks = analyzer.container_color_masks(image)
+    camera = np.array([
+        [500.0, 0.0, 210.0],
+        [0.0, 500.0, 150.0],
+        [0.0, 0.0, 1.0],
+    ])
+
+    candidates = analyzer.detect_container_candidates(
+        masks, image.shape[:2], camera)
+
+    red = max(
+        (item for item in candidates if item.color == RED),
+        key=lambda item: item.area)
+    fitted_min = red.corners.min(axis=0)
+    fitted_max = red.corners.max(axis=0)
+    assert red.accepted
+    assert red.rectangularity > 0.95
+    assert fitted_min == pytest.approx((110, 90), abs=3)
+    assert fitted_max == pytest.approx((283, 192), abs=3)
 
 
 def test_border_container_reaches_partial_pose_fitting_stage():
