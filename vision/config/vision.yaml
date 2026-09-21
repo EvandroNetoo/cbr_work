@@ -54,8 +54,8 @@ scene_analyzer:
     blue_hue_low: 70
     blue_hue_high: 138
     morphology_kernel_px: 5
-    min_contour_area_px: 4000.0
-    min_partial_contour_area_px: 800.0
+    min_contour_area_px: 6500.0
+    min_partial_contour_area_px: 2500.0
     # Stabilizes edge classification against mask jitter between frames.
     container_border_margin_px: 6
     max_contour_area_fraction: 0.85
