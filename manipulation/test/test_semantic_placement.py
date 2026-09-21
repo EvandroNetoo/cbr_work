@@ -54,14 +54,13 @@ def _search_profile(**overrides):
         'reference_offset_xyz': (0.0, 0.0, 0.0),
         'yaw_offset_deg': 0.0,
         'calibrated_reference': False,
-        'release_x_m': 0.0,
-        'release_y_m': -0.20,
-        'release_yaw_deg': 0.0,
         'tcp_release_offset_cm': -3.0,
         'free_space_half_extent_x_m': 0.07,
         'free_space_half_extent_y_m': 0.04,
+        'free_space_min_padding_m': 0.0,
         'free_space_preferred_padding_m': 0.03,
-        'free_space_alternate_yaw_offset_deg': -90.0,
+        'free_space_preferred_yaw_deg': 0.0,
+        'free_space_alternate_yaw_deg': -90.0,
         'reach_center_x_m': 0.0,
         'reach_center_y_m': 0.0,
         'reach_min_radius_m': 0.10,
@@ -241,13 +240,15 @@ def test_table_deposit_always_uses_one_combined_scene_request():
     assert calls == [(2.0, True, True, 0.125)]
 
 
-def test_table_without_detectors_requires_nominal_pose_calibration():
+def test_table_requires_release_orientation_calibration_before_detection():
     server = _operation_only_server()
+    server._profiles.placements['table'] = _search_profile(
+        free_space_preferred_yaw_deg=None)
     goal = PlaceOnTable.Goal()
     goal.object_tag_id = 5
     goal.ws_height_cm = -200.25
 
-    with pytest.raises(FeatureUnavailable, match='release_x_m'):
+    with pytest.raises(FeatureUnavailable, match='preferred_yaw_deg'):
         server._execute_place_on_table(SimpleNamespace(request=goal))
 
 
@@ -263,10 +264,9 @@ def test_table_empty_scene_uses_fixed_xy_and_height_plus_tcp_offset():
         reference_offset_xyz=(0.0, 0.0, 0.0),
         yaw_offset_deg=0.0,
         calibrated_reference=False,
-        release_x_m=0.21,
-        release_y_m=-0.20,
-        release_yaw_deg=15.0,
         tcp_release_offset_cm=3.5,
+        free_space_preferred_yaw_deg=15.0,
+        free_space_alternate_yaw_deg=-75.0,
         reach_center_x_m=0.0,
         reach_center_y_m=0.0,
         reach_min_radius_m=0.10,
@@ -303,10 +303,11 @@ def test_table_empty_scene_uses_fixed_xy_and_height_plus_tcp_offset():
     assert pose.pose.position.z == pytest.approx(0.16)
 
 
-def test_table_search_starts_at_nominal_position():
+def test_table_search_grid_starts_at_configured_bounds():
     candidates = ManipulationServer._table_search_candidates(_search_profile())
 
-    assert candidates[0] == pytest.approx((0.0, -0.20))
+    assert candidates[0] == pytest.approx((-0.10, -0.30))
+    assert any(point == pytest.approx((0.10, -0.10)) for point in candidates)
     assert all(y <= -0.10 + 1e-9 for _, y in candidates)
 
 
@@ -362,6 +363,16 @@ def test_table_search_falls_back_to_minimum_clearance_when_needed():
     assert selected == pytest.approx((0.0, 0.05, 0.0))
 
 
+def test_table_search_never_falls_below_configured_minimum_padding():
+    selected = ManipulationServer._select_free_table_position(
+        [(0.06, 0.0), (0.08, 0.0)],
+        [(0.0, 0.0)],
+        0.05, 0.05, 0.05, (0.0,), minimum_padding_m=0.02,
+    )
+
+    assert selected == pytest.approx((0.08, 0.0, 0.0))
+
+
 def test_table_search_reports_no_free_space():
     with pytest.raises(NoFreeSpace, match='Nenhuma pose'):
         ManipulationServer._select_free_table_position(
@@ -380,6 +391,17 @@ def test_table_search_rotates_gripper_when_narrow_axis_fits():
     assert selected == pytest.approx((0.0, 0.0, -90.0))
 
 
+def test_table_search_shuffles_positions_and_prefers_first_yaw(monkeypatch):
+    monkeypatch.setattr(
+        'manipulation.node.random.shuffle', lambda candidates: candidates.reverse())
+    selected = ManipulationServer._select_free_table_position(
+        [(0.0, 0.0), (0.04, 0.0), (0.08, 0.0)],
+        [], 0.02, 0.02, 0.0, (-90.0, 0.0),
+    )
+
+    assert selected == pytest.approx((0.08, 0.0, -90.0))
+
+
 def test_table_search_inflates_container_footprint_by_safety_distance():
     selected = ManipulationServer._select_free_table_position(
         [(0.0, 0.0), (0.30, 0.0)],
@@ -390,7 +412,11 @@ def test_table_search_inflates_container_footprint_by_safety_distance():
     assert selected == pytest.approx((0.30, 0.0, 0.0))
 
 
-def test_table_search_uses_oriented_rectangle_instead_of_its_diagonal_circle():
+def test_table_search_uses_oriented_rectangle_instead_of_its_diagonal_circle(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        'manipulation.node.random.shuffle', lambda _candidates: None)
     # The point is 8 cm from the container center across its narrow side.
     # Its distance to the 10.2 cm wide rectangle is 2.9 cm.
     selected = ManipulationServer._select_free_table_position(
@@ -431,7 +457,7 @@ def test_table_deposit_treats_partial_container_like_complete_obstacle():
     ))
     captured = {}
 
-    def select(_candidates, obstacles, *_args):
+    def select(_candidates, obstacles, *_args, **_kwargs):
         captured['obstacles'] = obstacles
         return 0.0, -0.20, 0.0
 
@@ -455,7 +481,9 @@ def test_table_deposit_treats_partial_container_like_complete_obstacle():
     ])
 
 
-def test_table_apriltag_analysis_ignores_object_held_by_gripper():
+def test_table_apriltag_analysis_ignores_object_held_by_gripper(monkeypatch):
+    monkeypatch.setattr(
+        'manipulation.node.random.shuffle', lambda _candidates: None)
     server = _operation_only_server(tag_id=5)
     server._profiles = SimpleNamespace(
         placements={'table': _search_profile()},
@@ -480,8 +508,8 @@ def test_table_apriltag_analysis_ignores_object_held_by_gripper():
     goal.ws_height_cm = 10.0
     server._execute_place_on_table(SimpleNamespace(request=goal))
 
-    assert captured['pose'].pose.position.x == pytest.approx(0.0)
-    assert captured['pose'].pose.position.y == pytest.approx(-0.20)
+    assert captured['pose'].pose.position.x == pytest.approx(-0.10)
+    assert captured['pose'].pose.position.y == pytest.approx(-0.30)
 
 
 def test_table_deposit_applies_alternate_yaw_selected_by_free_space_search():
@@ -519,6 +547,42 @@ def test_table_deposit_applies_alternate_yaw_selected_by_free_space_search():
     assert orientation.y == pytest.approx(-0.5)
     assert orientation.z == pytest.approx(-0.5)
     assert orientation.w == pytest.approx(0.5)
+
+
+def test_table_deposit_tests_profile_yaw_preference_first():
+    server = _operation_only_server(tag_id=5)
+    server._profiles = SimpleNamespace(
+        placements={'table': _search_profile(
+            free_space_preferred_yaw_deg=-90.0,
+            free_space_alternate_yaw_deg=0.0,
+        )},
+        pickup_profile=lambda _name: SimpleNamespace(
+            observation_state='detect_apriltags'
+        ),
+    )
+    server._arm_state = lambda *_args: None
+    server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
+    server._motion = SimpleNamespace(analisar_cena=lambda *_args, **_kwargs: (
+        [], []
+    ))
+    captured = {}
+
+    def select(
+        _candidates, _obstacles, _half_x, _half_y, _padding, yaws,
+        **_kwargs,
+    ):
+        captured['yaws'] = yaws
+        return 0.0, -0.20, yaws[0]
+
+    server._select_free_table_position = select
+    server._release_at_pose = lambda *_args: ('ok', 4, _args[3])
+    goal = PlaceOnTable.Goal()
+    goal.object_tag_id = 5
+    goal.ws_height_cm = 10.0
+
+    server._execute_place_on_table(SimpleNamespace(request=goal))
+
+    assert captured['yaws'] == (-90.0, 0.0)
 
 
 def test_table_apriltag_analysis_requires_complete_search_bounds_before_motion():

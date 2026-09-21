@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import math
 from pathlib import Path
+import random
 import threading
 from typing import Any, Callable
 
@@ -790,7 +791,7 @@ class ManipulationServer(Node):
     def _table_search_candidates(
         profile: PlacementProfile,
     ) -> list[tuple[float, float]]:
-        """Build a bounded grid ordered from the nominal release position."""
+        """Build a bounded grid clipped to the arm reach annulus."""
         reach_filter = ManipulationServer._table_reach_filter(profile)
         bounds = (
             profile.search_x_min_m,
@@ -798,30 +799,17 @@ class ManipulationServer(Node):
             profile.search_y_min_m,
             profile.search_y_max_m,
         )
-        if profile.release_x_m is None or profile.release_y_m is None:
-            raise FeatureUnavailable(
-                'A posição nominal release_x_m/release_y_m não foi configurada.'
-            )
         x_min, x_max, y_min, y_max = (float(value) for value in bounds)
-        nominal_x = float(profile.release_x_m)
-        nominal_y = float(profile.release_y_m)
         step = float(profile.search_step_m)
-        if not (x_min <= nominal_x <= x_max and y_min <= nominal_y <= y_max):
-            raise ConfigurationError(
-                'A pose nominal da mesa deve estar dentro da região de busca.'
-            )
-
-        negative_x = math.floor((nominal_x - x_min) / step + 1e-9)
-        positive_x = math.floor((x_max - nominal_x) / step + 1e-9)
-        negative_y = math.floor((nominal_y - y_min) / step + 1e-9)
-        positive_y = math.floor((y_max - nominal_y) / step + 1e-9)
+        x_steps = math.floor((x_max - x_min) / step + 1e-9)
+        y_steps = math.floor((y_max - y_min) / step + 1e-9)
         xs = [
-            nominal_x + index * step
-            for index in range(-negative_x, positive_x + 1)
+            x_min + index * step
+            for index in range(x_steps + 1)
         ]
         ys = [
-            nominal_y + index * step
-            for index in range(-negative_y, positive_y + 1)
+            y_min + index * step
+            for index in range(y_steps + 1)
         ]
         candidates = []
         for x in xs:
@@ -833,13 +821,6 @@ class ManipulationServer(Node):
                 'A interseção entre a região retangular de busca e a faixa '
                 'de alcance do braço não contém candidatos.'
             )
-        candidates.sort(key=lambda point: (
-            (point[0] - nominal_x) ** 2 + (point[1] - nominal_y) ** 2,
-            abs(point[1] - nominal_y),
-            abs(point[0] - nominal_x),
-            point[0],
-            point[1],
-        ))
         return candidates
 
     @staticmethod
@@ -850,8 +831,9 @@ class ManipulationServer(Node):
         half_extent_y_m: float,
         preferred_padding_m: float,
         yaw_options_deg: tuple[float, ...],
+        minimum_padding_m: float = 0.0,
     ) -> tuple[float, float, float]:
-        """Choose a collision-free TCP position and gripper yaw."""
+        """Shuffle positions and choose the first collision-free TCP pose."""
         if min(half_extent_x_m, half_extent_y_m) <= 0.0:
             raise ConfigurationError(
                 'As meias dimensões da garra devem ser positivas.'
@@ -859,6 +841,15 @@ class ManipulationServer(Node):
         if preferred_padding_m < 0.0:
             raise ConfigurationError(
                 'A margem preferencial deve ser maior ou igual a zero.'
+            )
+        if minimum_padding_m < 0.0:
+            raise ConfigurationError(
+                'A margem mínima deve ser maior ou igual a zero.'
+            )
+        if preferred_padding_m < minimum_padding_m:
+            raise ConfigurationError(
+                'A margem preferencial deve ser maior ou igual à margem '
+                'mínima.'
             )
         if not yaw_options_deg:
             raise ConfigurationError('Configure ao menos uma orientação da garra.')
@@ -926,9 +917,11 @@ class ManipulationServer(Node):
                 obstacle_yaw,
             )
 
-        paddings = (preferred_padding_m, 0.0)
+        shuffled_candidates = list(candidates)
+        random.shuffle(shuffled_candidates)
+        paddings = (preferred_padding_m, minimum_padding_m)
         for padding in dict.fromkeys(paddings):
-            for candidate_x, candidate_y in candidates:
+            for candidate_x, candidate_y in shuffled_candidates:
                 for yaw_deg in yaw_options_deg:
                     yaw = math.radians(yaw_deg)
                     if all(
@@ -941,7 +934,8 @@ class ManipulationServer(Node):
         raise NoFreeSpace(
             'Nenhuma pose da região de busca comporta a área da garra '
             f'({2.0 * half_extent_x_m:.3f} x '
-            f'{2.0 * half_extent_y_m:.3f} m) sem atingir os obstáculos; '
+            f'{2.0 * half_extent_y_m:.3f} m) com margem mínima de '
+            f'{minimum_padding_m:.3f} m sem atingir os obstáculos; '
             f'foram testados {len(candidates)} ponto(s) em '
             f'{len(yaw_options_deg)} orientação(ões).'
         )
@@ -1070,20 +1064,25 @@ class ManipulationServer(Node):
             if tag_id < 0:
                 raise ConfigurationError('object_tag_id não pode ser negativo.')
             height_cm = float(goal_handle.request.ws_height_cm)
-            profile = self._placement_profile('table', 'Depósito nominal na mesa')
+            profile = self._placement_profile('table', 'Depósito na mesa')
             calibration = (
-                profile.release_x_m,
-                profile.release_y_m,
-                profile.release_yaw_deg,
                 profile.tcp_release_offset_cm,
+                profile.free_space_preferred_yaw_deg,
+                profile.free_space_alternate_yaw_deg,
             )
             if any(value is None for value in calibration):
                 raise FeatureUnavailable(
-                    'Preencha release_x_m, release_y_m, release_yaw_deg e '
-                    'tcp_release_offset_cm no perfil table antes do depósito nominal.'
+                    'Preencha tcp_release_offset_cm, '
+                    'free_space_preferred_yaw_deg e '
+                    'free_space_alternate_yaw_deg no perfil table antes do '
+                    'depósito na mesa.'
                 )
-            release_x_m, release_y_m, release_yaw_deg, tcp_offset_cm = calibration
+            tcp_offset_cm, preferred_yaw_deg, alternate_yaw_deg = calibration
             candidates = self._table_search_candidates(profile)
+            yaw_options = (
+                float(preferred_yaw_deg),
+                float(alternate_yaw_deg),
+            )
             observation = self._profiles.pickup_profile(
                 'tabletop').observation_state
             self._feedback(
@@ -1138,33 +1137,30 @@ class ManipulationServer(Node):
                 # uncertainty expansion could make one image-edge container
                 # cover the entire reachable search region.
                 obstacles.append((x, y, depth, width, yaw, 0.0))
-            release_x_m, release_y_m, release_yaw_deg = (
+            selected_x_m, selected_y_m, selected_yaw_deg = (
                 self._select_free_table_position(
                     candidates,
                     obstacles,
                     float(profile.free_space_half_extent_x_m),
                     float(profile.free_space_half_extent_y_m),
                     float(profile.free_space_preferred_padding_m),
-                    (
-                        float(release_yaw_deg),
-                        float(release_yaw_deg) +
-                        float(profile.free_space_alternate_yaw_offset_deg),
-                    ),
+                    yaw_options,
+                    minimum_padding_m=float(profile.free_space_min_padding_m),
                 )
             )
             self._feedback(
                 goal_handle, PlaceOnTable, ManipulationFeedback.OBSERVING,
                 0.30,
-                f'Posição livre selecionada a partir da nominal: '
-                f'x={release_x_m:.3f}, y={release_y_m:.3f} m; '
-                f'yaw={release_yaw_deg:.1f}°; '
+                f'Posição livre selecionada: '
+                f'x={selected_x_m:.3f}, y={selected_y_m:.3f} m; '
+                f'yaw={selected_yaw_deg:.1f}°; '
                 f'{len(obstacles)} obstáculo(s) da cena',
             )
             release_pose = criar_pose(
-                float(release_x_m),
-                float(release_y_m),
+                float(selected_x_m),
+                float(selected_y_m),
                 (height_cm + float(tcp_offset_cm)) / 100.0,
-                float(release_yaw_deg),
+                float(selected_yaw_deg),
             )
             return self._release_at_pose(
                 goal_handle, PlaceOnTable, tag_id, release_pose, profile,

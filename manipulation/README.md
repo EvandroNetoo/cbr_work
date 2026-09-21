@@ -23,7 +23,7 @@ Situação atual dos depósitos:
 - `place_at_pose`: funcional, para calibração, testes e poses explícitas;
 - `stack`: lógica implementada e habilitada com o offset configurado no perfil;
 - `place_on_shelf`: lógica implementada, bloqueada até medir a pose no SRDF;
-- `place_on_table`: depósito nominal disponível após preencher X/Y/yaw/offset;
+- `place_on_table`: depósito disponível após preencher yaw, offset e região;
   análise de obstáculos por AprilTags disponível após calibrar a região de busca;
 - `place_in_container`: habilitado para soltar no centro do contêiner detectado
   da cor solicitada;
@@ -56,28 +56,28 @@ fechar a garra, o MoveIt planeja explicitamente o retorno primeiro para
 reprodução de trajetórias armazenadas.
 
 `place_on_table` sempre posiciona a câmera e solicita uma única sessão de
-`/vision/analyze_scene` com AprilTags e containers. A busca começa em
-`release_x_m/release_y_m`; a altura do TCP é calculada por
-`(ws_height_cm + tcp_release_offset_cm) / 100`. Os candidatos são ordenados pela
-distância até a pose nominal. Em cada candidato, a busca testa primeiro
-`release_yaw_deg` e depois esse ângulo somado a
-`free_space_alternate_yaw_offset_deg`. A área ocupada pela garra é um retângulo
+`/vision/analyze_scene` com AprilTags e containers. A grade nasce diretamente
+dos limites `search_x_min_m`, `search_x_max_m`, `search_y_min_m` e
+`search_y_max_m`, usando `search_step_m`; a altura do TCP é calculada por
+`(ws_height_cm + tcp_release_offset_cm) / 100`. Os candidatos válidos para o
+alcance são embaralhados antes da busca. Em cada candidato, a busca testa
+`free_space_preferred_yaw_deg` e depois `free_space_alternate_yaw_deg`. A área
+ocupada pela garra é um retângulo
 orientado, com meias dimensões `free_space_half_extent_x_m` e
 `free_space_half_extent_y_m`; os eixos desse retângulo giram junto com o yaw.
 Primeiro, `free_space_preferred_padding_m` é somado aos quatro lados. Se nenhum
-candidato passar, a busca tenta novamente sem essa margem adicional.
+candidato passar, a busca tenta novamente com `free_space_min_padding_m`, que
+nunca é removido e representa a folga obrigatória.
 As AprilTags, exceto a do objeto na garra, são testadas contra esse retângulo.
 O footprint externo de cada container é incluído como outro retângulo orientado
-pelas detecções. Para contornos
-cortados pela borda da imagem, a incerteza da pose estimada amplia a região
-proibida; o depósito na mesa continua buscando os demais candidatos.
+pelas detecções. Contornos completos e cortados pela borda da imagem usam o
+mesmo retângulo externo estimado durante a busca de espaço livre.
 A busca usa uma grade delimitada por `search_x_min_m`, `search_x_max_m`,
 `search_y_min_m` e `search_y_max_m`. Essa grade é recortada pela faixa circular
 centrada em `reach_center_x_m/reach_center_y_m`: pontos abaixo de
 `reach_min_radius_m` (CP) ou acima de `reach_max_radius_m` (CL) são descartados.
-Se nenhuma tag for detectada, o candidato alcançável mais próximo do nominal é
-usado; se nenhum candidato for livre, a action retorna `NO_FREE_SPACE` sem
-iniciar o depósito.
+Os candidatos alcançáveis são embaralhados antes dos testes; se nenhum candidato
+for livre, a action retorna `NO_FREE_SPACE` sem iniciar o depósito.
 
 `place_in_container` usa uma sessão do detector de contêineres, escolhe a única
 detecção da cor solicitada e solta o objeto no centro do contorno externo. O TCP

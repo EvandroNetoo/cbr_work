@@ -64,14 +64,13 @@ class PlacementProfile:
     reference_offset_xyz: tuple[float, float, float]
     yaw_offset_deg: float
     calibrated_reference: bool
-    release_x_m: float | None = None
-    release_y_m: float | None = None
-    release_yaw_deg: float | None = None
     tcp_release_offset_cm: float | None = None
     free_space_half_extent_x_m: float = 0.07
     free_space_half_extent_y_m: float = 0.04
+    free_space_min_padding_m: float = 0.0
     free_space_preferred_padding_m: float = 0.03
-    free_space_alternate_yaw_offset_deg: float = -90.0
+    free_space_preferred_yaw_deg: float | None = None
+    free_space_alternate_yaw_deg: float | None = None
     reach_center_x_m: float = 0.0
     reach_center_y_m: float = 0.0
     reach_min_radius_m: float | None = None
@@ -249,11 +248,11 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 'approach_height_m', 'retreat_height_m',
                 'reference_offset_xyz', 'yaw_offset_deg',
                 'calibrated_reference',
-                'release_x_m', 'release_y_m', 'release_yaw_deg',
                 'tcp_release_offset_cm',
                 'free_space_half_extent_x_m', 'free_space_half_extent_y_m',
-                'free_space_preferred_padding_m',
-                'free_space_alternate_yaw_offset_deg',
+                'free_space_min_padding_m', 'free_space_preferred_padding_m',
+                'free_space_preferred_yaw_deg',
+                'free_space_alternate_yaw_deg',
                 'reach_center_x_m', 'reach_center_y_m',
                 'reach_min_radius_m', 'reach_max_radius_m',
                 'search_x_min_m', 'search_x_max_m',
@@ -296,20 +295,6 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 raw.get('yaw_offset_deg', 90.0), f'placements.{name}.yaw_offset_deg'
             ),
             calibrated_reference=bool(raw.get('calibrated_reference', False)),
-            release_x_m=(
-                None if raw.get('release_x_m') is None
-                else _number(raw['release_x_m'], f'placements.{name}.release_x_m')
-            ),
-            release_y_m=(
-                None if raw.get('release_y_m') is None
-                else _number(raw['release_y_m'], f'placements.{name}.release_y_m')
-            ),
-            release_yaw_deg=(
-                None if raw.get('release_yaw_deg') is None
-                else _number(
-                    raw['release_yaw_deg'], f'placements.{name}.release_yaw_deg'
-                )
-            ),
             tcp_release_offset_cm=(
                 None if raw.get('tcp_release_offset_cm') is None
                 else _number(
@@ -327,13 +312,27 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 f'placements.{name}.free_space_half_extent_y_m',
                 positive=True,
             ),
+            free_space_min_padding_m=_number(
+                raw.get('free_space_min_padding_m', 0.0),
+                f'placements.{name}.free_space_min_padding_m',
+            ),
             free_space_preferred_padding_m=_number(
                 raw.get('free_space_preferred_padding_m', 0.03),
                 f'placements.{name}.free_space_preferred_padding_m',
             ),
-            free_space_alternate_yaw_offset_deg=_number(
-                raw.get('free_space_alternate_yaw_offset_deg', -90.0),
-                f'placements.{name}.free_space_alternate_yaw_offset_deg',
+            free_space_preferred_yaw_deg=(
+                None if raw.get('free_space_preferred_yaw_deg') is None
+                else _number(
+                    raw['free_space_preferred_yaw_deg'],
+                    f'placements.{name}.free_space_preferred_yaw_deg',
+                )
+            ),
+            free_space_alternate_yaw_deg=(
+                None if raw.get('free_space_alternate_yaw_deg') is None
+                else _number(
+                    raw['free_space_alternate_yaw_deg'],
+                    f'placements.{name}.free_space_alternate_yaw_deg',
+                )
             ),
             reach_center_x_m=_number(
                 raw.get('reach_center_x_m', 0.0),
@@ -403,6 +402,38 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
             raise ConfigurationError(
                 f'placements.{name}.free_space_preferred_padding_m deve ser '
                 'maior ou igual a zero.'
+            )
+        if profile.free_space_min_padding_m < 0.0:
+            raise ConfigurationError(
+                f'placements.{name}.free_space_min_padding_m deve ser maior '
+                'ou igual a zero.'
+            )
+        if (
+            profile.free_space_preferred_padding_m
+            < profile.free_space_min_padding_m
+        ):
+            raise ConfigurationError(
+                f'placements.{name}.free_space_preferred_padding_m deve ser '
+                'maior ou igual a free_space_min_padding_m.'
+            )
+        yaw_options = (
+            profile.free_space_preferred_yaw_deg,
+            profile.free_space_alternate_yaw_deg,
+        )
+        if (yaw_options[0] is None) != (yaw_options[1] is None):
+            raise ConfigurationError(
+                f'placements.{name}.free_space_preferred_yaw_deg e '
+                'free_space_alternate_yaw_deg devem ser configurados juntos.'
+            )
+        if (
+            yaw_options[0] is not None
+            and yaw_options[1] is not None
+            and abs((yaw_options[0] - yaw_options[1] + 180.0)
+                    % 360.0 - 180.0) <= 1e-9
+        ):
+            raise ConfigurationError(
+                f'placements.{name}.free_space_preferred_yaw_deg e '
+                'free_space_alternate_yaw_deg devem ser diferentes.'
             )
         reach_radii = (profile.reach_min_radius_m, profile.reach_max_radius_m)
         if (reach_radii[0] is None) != (reach_radii[1] is None):
