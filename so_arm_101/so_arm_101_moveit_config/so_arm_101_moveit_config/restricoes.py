@@ -89,6 +89,20 @@ def _criar_restricao_de_orientacao(
     return restricao
 
 
+def restricoes_de_deposito_em_container(posicao: PoseStamped) -> ListaDeRestricoes:
+    """Restringe posição do TCP e punho, deixando a orientação cartesiana livre."""
+    restricoes = Constraints()
+    restricoes.position_constraints.append(_criar_restricao_de_posicao(posicao))
+    punho = JointConstraint()
+    punho.joint_name = 'link4_to_link5'
+    punho.position = math.pi / 2.0
+    punho.tolerance_above = math.radians(5.0)
+    punho.tolerance_below = math.radians(5.0)
+    punho.weight = 1.0
+    restricoes.joint_constraints.append(punho)
+    return [restricoes]
+
+
 def restricoes_de_deposito_acima(posicao: PoseStamped) -> ListaDeRestricoes:
     """Restringe a posição e duas juntas durante a aproximação superior."""
     restricoes = Constraints()
