@@ -65,13 +65,13 @@ def test_scene_analysis_routes_modalities_by_operation():
         'PlaceInContainer.action', 'StackObject.action', 'PlaceOnShelf.action',
         'PlaceAtPose.action',
     ):
-        assert 'int32 object_tag_id' in (actions / name).read_text()
+        assert 'object_tag_id' not in (actions / name).read_text()
 
     prepare = (actions / 'PrepareManipulator.action').read_text()
     assert 'bool gripper_loaded' in prepare
 
     result = (SOURCE_ROOT / 'interfaces' / 'msg' / 'ManipulationResult.msg').read_text()
-    assert 'int32 object_tag_id' in result
+    assert 'object_tag_id' not in result
     assert 'bool effect_known' in result
     assert 'bool state_known' not in result
 

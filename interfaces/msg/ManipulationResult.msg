@@ -19,9 +19,6 @@ uint8 LOCATION_CARGO=3
 uint8 LOCATION_DESTINATION=4
 uint8 LOCATION_LOST=5
 
-# Object affected by the operation. EMPTY means that no object was identified.
-int32 EMPTY=-1
-int32 object_tag_id
 uint16 code
 uint8 final_object_location
 # False when the action cannot determine whether its physical load change completed.

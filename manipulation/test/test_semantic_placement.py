@@ -98,7 +98,7 @@ def test_common_release_reports_physical_effect_only_after_opening_gripper():
     server._transfer_state = lambda description: transfer_states.append(description)
 
     message, location, placed_pose = server._release_at_pose(
-        object(), PlaceOnTable, 5, _pose(), _cartesian_profile(), 'teste'
+        object(), PlaceOnTable, _pose(), _cartesian_profile(), 'teste'
     )
 
     assert server._effect_known is True
@@ -139,7 +139,7 @@ def test_container_release_restricts_position_and_wrist_then_returns_directly():
     server._transfer_state = lambda *_args: events.append('observation')
 
     _message, location, placed_pose = server._release_in_container(
-        object(), 5, _pose(), 'contêiner azul',
+        object(), _pose(), 'contêiner azul',
     )
 
     assert events == ['target', 'motion', 'open', 'observation']
@@ -174,14 +174,14 @@ def test_gripper_failure_reports_physical_effect_as_unknown():
 
     with pytest.raises(RuntimeError, match='falha'):
         server._release_at_pose(
-            object(), PlaceOnTable, 5, _pose(), _cartesian_profile(), 'teste'
+            object(), PlaceOnTable, _pose(), _cartesian_profile(), 'teste'
         )
 
     assert server._effect_known is False
     assert server._effect_location == ManipulationResult.LOCATION_LOST
 
 
-def _operation_only_server(tag_id=5):
+def _operation_only_server():
     server = ManipulationServer.__new__(ManipulationServer)
     server._feedback = lambda *args: None
     server._profiles = SimpleNamespace(
@@ -200,7 +200,7 @@ def _operation_only_server(tag_id=5):
         }
     )
 
-    def run(_action, _handle, _name, _tag_id, operation, **_kwargs):
+    def run(_action, _handle, _name, operation, **_kwargs):
         return operation()
 
     server._run = run
@@ -227,11 +227,10 @@ def test_table_deposit_always_uses_one_combined_scene_request():
 
     server._motion = SimpleNamespace(analisar_cena=analyze)
     server._release_at_pose = (
-        lambda _handle, _action, _object_id, pose, _profile, _destination:
+        lambda _handle, _action, pose, _profile, _destination:
         ('ok', 4, pose)
     )
     goal = PlaceOnTable.Goal()
-    goal.object_tag_id = 5
     goal.ws_height_cm = 12.5
     server._execute_place_on_table(SimpleNamespace(request=goal))
 
@@ -243,7 +242,6 @@ def test_table_requires_release_orientation_calibration_before_detection():
     server._profiles.placements['table'] = _search_profile(
         free_space_preferred_yaw_deg=None)
     goal = PlaceOnTable.Goal()
-    goal.object_tag_id = 5
     goal.ws_height_cm = -200.25
 
     with pytest.raises(FeatureUnavailable, match='preferred_yaw_deg'):
@@ -282,20 +280,17 @@ def test_table_empty_scene_uses_fixed_xy_and_height_plus_tcp_offset():
         analisar_cena=lambda *_args, **_kwargs: ([], []))
     captured = {}
 
-    def release(_handle, _action, object_id, pose, _profile, _destination):
-        captured['object_id'] = object_id
+    def release(_handle, _action, pose, _profile, _destination):
         captured['pose'] = pose
         return 'ok', 4, pose
 
     server._release_at_pose = release
     goal = PlaceOnTable.Goal()
-    goal.object_tag_id = 5
     goal.ws_height_cm = 12.5
 
     server._execute_place_on_table(SimpleNamespace(request=goal))
 
     pose = captured['pose']
-    assert captured['object_id'] == 5
     assert pose.pose.position.x == pytest.approx(0.21)
     assert pose.pose.position.y == pytest.approx(-0.20)
     assert pose.pose.position.z == pytest.approx(0.16)
@@ -435,7 +430,7 @@ def test_table_search_rotates_container_and_supports_clearance_uncertainty():
 
 
 def test_table_deposit_treats_partial_container_like_complete_obstacle():
-    server = _operation_only_server(tag_id=5)
+    server = _operation_only_server()
     server._profiles = SimpleNamespace(
         placements={'table': _search_profile()},
         pickup_profile=lambda _name: SimpleNamespace(
@@ -460,9 +455,8 @@ def test_table_deposit_treats_partial_container_like_complete_obstacle():
         return 0.0, -0.20, 0.0
 
     server._select_free_table_position = select
-    server._release_at_pose = lambda *_args: ('ok', 4, _args[3])
+    server._release_at_pose = lambda *_args: ('ok', 4, _args[2])
     goal = PlaceOnTable.Goal()
-    goal.object_tag_id = 5
     goal.ws_height_cm = 10.0
 
     server._execute_place_on_table(SimpleNamespace(request=goal))
@@ -479,10 +473,10 @@ def test_table_deposit_treats_partial_container_like_complete_obstacle():
     ])
 
 
-def test_table_apriltag_analysis_ignores_object_held_by_gripper(monkeypatch):
+def test_table_apriltag_analysis_treats_every_detection_as_obstacle(monkeypatch):
     monkeypatch.setattr(
         'manipulation.node.random.shuffle', lambda _candidates: None)
-    server = _operation_only_server(tag_id=5)
+    server = _operation_only_server()
     server._profiles = SimpleNamespace(
         placements={'table': _search_profile()},
         pickup_profile=lambda _name: SimpleNamespace(
@@ -496,22 +490,27 @@ def test_table_apriltag_analysis_ignores_object_held_by_gripper(monkeypatch):
     ))
     captured = {}
 
-    def release(_handle, _action, _object_id, pose, _profile, _destination):
+    def select(_candidates, obstacles, *_args, **_kwargs):
+        captured['obstacles'] = obstacles
+        return -0.10, -0.30, 0.0
+
+    def release(_handle, _action, pose, _profile, _destination):
         captured['pose'] = pose
         return 'ok', 4, pose
 
+    server._select_free_table_position = select
     server._release_at_pose = release
     goal = PlaceOnTable.Goal()
-    goal.object_tag_id = 5
     goal.ws_height_cm = 10.0
     server._execute_place_on_table(SimpleNamespace(request=goal))
 
+    assert captured['obstacles'] == pytest.approx([(0.0, -0.20)])
     assert captured['pose'].pose.position.x == pytest.approx(-0.10)
     assert captured['pose'].pose.position.y == pytest.approx(-0.30)
 
 
 def test_table_deposit_applies_alternate_yaw_selected_by_free_space_search():
-    server = _operation_only_server(tag_id=5)
+    server = _operation_only_server()
     server._profiles = SimpleNamespace(
         placements={'table': _search_profile(
             search_x_min_m=0.0,
@@ -530,13 +529,12 @@ def test_table_deposit_applies_alternate_yaw_selected_by_free_space_search():
     ))
     captured = {}
 
-    def release(_handle, _action, _object_id, pose, _profile, _destination):
+    def release(_handle, _action, pose, _profile, _destination):
         captured['pose'] = pose
         return 'ok', 4, pose
 
     server._release_at_pose = release
     goal = PlaceOnTable.Goal()
-    goal.object_tag_id = 5
     goal.ws_height_cm = 10.0
     server._execute_place_on_table(SimpleNamespace(request=goal))
 
@@ -548,7 +546,7 @@ def test_table_deposit_applies_alternate_yaw_selected_by_free_space_search():
 
 
 def test_table_deposit_tests_profile_yaw_preference_first():
-    server = _operation_only_server(tag_id=5)
+    server = _operation_only_server()
     server._profiles = SimpleNamespace(
         placements={'table': _search_profile(
             free_space_preferred_yaw_deg=-90.0,
@@ -573,9 +571,8 @@ def test_table_deposit_tests_profile_yaw_preference_first():
         return 0.0, -0.20, yaws[0]
 
     server._select_free_table_position = select
-    server._release_at_pose = lambda *_args: ('ok', 4, _args[3])
+    server._release_at_pose = lambda *_args: ('ok', 4, _args[2])
     goal = PlaceOnTable.Goal()
-    goal.object_tag_id = 5
     goal.ws_height_cm = 10.0
 
     server._execute_place_on_table(SimpleNamespace(request=goal))
@@ -588,7 +585,6 @@ def test_table_apriltag_analysis_requires_complete_search_bounds_before_motion()
     server._profiles.placements['table'] = _search_profile(search_x_min_m=None)
     server._arm_state = lambda *_args: pytest.fail('não deveria mover o braço')
     goal = PlaceOnTable.Goal()
-    goal.object_tag_id = 5
     goal.ws_height_cm = 10.0
     with pytest.raises(FeatureUnavailable, match='search_x_min_m'):
         server._execute_place_on_table(SimpleNamespace(request=goal))
@@ -597,7 +593,6 @@ def test_table_apriltag_analysis_requires_complete_search_bounds_before_motion()
 def test_container_rejects_color_outside_enum_before_detection():
     server = _operation_only_server()
     goal = PlaceInContainer.Goal()
-    goal.object_tag_id = 5
     goal.ws_height_cm = 10.0
     goal.container_color = 99
 
@@ -647,7 +642,6 @@ def _container_operation_server(detections):
 
 def _container_goal(color, height_cm=12.5):
     goal = PlaceInContainer.Goal()
-    goal.object_tag_id = 5
     goal.ws_height_cm = height_cm
     goal.container_color = color
     return SimpleNamespace(request=goal)
@@ -674,7 +668,7 @@ def test_container_release_height_uses_table_bin_and_offset(
     server._release_in_container = lambda *args: released.append(
         args
     ) or (
-        'ok', ManipulationResult.LOCATION_DESTINATION, args[2]
+        'ok', ManipulationResult.LOCATION_DESTINATION, args[1]
     )
 
     _message, _location, pose = server._execute_place_in_container(
@@ -688,7 +682,7 @@ def test_container_release_height_uses_table_bin_and_offset(
         height_cm / 100.0 + external_height_m + 0.07
     )
     assert pose.pose.orientation.w == pytest.approx(1.0)
-    assert len(released[0]) == 4
+    assert len(released[0]) == 3
 
 
 def test_partial_container_can_be_selected_as_deposit_target():
@@ -699,7 +693,7 @@ def test_partial_container_can_be_selected_as_deposit_target():
     server = _container_operation_server([target])
     feedback = []
     server._feedback = lambda *args: feedback.append(args[-1])
-    server._release_in_container = lambda *args: ('ok', 4, args[2])
+    server._release_in_container = lambda *args: ('ok', 4, args[1])
 
     _message, _location, pose = server._execute_place_in_container(
         _container_goal(PlaceInContainer.Goal.RED))

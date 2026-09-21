@@ -129,18 +129,18 @@ Armazenamento e retirada dos compartimentos calibrados:
 
 ```bash
 ros2 action send_goal manipulation/store interfaces/action/StoreObject \
-  "{object_tag_id: 5, slot_id: left}" --feedback
+  "{slot_id: left}" --feedback
 ros2 action send_goal manipulation/retrieve interfaces/action/RetrieveObject \
-  "{object_tag_id: 5, slot_id: left}" --feedback
+  "{slot_id: left}" --feedback
 ```
 
 Para o compartimento direito, use os mesmos comandos com `slot_id: right`:
 
 ```bash
 ros2 action send_goal manipulation/store interfaces/action/StoreObject \
-  "{object_tag_id: 5, slot_id: right}" --feedback
+  "{slot_id: right}" --feedback
 ros2 action send_goal manipulation/retrieve interfaces/action/RetrieveObject \
-  "{object_tag_id: 5, slot_id: right}" --feedback
+  "{slot_id: right}" --feedback
 ```
 
 Na retirada, `safe_state` é a pose segura de entrada e saída, enquanto
@@ -155,7 +155,7 @@ Depósito em uma pose explícita do TCP (`arm_base_link`):
 
 ```bash
 ros2 action send_goal manipulation/place_at_pose interfaces/action/PlaceAtPose \
-  "{object_tag_id: 5, release_pose: {header: {frame_id: arm_base_link}, pose: \
+  "{release_pose: {header: {frame_id: arm_base_link}, pose: \
     {position: {x: 0.20, y: 0.0, z: 0.10}, orientation: {w: 1.0}}}}" \
   --feedback
 ```
@@ -164,7 +164,7 @@ Interface para depósito automático em mesa:
 
 ```bash
 ros2 action send_goal manipulation/place_on_table interfaces/action/PlaceOnTable \
-  "{object_tag_id: 5, ws_height_cm: 12.5}" --feedback
+  "{ws_height_cm: 12.5}" --feedback
 ```
 
 Interface para depósito em contêiner:
@@ -172,21 +172,21 @@ Interface para depósito em contêiner:
 ```bash
 ros2 action send_goal manipulation/place_in_container \
   interfaces/action/PlaceInContainer \
-  "{object_tag_id: 5, ws_height_cm: 12.5, container_color: 1}" --feedback
+  "{ws_height_cm: 12.5, container_color: 1}" --feedback
 ```
 
 Empilhamento sobre o cubo cuja AprilTag é 5:
 
 ```bash
 ros2 action send_goal manipulation/stack interfaces/action/StackObject \
-  "{object_tag_id: 3, support_tag_id: 5}" --feedback
+  "{support_tag_id: 5}" --feedback
 ```
 
 Depósito na prateleira fixa:
 
 ```bash
 ros2 action send_goal manipulation/place_on_shelf interfaces/action/PlaceOnShelf \
-  "{object_tag_id: 5}" --feedback
+  "{}" --feedback
 ```
 
 O pacote não contém valores inventados para destinos ainda não medidos. Os

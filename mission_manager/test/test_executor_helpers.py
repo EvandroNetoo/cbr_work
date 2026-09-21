@@ -65,9 +65,8 @@ def _attach_world_state(manager):
     manager._publish_world_state = lambda: None
 
 
-def _pick_result(tag_id, code, message=''):
+def _pick_result(code, message=''):
     result = PickObject.Result()
-    result.outcome.object_tag_id = tag_id
     result.outcome.code = code
     result.outcome.message = message
     result.outcome.effect_known = True
@@ -261,7 +260,7 @@ def test_manipulation_validator_uses_semantic_outcome():
 def test_manager_commits_pick_only_from_confirmed_action_effect():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
-    result = _pick_result(5, ManipulationResult.SUCCESS)
+    result = _pick_result(ManipulationResult.SUCCESS)
 
     manager._reconcile_manipulation_result('pick', 5, '', result)
 
@@ -273,7 +272,7 @@ def test_manager_commits_pick_only_from_confirmed_action_effect():
 def test_manager_marks_world_unknown_when_action_effect_is_ambiguous():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
-    result = _pick_result(5, ManipulationResult.MOTION_FAILED, 'falha na garra')
+    result = _pick_result(ManipulationResult.MOTION_FAILED, 'falha na garra')
     result.outcome.effect_known = False
     result.outcome.final_object_location = ManipulationResult.LOCATION_LOST
 
@@ -287,7 +286,6 @@ def test_container_deposit_clears_gripper_only_after_confirmed_effect():
     _attach_world_state(manager)
     manager._world_state.commit_pick(5)
     result = PlaceInContainer.Result()
-    result.outcome.object_tag_id = 5
     result.outcome.code = ManipulationResult.MOTION_FAILED
     result.outcome.effect_known = True
     result.outcome.final_object_location = ManipulationResult.LOCATION_SOURCE
@@ -415,10 +413,10 @@ def test_pick_retries_after_one_recoverable_result():
     calls = []
     recoveries = []
 
-    failure = _pick_result(1, ManipulationResult.MOTION_FAILED, 'fora do alcance')
+    failure = _pick_result(ManipulationResult.MOTION_FAILED, 'fora do alcance')
     failure.has_detected_pose = True
     failure.recovery_reason = failure.RECOVERY_OUT_OF_REACH
-    success = _pick_result(1, ManipulationResult.SUCCESS)
+    success = _pick_result(ManipulationResult.SUCCESS)
 
     results = iter((failure, success))
 
@@ -592,7 +590,7 @@ def test_unknown_pick_skips_detection_at_last_observed_adjusted_position():
 
     def call_action(*_args, **_kwargs):
         action_positions.append(manager._current_lateral_position_mm)
-        result = _pick_result(2, ManipulationResult.SUCCESS)
+        result = _pick_result(ManipulationResult.SUCCESS)
         result.observed_detections = [_detection(2, 0.0, -0.22)]
         return result
 
@@ -643,7 +641,7 @@ def test_missing_tag_scans_every_position_once_and_then_fails():
     def call_action(*_args, **_kwargs):
         action_calls.append(True)
         return _pick_result(
-            9, ManipulationResult.OBJECT_NOT_FOUND, 'não encontrada'
+            ManipulationResult.OBJECT_NOT_FOUND, 'não encontrada'
         )
 
     def control_wall(distance, *_args, **kwargs):
@@ -695,9 +693,9 @@ def test_cached_pick_falls_back_to_original_observation_before_search():
         return True
 
     missing = _pick_result(
-        3, ManipulationResult.OBJECT_NOT_FOUND, 'não encontrada'
+        ManipulationResult.OBJECT_NOT_FOUND, 'não encontrada'
     )
-    success = _pick_result(3, ManipulationResult.SUCCESS)
+    success = _pick_result(ManipulationResult.SUCCESS)
     results = iter((missing, success))
     manager._move_to_table_position = move
     manager._call_action = lambda *_args, **_kwargs: next(results)
@@ -825,9 +823,6 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
 
     def call_action(client, goal, *_args, **_kwargs):
         calls.append((client, goal))
-        tag_id = int(
-            goal.tag_id if client is manager._pick_client else goal.object_tag_id
-        )
         locations = {
             manager._pick_client: ManipulationResult.LOCATION_GRIPPER,
             manager._store_client: ManipulationResult.LOCATION_CARGO,
@@ -842,7 +837,6 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
                 SUCCESS=0,
                 code=0,
                 message='ok',
-                object_tag_id=tag_id,
                 effect_known=True,
                 final_object_location=locations[client],
             ),
@@ -872,9 +866,7 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     assert calls[0][1].tag_id == 7
     assert calls[0][1].profile == ''
     assert calls[1][1].slot_id == 'left'
-    assert calls[1][1].object_tag_id == 7
     assert calls[2][1].slot_id == 'left'
-    assert calls[2][1].object_tag_id == 7
     assert calls[3][1].ws_height_cm == 12.5
     assert not hasattr(calls[3][1], 'analyze_apriltags')
     assert not hasattr(calls[3][1], 'analyze_containers')
@@ -883,5 +875,4 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     assert calls[7][1].ws_height_cm == 12.5
     assert calls[7][1].container_color == calls[7][1].RED
     assert calls[5][1].support_tag_id == 3
-    assert calls[5][1].object_tag_id == 9
     assert not hasattr(calls[5][1], 'ws_height_cm')

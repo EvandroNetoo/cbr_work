@@ -55,7 +55,7 @@ def test_pick_rejects_out_of_reach_tag_before_target_motion_or_retry():
 
     observed = []
 
-    def run(_action, _handle, _name, _tag_id, operation, **kwargs):
+    def run(_action, _handle, _name, operation, **kwargs):
         observed.append(kwargs['observed_detections'])
         return operation()
 
@@ -100,7 +100,7 @@ def test_pick_exposes_detected_pose_when_moveit_returns_99999():
         ),
         executar_objetivo=execute,
     )
-    server._run = lambda _action, _handle, _name, _tag_id, operation, **_kwargs: operation()
+    server._run = lambda _action, _handle, _name, operation, **_kwargs: operation()
     goal = PickObject.Goal()
     goal.tag_id = 1
     goal.profile = 'tabletop'

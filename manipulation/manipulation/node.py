@@ -69,9 +69,6 @@ from .errors import (
 from .profiles import load_profiles, PickupProfile, PlacementProfile, ProfileSet
 
 
-EMPTY = ManipulationResult.EMPTY
-
-
 _ERROR_CODES = {
     ConfigurationError: ManipulationResult.CONFIGURATION_ERROR,
     ObjectNotFound: ManipulationResult.OBJECT_NOT_FOUND,
@@ -90,7 +87,6 @@ class ManipulationServer(Node):
         super().__init__('manipulation_server')
         if (
             not hasattr(PickObject.Result(), 'observed_detections')
-            or not hasattr(StoreObject.Goal(), 'object_tag_id')
             or not hasattr(PrepareManipulator.Goal(), 'gripper_loaded')
             or not hasattr(ContainerStampedDetection(), 'external_height_m')
         ):
@@ -326,14 +322,12 @@ class ManipulationServer(Node):
         goal_handle: Any,
         code: int,
         message: str,
-        tag_id: int,
         final_location: int | None = None,
         placed_pose: Any | None = None,
         failure: Exception | None = None,
         observed_detections: list[Any] | None = None,
     ) -> Any:
         result = action_type.Result()
-        result.outcome.object_tag_id = int(tag_id)
         result.outcome.code = int(code)
         result.outcome.effect_known = getattr(self, '_effect_known', True)
         result.outcome.final_object_location = int(
@@ -366,7 +360,6 @@ class ManipulationServer(Node):
         action_type: Any,
         goal_handle: Any,
         operation_name: str,
-        tag_id: int,
         operation: Callable[[], tuple[str, int] | tuple[str, int, Any]],
         *,
         requires_moveit: bool = True,
@@ -390,14 +383,14 @@ class ManipulationServer(Node):
             placed_pose = outcome[2] if len(outcome) == 3 else None
             return self._make_result(
                 action_type, goal_handle, ManipulationResult.SUCCESS,
-                message, tag_id, location, placed_pose,
+                message, location, placed_pose,
                 observed_detections=observed_detections,
             )
         except OperacaoCancelada as error:
             self._cancel_event.clear()
             return self._make_result(
                 action_type, goal_handle, ManipulationResult.CANCELED,
-                f'{error} O braço foi mantido na posição em que parou.', tag_id,
+                f'{error} O braço foi mantido na posição em que parou.',
                 observed_detections=observed_detections,
             )
         except Exception as error:
@@ -413,7 +406,7 @@ class ManipulationServer(Node):
                 code = ManipulationResult.OBJECT_NOT_FOUND
             self.get_logger().error(f'{operation_name} falhou: {error}')
             return self._make_result(
-                action_type, goal_handle, code, str(error), tag_id,
+                action_type, goal_handle, code, str(error),
                 failure=error, observed_detections=observed_detections,
             )
         finally:
@@ -572,18 +565,14 @@ class ManipulationServer(Node):
             PickObject,
             goal_handle,
             'pick',
-            tag_id,
             operation,
             observed_detections=observed_detections,
         )
 
     def _execute_store(self, goal_handle: Any) -> StoreObject.Result:
         slot_id = str(goal_handle.request.slot_id)
-        tag_id = int(goal_handle.request.object_tag_id)
 
         def operation() -> tuple[str, int]:
-            if tag_id < 0:
-                raise ConfigurationError('object_tag_id não pode ser negativo.')
             slot = self._profiles.cargo_slots.get(slot_id)
             if slot is None:
                 raise ConfigurationError(f"Compartimento não configurado: '{slot_id}'.")
@@ -609,19 +598,16 @@ class ManipulationServer(Node):
                 'Retornando do compartimento para detect_apriltags'
             )
             return (
-                f"Objeto {tag_id} armazenado em '{slot_id}'.",
+                f"Objeto armazenado em '{slot_id}'.",
                 ManipulationResult.LOCATION_CARGO,
             )
 
-        return self._run(StoreObject, goal_handle, 'store', tag_id, operation)
+        return self._run(StoreObject, goal_handle, 'store', operation)
 
     def _execute_retrieve(self, goal_handle: Any) -> RetrieveObject.Result:
         slot_id = str(goal_handle.request.slot_id)
-        tag_id = int(goal_handle.request.object_tag_id)
 
         def operation() -> tuple[str, int]:
-            if tag_id < 0:
-                raise ConfigurationError('object_tag_id não pode ser negativo.')
             slot = self._profiles.cargo_slots.get(slot_id)
             if slot is None:
                 raise ConfigurationError(f"Compartimento não configurado: '{slot_id}'.")
@@ -662,11 +648,11 @@ class ManipulationServer(Node):
                 self._mark_effect_unknown()
                 raise
             return (
-                f"Objeto {tag_id} retirado de '{slot_id}'.",
+                f"Objeto retirado de '{slot_id}'.",
                 ManipulationResult.LOCATION_GRIPPER,
             )
 
-        return self._run(RetrieveObject, goal_handle, 'retrieve', tag_id, operation)
+        return self._run(RetrieveObject, goal_handle, 'retrieve', operation)
 
     @staticmethod
     def _validate_target_pose(pose) -> None:
@@ -955,7 +941,6 @@ class ManipulationServer(Node):
         self,
         goal_handle: Any,
         action_type: Any,
-        tag_id: int,
         release_pose: Any,
         profile: PlacementProfile,
         destination: str,
@@ -988,7 +973,7 @@ class ManipulationServer(Node):
         )
         self._return_after_placement()
         return (
-            f'Objeto {tag_id} depositado: {destination}.',
+            f'Objeto depositado: {destination}.',
             ManipulationResult.LOCATION_DESTINATION,
             release_pose,
         )
@@ -1011,7 +996,7 @@ class ManipulationServer(Node):
         self._transfer_state('Preparando detect_apriltags após o depósito')
 
     def _release_in_container(
-        self, goal_handle: Any, tag_id: int, release_pose: PoseStamped,
+        self, goal_handle: Any, release_pose: PoseStamped,
         destination: str,
     ) -> tuple[str, int, PoseStamped]:
         """Move straight to the target position, release and return."""
@@ -1029,7 +1014,7 @@ class ManipulationServer(Node):
         self._open_for_placement(goal_handle, PlaceInContainer, destination)
         self._return_after_placement()
         return (
-            f'Objeto {tag_id} depositado: {destination}.',
+            f'Objeto depositado: {destination}.',
             ManipulationResult.LOCATION_DESTINATION,
             release_pose,
         )
@@ -1064,11 +1049,7 @@ class ManipulationServer(Node):
         return pose
 
     def _execute_place_on_table(self, goal_handle: Any) -> PlaceOnTable.Result:
-        tag_id = int(goal_handle.request.object_tag_id)
-
         def operation() -> tuple[str, int, Any]:
-            if tag_id < 0:
-                raise ConfigurationError('object_tag_id não pode ser negativo.')
             height_cm = float(goal_handle.request.ws_height_cm)
             profile = self._placement_profile('table', 'Depósito na mesa')
             calibration = (
@@ -1114,8 +1095,6 @@ class ManipulationServer(Node):
                 raise PerceptionUnavailable(str(error)) from error
             obstacles: list[tuple[float, ...]] = []
             for detection in tag_detections:
-                if int(detection.id) == tag_id:
-                    continue
                 x = float(detection.pose.position.x)
                 y = float(detection.pose.position.y)
                 if not math.isfinite(x) or not math.isfinite(y):
@@ -1169,22 +1148,18 @@ class ManipulationServer(Node):
                 float(selected_yaw_deg),
             )
             return self._release_at_pose(
-                goal_handle, PlaceOnTable, tag_id, release_pose, profile,
+                goal_handle, PlaceOnTable, release_pose, profile,
                 f'mesa com altura de {height_cm:g} cm',
             )
 
         return self._run(
-            PlaceOnTable, goal_handle, 'place_on_table', tag_id, operation,
+            PlaceOnTable, goal_handle, 'place_on_table', operation,
         )
 
     def _execute_place_in_container(
         self, goal_handle: Any
     ) -> PlaceInContainer.Result:
-        tag_id = int(goal_handle.request.object_tag_id)
-
         def operation() -> tuple[str, int, Any]:
-            if tag_id < 0:
-                raise ConfigurationError('object_tag_id não pode ser negativo.')
             color = int(goal_handle.request.container_color)
             colors = {
                 PlaceInContainer.Goal.RED: 'vermelho',
@@ -1252,24 +1227,21 @@ class ManipulationServer(Node):
                     f'(incerteza XY {matches[0].position_uncertainty_m:.3f} m)',
                 )
             return self._release_in_container(
-                goal_handle, tag_id, release_pose,
+                goal_handle, release_pose,
                 f'contêiner {colors[color]}',
             )
 
         return self._run(
-            PlaceInContainer, goal_handle, 'place_in_container', tag_id, operation,
+            PlaceInContainer, goal_handle, 'place_in_container', operation,
         )
 
     def _execute_stack(self, goal_handle: Any) -> StackObject.Result:
-        tag_id = int(goal_handle.request.object_tag_id)
         support_tag_id = int(goal_handle.request.support_tag_id)
 
         def operation() -> tuple[str, int, Any]:
-            if tag_id < 0:
-                raise ConfigurationError('object_tag_id não pode ser negativo.')
-            if support_tag_id < 0 or support_tag_id == tag_id:
+            if support_tag_id < 0:
                 raise ConfigurationError(
-                    'support_tag_id deve identificar outro objeto não negativo.'
+                    'support_tag_id não pode ser negativo.'
                 )
             profile = self._placement_profile('stack', 'Empilhamento')
             if not profile.calibrated_reference:
@@ -1300,20 +1272,16 @@ class ManipulationServer(Node):
                 normalizar_angulo_de_pegada(yaw) + profile.yaw_offset_deg,
             )
             return self._release_at_pose(
-                goal_handle, StackObject, tag_id, release_pose, profile,
+                goal_handle, StackObject, release_pose, profile,
                 f'empilhamento sobre o objeto {support_tag_id}',
             )
 
-        return self._run(StackObject, goal_handle, 'stack', tag_id, operation)
+        return self._run(StackObject, goal_handle, 'stack', operation)
 
     def _execute_place_on_shelf(
         self, goal_handle: Any
     ) -> PlaceOnShelf.Result:
-        tag_id = int(goal_handle.request.object_tag_id)
-
         def operation() -> tuple[str, int]:
-            if tag_id < 0:
-                raise ConfigurationError('object_tag_id não pode ser negativo.')
             profile = self._placement_profile('shelf', 'Depósito na prateleira')
             if profile.strategy != 'named_state' or not profile.named_state:
                 raise FeatureUnavailable(
@@ -1336,30 +1304,26 @@ class ManipulationServer(Node):
             self._record_effect(ManipulationResult.LOCATION_DESTINATION)
             self._safe(False)
             return (
-                f'Objeto {tag_id} depositado na prateleira.',
+                'Objeto depositado na prateleira.',
                 ManipulationResult.LOCATION_DESTINATION,
             )
 
         return self._run(
-            PlaceOnShelf, goal_handle, 'place_on_shelf', tag_id, operation
+            PlaceOnShelf, goal_handle, 'place_on_shelf', operation
         )
 
     def _execute_place_at_pose(self, goal_handle: Any) -> PlaceAtPose.Result:
-        tag_id = int(goal_handle.request.object_tag_id)
-
         def operation() -> tuple[str, int, Any]:
-            if tag_id < 0:
-                raise ConfigurationError('object_tag_id não pode ser negativo.')
             release_pose = copy.deepcopy(goal_handle.request.release_pose)
             self._validate_target_pose(release_pose)
             profile = self._placement_profile('explicit_pose', 'Depósito em pose')
             return self._release_at_pose(
-                goal_handle, PlaceAtPose, tag_id, release_pose, profile,
+                goal_handle, PlaceAtPose, release_pose, profile,
                 'pose explícita',
             )
 
         return self._run(
-            PlaceAtPose, goal_handle, 'place_at_pose', tag_id, operation
+            PlaceAtPose, goal_handle, 'place_at_pose', operation
         )
 
     def _execute_prepare(self, goal_handle: Any) -> PrepareManipulator.Result:
@@ -1381,7 +1345,7 @@ class ManipulationServer(Node):
             return description, ManipulationResult.LOCATION_UNKNOWN
 
         return self._run(
-            PrepareManipulator, goal_handle, 'prepare', EMPTY, operation
+            PrepareManipulator, goal_handle, 'prepare', operation
         )
 
     def destroy_node(self):

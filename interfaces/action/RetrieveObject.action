@@ -1,4 +1,3 @@
-int32 object_tag_id
 string slot_id
 ---
 interfaces/ManipulationResult outcome

@@ -52,7 +52,6 @@ class MissionManager(Node):
         super().__init__('mission_manager')
         if (
             not hasattr(PickObject.Result(), 'observed_detections')
-            or not hasattr(StoreObject.Goal(), 'object_tag_id')
             or not hasattr(PrepareManipulator.Goal(), 'gripper_loaded')
         ):
             raise ConfigurationError(
@@ -358,14 +357,6 @@ class MissionManager(Node):
         if not bool(outcome.effect_known):
             self._mark_world_unknown()
             return
-        if int(outcome.object_tag_id) != int(tag_id):
-            self._mark_world_unknown()
-            raise StepFailed(
-                'Action de manipulação respondeu por um objeto diferente do '
-                f'solicitado: esperado {tag_id}, recebido '
-                f'{outcome.object_tag_id}.'
-            )
-
         expected_locations = {
             'pick': ManipulationResult.LOCATION_GRIPPER,
             'store': ManipulationResult.LOCATION_CARGO,
@@ -1058,7 +1049,6 @@ class MissionManager(Node):
                 slot_id = str(step.slot_id)
                 self._world_state.validate_store(tag_id, slot_id)
                 goal = StoreObject.Goal()
-                goal.object_tag_id = tag_id
                 goal.slot_id = slot_id
                 client = self._store_client
                 transition = 'store'
@@ -1067,7 +1057,6 @@ class MissionManager(Node):
                 tag_id = self._world_state.require_slot_object(slot_id)
                 self._world_state.validate_retrieve(tag_id, slot_id)
                 goal = RetrieveObject.Goal()
-                goal.object_tag_id = tag_id
                 goal.slot_id = slot_id
                 client = self._retrieve_client
                 transition = 'retrieve'
@@ -1078,12 +1067,10 @@ class MissionManager(Node):
                 transition = 'place'
                 if step.action == 'place_on_table':
                     goal = PlaceOnTable.Goal()
-                    goal.object_tag_id = tag_id
                     goal.ws_height_cm = float(area.height_cm)
                     client = self._place_table_client
                 elif step.action == 'place_in_container':
                     goal = PlaceInContainer.Goal()
-                    goal.object_tag_id = tag_id
                     goal.ws_height_cm = float(area.height_cm)
                     goal.container_color = (
                         PlaceInContainer.Goal.RED
@@ -1093,12 +1080,10 @@ class MissionManager(Node):
                     client = self._place_container_client
                 elif step.action == 'stack':
                     goal = StackObject.Goal()
-                    goal.object_tag_id = tag_id
                     goal.support_tag_id = int(step.support_tag_id)
                     client = self._stack_client
                 elif step.action == 'place_on_shelf':
                     goal = PlaceOnShelf.Goal()
-                    goal.object_tag_id = tag_id
                     client = self._place_shelf_client
                 else:
                     raise ConfigurationError(
