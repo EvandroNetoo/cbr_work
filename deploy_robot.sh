@@ -18,7 +18,7 @@ sync_sources() {
 
   # Do not preserve source mtimes: a changed CMakeLists.txt must be newer than
   # the remote CMake cache so newly registered ROS interfaces are regenerated.
-  rsync -av --no-times \
+  rsync -av \
     --delete \
     --exclude build \
     --exclude install \

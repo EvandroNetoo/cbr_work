@@ -20,6 +20,7 @@ GRUPO_GARRA: Final[str] = "gripper"
 # frame do braço mantém poses e yaw idênticos ao perfil standalone.
 REFERENCIAL_BASE: Final[str] = "arm_base_link"
 LINK_FIM_DA_GARRA: Final[str] = "gripper_tcp"
+LINK_TCP_PROXIMO: Final[str] = "gripper_tcp_near"
 
 OBJETO_X: Final[float] = -0.0
 OBJETO_Y: Final[float] = -0.25

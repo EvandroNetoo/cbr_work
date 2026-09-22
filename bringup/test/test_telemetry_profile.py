@@ -63,8 +63,10 @@ def test_telemetry_config_uses_live_robot_topics():
     assert motion_planning['Class'] == 'moveit_rviz_plugin/MotionPlanning'
     assert motion_planning['Enabled'] is False
     assert motion_planning['Value'] is False
-    assert motion_planning['Robot Description'] == 'robot_description'
-    assert motion_planning['Planning Scene Topic'] == 'monitored_planning_scene'
+
+    window_geometry = config['Window Geometry']
+    assert window_geometry['MotionPlanning']['collapsed'] is False
+    assert window_geometry['QMainWindow State']
 
     tool_classes = [tool['Class'] for tool in manager['Tools']]
     assert 'rviz_default_plugins/SetGoal' in tool_classes

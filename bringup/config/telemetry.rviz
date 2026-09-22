@@ -274,6 +274,20 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /containers/debug_image
       Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Debug table
+      Normalize Range: true
+      Topic:
+        Depth: 2
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /table_surface/debug_image
+      Value: true
     - Class: moveit_rviz_plugin/MotionPlanning
       Enabled: false
       Name: MotionPlanning
@@ -363,6 +377,9 @@ Window Geometry:
   Height: 900
   Hide Left Dock: false
   Hide Right Dock: false
+  MotionPlanning:
+    collapsed: false
+  QMainWindow State: 000000ff00000000fd00000001000000000000012c00000384fc0200000002fb000000100044006900730070006c0061007900730100000000000003840000001700fffffffb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e006700000001c5000001bf0000001700ffffff000004460000038400000004000000040000000800000008fc00000000
   Width: 1400
   X: 80
   Y: 40

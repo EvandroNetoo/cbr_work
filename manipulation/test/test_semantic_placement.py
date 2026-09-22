@@ -171,6 +171,7 @@ def test_container_release_restricts_position_and_wrist_then_returns_directly():
     assert len(motions) == 1
     assert targets == [placed_pose]
     constraints = motions[0][1][0]
+    assert constraints.position_constraints[0].link_name == 'gripper_tcp_near'
     assert constraints.orientation_constraints == []
     assert len(constraints.joint_constraints) == 1
     wrist = constraints.joint_constraints[0]
