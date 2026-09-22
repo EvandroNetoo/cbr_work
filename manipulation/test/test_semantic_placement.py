@@ -171,11 +171,13 @@ def test_container_release_restricts_position_and_wrist_then_returns_directly():
     assert len(motions) == 1
     assert targets == [placed_pose]
     constraints = motions[0][1][0]
+    assert motions[0][0] == 'arm_container'
+    assert constraints.position_constraints[0].link_name == 'gripper_tcp_near'
     assert constraints.orientation_constraints == []
     assert len(constraints.joint_constraints) == 1
     wrist = constraints.joint_constraints[0]
     assert wrist.joint_name == 'link4_to_link5'
-    assert wrist.position == pytest.approx(-math.pi / 2.0)
+    assert wrist.position == pytest.approx(math.pi / 2.0)
     assert wrist.tolerance_above == pytest.approx(math.radians(5.0))
     assert wrist.tolerance_below == pytest.approx(math.radians(5.0))
     assert location == ManipulationResult.LOCATION_DESTINATION

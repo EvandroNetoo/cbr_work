@@ -19,6 +19,11 @@ arm:
     - RRTConnect
   longest_valid_segment_fraction: 0.01
 
+arm_container:
+  planner_configs:
+    - RRTConnect
+  longest_valid_segment_fraction: 0.01
+
 gripper:
   planner_configs:
     - RRTConnect

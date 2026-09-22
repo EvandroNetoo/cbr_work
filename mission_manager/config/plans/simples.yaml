@@ -1,8 +1,11 @@
 schema_version: 1
-plan_id: cubos_1_2_3
-initial_location: ws_1
+plan_id: simples
 
+# Percorre as quatro workspaces e transporta todos os cubos da prova.
+# Contêineres de destino: azul e vermelho na WS 2, azul na WS 3 e vermelho
+# na WS 4. A WS 2 possui dois contêineres; o total da missão permanece quatro.
 steps:
+  # WS 1: coleta os cubos 1, 2 e 10.
   - id: depositar_cubo_1_no_container_azul_ws_2
     action: place_in_container
     container_color: blue

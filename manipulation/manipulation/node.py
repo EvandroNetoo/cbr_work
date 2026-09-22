@@ -37,6 +37,7 @@ from so_arm_101_moveit_config.configuracao import (
     ACELERACAO_MAXIMA_DA_GARRA,
     ESTADOS_DOS_GRUPOS,
     GRUPO_BRACO,
+    GRUPO_BRACO_CONTAINER,
     GRUPO_GARRA,
     REFERENCIAL_BASE,
     TOLERANCIA_DA_JUNTA_DA_GARRA,
@@ -1154,11 +1155,12 @@ class ManipulationServer(Node):
             goal_handle, PlaceInContainer, ManipulationFeedback.PREPARING,
             0.40, f'Movendo diretamente ao destino: {destination}',
         )
-        # Publish the exact TCP target used below.  The vision node projects
-        # this pose over its cached observation frame for physical diagnosis.
+        # Publish the exact gripper_tcp_near target used below. The vision node
+        # projects this pose over its cached observation frame for diagnosis.
         self.container_target_publisher.publish(release_pose)
         self._motion.executar_objetivo(
-            GRUPO_BRACO, restricoes_de_deposito_em_container(release_pose),
+            GRUPO_BRACO_CONTAINER,
+            restricoes_de_deposito_em_container(release_pose),
             VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
         )
         self._open_for_placement(goal_handle, PlaceInContainer, destination)

@@ -14,12 +14,14 @@ PosicoesJuntas: TypeAlias = Mapping[str, float]
 EstadosDeGrupo: TypeAlias = dict[str, dict[str, dict[str, float]]]
 
 GRUPO_BRACO: Final[str] = "arm"
+GRUPO_BRACO_CONTAINER: Final[str] = "arm_container"
 GRUPO_GARRA: Final[str] = "gripper"
 # Referencial cartesiano canônico do manipulador. No robô composto, base_link
 # pertence ao chassi e arm_base_link inclui o yaw físico do suporte; usar o
 # frame do braço mantém poses e yaw idênticos ao perfil standalone.
 REFERENCIAL_BASE: Final[str] = "arm_base_link"
 LINK_FIM_DA_GARRA: Final[str] = "gripper_tcp"
+LINK_TCP_PROXIMO: Final[str] = "gripper_tcp_near"
 
 OBJETO_X: Final[float] = -0.0
 OBJETO_Y: Final[float] = -0.25

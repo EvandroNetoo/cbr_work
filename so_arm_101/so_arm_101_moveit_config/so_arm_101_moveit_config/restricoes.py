@@ -15,6 +15,7 @@ from shape_msgs.msg import SolidPrimitive
 
 from .configuracao import (
     LINK_FIM_DA_GARRA,
+    LINK_TCP_PROXIMO,
     REFERENCIAL_BASE,
     PosicoesJuntas,
     TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
@@ -60,10 +61,13 @@ def criar_pose(x: float, y: float, z: float, angulo_em_graus: float) -> PoseStam
     return pose
 
 
-def _criar_restricao_de_posicao(posicao: PoseStamped) -> PositionConstraint:
+def _criar_restricao_de_posicao(
+    posicao: PoseStamped,
+    link_name: str = LINK_FIM_DA_GARRA,
+) -> PositionConstraint:
     restricao = PositionConstraint()
     restricao.header = posicao.header
-    restricao.link_name = LINK_FIM_DA_GARRA
+    restricao.link_name = link_name
 
     primitiva = SolidPrimitive()
     primitiva.type = SolidPrimitive.SPHERE
@@ -90,9 +94,11 @@ def _criar_restricao_de_orientacao(
 
 
 def restricoes_de_deposito_em_container(posicao: PoseStamped) -> ListaDeRestricoes:
-    """Restringe posição do TCP e punho, deixando a orientação cartesiana livre."""
+    """Restringe o TCP de depósito e o punho, deixando a orientação livre."""
     restricoes = Constraints()
-    restricoes.position_constraints.append(_criar_restricao_de_posicao(posicao))
+    restricoes.position_constraints.append(
+        _criar_restricao_de_posicao(posicao, LINK_TCP_PROXIMO)
+    )
     punho = JointConstraint()
     punho.joint_name = 'link4_to_link5'
     punho.position = math.pi / 2.0

@@ -7,6 +7,11 @@
     <chain base_link="$(arg arm_base_link_name)" tip_link="gripper_tcp"/>
   </group>
 
+  <!-- Mesmas juntas do braço, com o TCP de depósito como ponta da IK. -->
+  <group name="arm_container">
+    <chain base_link="$(arg arm_base_link_name)" tip_link="gripper_tcp_near"/>
+  </group>
+
   <!-- Both fingers belong to the gripper; left_clamp mimics right_clamp. -->
   <group name="gripper">
     <joint name="right_clamp"/>

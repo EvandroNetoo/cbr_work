@@ -15,7 +15,7 @@ URDF_PATH = os.path.join(
     'so_101.urdf.xacro')
 
 
-def test_srdf_matches_urdf_root_arm_chain_and_tcp():
+def test_srdf_matches_urdf_root_arm_chains_and_tcps():
     root = ET.parse(os.path.join(CONFIG_DIR, 'so_arm_101.srdf')).getroot()
     for element in root.iter():
         for key, value in element.attrib.items():
@@ -27,20 +27,30 @@ def test_srdf_matches_urdf_root_arm_chain_and_tcp():
         for key, value in element.attrib.items():
             element.attrib[key] = value.replace(
                 '${arm_base_link_name}', 'arm_base_link')
-    chain = root.find("group[@name='arm']/chain")
+    arm_chain = root.find("group[@name='arm']/chain")
+    container_chain = root.find("group[@name='arm_container']/chain")
     world_joint = urdf.find(".//joint[@name='world_to_base']")
     assert root.find('virtual_joint') is None
     assert world_joint.attrib['type'] == 'fixed'
     assert world_joint.find('parent').attrib['link'] == 'world'
     assert world_joint.find('child').attrib['link'] == 'arm_base_link'
-    assert chain.attrib == {
+    assert arm_chain.attrib == {
         'base_link': 'arm_base_link', 'tip_link': 'gripper_tcp'}
+    assert container_chain.attrib == {
+        'base_link': 'arm_base_link', 'tip_link': 'gripper_tcp_near'}
     tcp_joint = urdf.find(".//joint[@name='link5_to_gripper_tcp']")
     assert tcp_joint.attrib['type'] == 'fixed'
     assert tcp_joint.find('parent').attrib['link'] == 'link5_1'
     assert tcp_joint.find('child').attrib['link'] == 'gripper_tcp'
     assert tcp_joint.find('origin').attrib == {
-        'xyz': '0 -0.10 0', 'rpy': '0 0 0'}
+        'xyz': '0 -0.12 0', 'rpy': '0 0 0'}
+    near_tcp_joint = urdf.find(
+        ".//joint[@name='link5_to_gripper_tcp_near']")
+    assert near_tcp_joint.attrib['type'] == 'fixed'
+    assert near_tcp_joint.find('parent').attrib['link'] == 'link5_1'
+    assert near_tcp_joint.find('child').attrib['link'] == 'gripper_tcp_near'
+    assert near_tcp_joint.find('origin').attrib == {
+        'xyz': '0 -0.07 0', 'rpy': '0 0 0'}
 
 
 def test_moveit_controllers_match_ros2_control():
@@ -68,11 +78,19 @@ def test_all_arm_joints_have_acceleration_overrides():
         assert limits[name]['max_acceleration'] > 0.0
 
 
-def test_kinematics_uses_position_only_kdl_for_five_dof_arm():
+def test_kinematics_uses_position_only_kdl_for_both_arm_tcps():
     data = yaml.safe_load(open(os.path.join(CONFIG_DIR, 'kinematics.yaml')))
-    assert data['arm']['kinematics_solver'] == (
-        'kdl_kinematics_plugin/KDLKinematicsPlugin')
-    assert data['arm']['position_only_ik'] is True
+    for group in ('arm', 'arm_container'):
+        assert data[group]['kinematics_solver'] == (
+            'kdl_kinematics_plugin/KDLKinematicsPlugin')
+        assert data[group]['position_only_ik'] is True
+
+
+def test_ompl_configures_both_arm_tcp_groups():
+    data = yaml.safe_load(open(os.path.join(CONFIG_DIR, 'ompl_planning.yaml')))
+    for group in ('arm', 'arm_container'):
+        assert data[group]['planner_configs'] == ['RRTConnect']
+        assert data[group]['longest_valid_segment_fraction'] == 0.01
 
 
 def test_gripper_named_states_match_visual_motion():
