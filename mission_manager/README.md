@@ -103,7 +103,7 @@ robô retorna uma vez ao ponto original onde ela foi observada e repete a
 detecção. Se ainda não encontrá-la, ou se a tag nunca foi observada na área
 atual, o robô visita a posição de busca ainda não observada mais próxima. As
 posições são coordenadas absolutas em milímetros, configuradas em
-`pickup_recovery.search_positions_mm`; o padrão da arena é `[0, 250, -250]`.
+`pickup_recovery.search_positions_mm`; o padrão da arena é `[0, 325, -325]`.
 Todas as posições de busca precisam estar dentro dos limites laterais.
 Cada destino é marcado como tentado depois que o movimento termina, inclusive
 quando `FollowWall` é interrompida por uma proteção tolerada. Assim, a busca
@@ -115,6 +115,24 @@ não apareceu na última análise e a base continua na mesma posição, essa an�
 não é repetida: o robô segue diretamente para o ponto de busca não examinado
 mais próximo. Um ponto fixo só é marcado como examinado quando a distância da
 parede também corresponde à distância de observação da área.
+
+## Recuperação de depósito
+
+Os passos `place_on_table` e `place_in_container` também usam as posições de
+busca de `pickup_recovery.search_positions_mm`. Se a visão não encontrar espaço
+livre ou o contêiner solicitado, ou se a manipulação falhar antes de abrir a
+garra, o mission manager mantém o objeto na garra, move a base para a posição
+ainda não examinada mais próxima e repete a action semântica. Cada passo de
+depósito possui seu próprio conjunto de posições visitadas, independente da
+memória usada pelas coletas.
+
+Depois de examinar todas as posições configuradas, o gerenciador usa
+`PlaceAtPose` com a pose de soltura padrão no referencial `arm_base_link`:
+`x=0`, `y=-0,20` e `z=altura da mesa`. Se uma action confirmar que a garra já
+foi aberta no destino e falhar somente no recuo ou no retorno do braço, o efeito
+é aceito e o fluxo normal continua sem tentar depositar o mesmo objeto outra
+vez. Resultado com efeito físico incerto continua interrompendo a missão por
+segurança.
 
 ## Execução
 
