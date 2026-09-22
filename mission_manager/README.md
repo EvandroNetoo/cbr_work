@@ -145,6 +145,15 @@ ros2 action send_goal /mission/execute interfaces/action/ExecuteMission \
   "{plan_id: example_transport}" --feedback
 ```
 
+Para executar o plano que percorre as quatro workspaces, transporta os cubos
+`1` a `6` e `10` a `13`, usa dois contêineres azuis e dois vermelhos e forma
+pilhas nas workspaces de destino:
+
+```bash
+ros2 action send_goal /mission/execute interfaces/action/ExecuteMission \
+  "{plan_id: transportar_container_empilhar}" --feedback
+```
+
 Somente uma missão é aceita por vez. Qualquer passo que falhar encerra a missão,
 e o cancelamento é propagado para o goal filho ativo.
 

@@ -1,0 +1,152 @@
+schema_version: 1
+plan_id: transportar_container_empilhar
+
+# Percorre as quatro workspaces e transporta todos os cubos da prova.
+# Contêineres de destino: azul e vermelho na WS 2, azul na WS 3 e vermelho
+# na WS 4. A WS 2 possui dois contêineres; o total da missão permanece quatro.
+steps:
+  # WS 1: coleta os cubos 1, 2 e 10.
+  - id: navegar_para_ws_1
+    action: navigate
+    target: ws_1
+
+  - id: pegar_cubo_1
+    action: pick
+    tag_id: 1
+
+  - id: guardar_cubo_1_na_esquerda
+    action: store
+    slot_id: left
+
+  - id: pegar_cubo_2
+    action: pick
+    tag_id: 2
+
+  - id: guardar_cubo_2_na_direita
+    action: store
+    slot_id: right
+
+  - id: pegar_cubo_10
+    action: pick
+    tag_id: 10
+
+  # WS 2: usa os dois contêineres, um azul e um vermelho.
+  - id: transportar_primeiro_lote_para_ws_2
+    action: navigate
+    target: ws_2
+
+  - id: depositar_cubo_10_no_container_azul_ws_2
+    action: place_in_container
+    container_color: blue
+
+  - id: retirar_cubo_1_da_esquerda
+    action: retrieve
+    slot_id: left
+
+  - id: depositar_cubo_1_no_container_vermelho_ws_2
+    action: place_in_container
+    container_color: red
+
+  - id: retirar_cubo_2_da_direita
+    action: retrieve
+    slot_id: right
+
+  - id: colocar_cubo_2_como_base_na_ws_2
+    action: place_on_table
+
+  # Ainda na WS 2: empilha o cubo 3 e coleta os cubos 4 e 5.
+  # - id: pegar_cubo_3
+  #   action: pick
+  #   tag_id: 3
+
+  # - id: empilhar_cubo_3_sobre_cubo_2
+  #   action: stack
+  #   support_tag_id: 2
+
+  - id: pegar_cubo_4
+    action: pick
+    tag_id: 4
+
+  - id: guardar_cubo_4_na_esquerda
+    action: store
+    slot_id: left
+
+  - id: pegar_cubo_5
+    action: pick
+    tag_id: 5
+
+  # WS 3: cubo 5 no contêiner azul e cubo 4 depositado na mesa.
+  - id: transportar_segundo_lote_para_ws_3
+    action: navigate
+    target: ws_3
+
+  - id: depositar_cubo_5_no_container_azul_ws_3
+    action: place_in_container
+    container_color: blue
+
+  - id: retirar_cubo_4_da_esquerda
+    action: retrieve
+    slot_id: left
+
+  - id: colocar_cubo_4_na_ws_3
+    action: place_on_table
+
+  # Ainda na WS 3: coleta os cubos 6, 11 e 12.
+  - id: pegar_cubo_6
+    action: pick
+    tag_id: 6
+
+  - id: guardar_cubo_6_na_esquerda
+    action: store
+    slot_id: left
+
+  # - id: pegar_cubo_11
+  #   action: pick
+  #   tag_id: 11
+
+  # - id: guardar_cubo_11_na_direita
+  #   action: store
+  #   slot_id: right
+
+  - id: pegar_cubo_12
+    action: pick
+    tag_id: 12
+
+  # WS 4: cubo 12 no contêiner vermelho; cubo 11 empilhado sobre o cubo 6.
+  - id: transportar_terceiro_lote_para_ws_4
+    action: navigate
+    target: ws_4
+
+  - id: depositar_cubo_12_no_container_vermelho_ws_4
+    action: place_in_container
+    container_color: red
+
+  - id: retirar_cubo_6_da_esquerda
+    action: retrieve
+    slot_id: left
+
+  - id: colocar_cubo_6_como_base_na_ws_4
+    action: place_on_table
+
+  # - id: retirar_cubo_11_da_direita
+  #   action: retrieve
+  #   slot_id: right
+
+  # - id: empilhar_cubo_11_sobre_cubo_6
+  #   action: stack
+  #   support_tag_id: 6
+
+  # Coleta o último cubo na WS 4 e fecha o ciclo na WS 1 sem contêiner.
+  - id: pegar_cubo_13
+    action: pick
+    tag_id: 13
+
+  - id: transportar_cubo_13_para_ws_1
+    action: navigate
+    target: ws_1
+
+  - id: depositar_cubo_13_na_mesa_ws_1
+    action: place_on_table
+
+  - id: finalizar_missao
+    action: finish

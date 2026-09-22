@@ -3,10 +3,10 @@
 set -e
 
 # BANANA="banana@172.20.10.8"
-BANANA="banana@10.23.247.44"
+BANANA="banana@10.214.167.44"
 # BANANA="banana@192.168.1.216"
 
-RASPBERRY="rasp@10.23.247.248"
+RASPBERRY="rasp@10.214.167.248"
 # RASPBERRY="rasp@10.12.217.248"
 # RASPBERRY="rasp@192.168.1.114"
 

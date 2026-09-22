@@ -41,8 +41,8 @@ placements:
     reach_center_y_m: 0.0
     reach_min_radius_m: 0.155
     reach_max_radius_m: 0.28
-    search_x_min_m: -0.16
-    search_x_max_m: 0.16
+    search_x_min_m: -0.10
+    search_x_max_m: 0.10
     search_y_min_m: -0.24
     search_y_max_m: -0.14
     search_step_m: 0.01

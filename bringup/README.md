@@ -236,11 +236,14 @@ New-NetFirewallHyperVRule `
   -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' `
   -Protocol UDP `
   -LocalPorts '9900-10039' `
-  -RemoteAddresses '192.168.1.216','192.168.1.114'
+  -RemoteAddresses 'Any'
 ```
 
-Atualize também a regra se os IPs das placas mudarem. Se ainda não houver
-tópicos, verifique se o hotspot permite multicast entre clientes. O modo
+`RemoteAddresses Any` mantém a regra válida quando o DHCP ou a rede Wi-Fi muda,
+mas permite tráfego destinado a essas portas a partir de qualquer endereço
+alcançável. As portas continuam limitadas ao intervalo DDS do domínio 10 e ao
+WSL pelo `VMCreatorId`. Se ainda não houver tópicos, verifique se o hotspot
+permite multicast entre clientes. O modo
 espelhado depende da versão do Windows; no Windows 10, usar um Ubuntu nativo
 na rede do robô é o caminho mais simples para a comunicação DDS.
 
