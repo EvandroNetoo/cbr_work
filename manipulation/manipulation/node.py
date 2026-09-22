@@ -1154,8 +1154,8 @@ class ManipulationServer(Node):
             goal_handle, PlaceInContainer, ManipulationFeedback.PREPARING,
             0.40, f'Movendo diretamente ao destino: {destination}',
         )
-        # Publish the exact gripper_tcp_near target used below. The vision node
-        # projects this pose over its cached observation frame for diagnosis.
+        # Publish the exact TCP target used below.  The vision node projects
+        # this pose over its cached observation frame for physical diagnosis.
         self.container_target_publisher.publish(release_pose)
         self._motion.executar_objetivo(
             GRUPO_BRACO, restricoes_de_deposito_em_container(release_pose),
