@@ -1,0 +1,5 @@
+tratar caso trenha dois containers da mesma container
+criar mapa occupancy grid no mapa para fita e mesa de 5cm
+nao bater na parede do lado ao guardar cubo
+se o chao for branco e o robo tiver do lado da mesa, ele pode depositar o cubo fora da mesa
+na hora qeu ele esta procurando um container para depositar, ele pode analisar as april tags ao mesmo tempo e salvar a localização deles para depois, caso precise pegar o cubo, ele sabe onde esta
