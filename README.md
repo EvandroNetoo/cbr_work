@@ -57,16 +57,21 @@ source "$(ros2 pkg prefix --share bringup)/scripts/dds_environment.bash" rasp
 ros2 launch bringup processing.launch.py
 ```
 
-Visão, navegação, manipulação e missão ficam habilitadas por padrão. Cada
-módulo pode ser desligado independentemente:
+Todos os componentes ficam habilitados por padrão. É possível retirar uma
+lista do perfil completo ou iniciar somente uma lista positiva:
 
 ```bash
-ros2 launch bringup processing.launch.py \
-  enable_vision:=false \
-  enable_navigation:=false \
-  enable_manipulation:=false \
-  enable_mission:=false
+# Raspberry: tudo menos missão
+ros2 launch bringup processing.launch.py disable_components:=mission
+
+# Notebook: somente missão
+ros2 launch bringup processing.launch.py components:=mission
 ```
+
+Os nomes disponíveis são `rsp`, `ekf`, `camera`, `vision`, `localization`,
+`navigation`, `manipulation` e `mission`. Separe vários nomes por vírgulas.
+Os argumentos `enable_vision`, `enable_navigation`, `enable_manipulation` e
+`enable_mission` permanecem disponíveis para compatibilidade.
 
 A localização usa `arena` por padrão. Para trocar o mapa, informe somente o
 nome instalado, sem diretório e sem `.yaml`:

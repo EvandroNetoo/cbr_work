@@ -3,6 +3,8 @@
 import importlib.util
 from pathlib import Path
 
+from launch import LaunchContext
+
 
 PACKAGE_ROOT = Path(__file__).parents[1]
 LAUNCH_DIR = PACKAGE_ROOT / 'launch'
@@ -47,7 +49,7 @@ def test_processing_profile_exposes_independent_full_autonomy_flags():
 
     for feature in ('vision', 'navigation', 'manipulation', 'mission'):
         assert f"'enable_{feature}', default_value='true'" in source
-        assert f"_enabled(context, 'enable_{feature}')" in source
+        assert f"'enable_{feature}':" in source
 
     assert "'map', default_value='arena'" in source
     assert "'camera_framerate', default_value='15.0'" in source
@@ -58,6 +60,54 @@ def test_processing_profile_exposes_independent_full_autonomy_flags():
     assert "'config', 'amcl_localization.yaml'" in source
     assert "'nav2_navigation_light.yaml'" in source
     assert source.count('GroupAction(scoped=True') == 2
+
+
+def test_processing_component_lists_default_to_everything_and_can_be_filtered(
+        monkeypatch, tmp_path):
+    module = _load_processing_module()
+    monkeypatch.setenv('ROS_LOG_DIR', str(tmp_path))
+    context = LaunchContext()
+    context.launch_configurations.update({
+        'components': 'all',
+        'disable_components': 'mission',
+        'enable_vision': 'true',
+        'enable_navigation': 'true',
+        'enable_manipulation': 'true',
+        'enable_mission': 'true',
+    })
+
+    selected = module._selected_components(context)
+
+    assert selected == set(module.COMPONENTS) - {'mission'}
+
+
+def test_processing_component_allow_list_starts_only_requested_items(
+        monkeypatch, tmp_path):
+    module = _load_processing_module()
+    monkeypatch.setenv('ROS_LOG_DIR', str(tmp_path))
+    context = LaunchContext()
+    context.launch_configurations.update({
+        'components': 'mission',
+        'disable_components': '',
+        'enable_vision': 'true',
+        'enable_navigation': 'true',
+        'enable_manipulation': 'true',
+        'enable_mission': 'true',
+    })
+
+    assert module._selected_components(context) == {'mission'}
+
+
+def test_processing_component_lists_reject_unknown_names():
+    module = _load_processing_module()
+
+    try:
+        module._parse_components('mission,typo', 'components')
+    except RuntimeError as error:
+        assert 'typo' in str(error)
+        assert 'Disponíveis' in str(error)
+    else:
+        raise AssertionError('Componente desconhecido foi aceito.')
 
 
 def test_hardware_description_publisher_is_transient_local_and_has_no_tf():

@@ -26,19 +26,37 @@ O mapa padrão é `arena`. A troca usa somente o nome instalado:
 ros2 launch bringup processing.launch.py map:=arena_nova3
 ```
 
-Os quatro grupos opcionais são independentes e ficam ativos por padrão:
+Sem argumentos, todos os componentes de processamento ficam ativos. Para
+retirar somente alguns deles, use `disable_components`:
 
 ```bash
-ros2 launch bringup processing.launch.py \
-  enable_vision:=false \
-  enable_navigation:=false \
-  enable_manipulation:=false \
-  enable_mission:=false
+# Raspberry Pi: tudo, menos a missão
+ros2 launch bringup processing.launch.py disable_components:=mission
+
+# Notebook: somente a missão
+ros2 launch bringup processing.launch.py components:=mission
 ```
 
-`enable_navigation` controla conjuntamente map server, AMCL e Nav2. O EKF e o
-`robot_state_publisher` permanecem sempre ativos no perfil de processamento.
-Quando `enable_manipulation` está ativo, MoveIt e o servidor semântico só são
+As listas aceitam `rsp`, `ekf`, `camera`, `vision`, `localization`, `navigation`,
+`manipulation` e `mission`, separados por vírgulas. `components` é a lista do
+que pode iniciar e seu padrão é `all`; `disable_components` é removido dela.
+Assim, cada componente deve aparecer em apenas uma máquina. Por exemplo, para
+manter a câmera física no Raspberry e executar sua análise no notebook:
+
+```bash
+# Raspberry Pi
+ros2 launch bringup processing.launch.py \
+  disable_components:=vision,mission
+
+# Notebook
+ros2 launch bringup processing.launch.py components:=vision,mission
+```
+
+Os argumentos antigos `enable_vision`, `enable_navigation`,
+`enable_manipulation` e `enable_mission` continuam aceitos como filtros de
+compatibilidade. `enable_navigation:=false` retira conjuntamente map server,
+AMCL e Nav2; `enable_vision:=false` retira câmera e análise de visão.
+Quando `manipulation` está selecionado, MoveIt e o servidor semântico só são
 iniciados depois que os controllers remotos do braço respondem como ativos.
 
 O perfil distribuído usa câmera a 15 FPS, detector AprilTag limitado a 10 Hz e

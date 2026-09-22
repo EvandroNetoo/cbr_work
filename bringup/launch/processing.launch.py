@@ -21,8 +21,67 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
+COMPONENTS = (
+    'rsp',
+    'ekf',
+    'camera',
+    'vision',
+    'localization',
+    'navigation',
+    'manipulation',
+    'mission',
+)
+
+
 def _enabled(context, name):
     return LaunchConfiguration(name).perform(context).lower() == 'true'
+
+
+def _parse_components(value, argument_name, *, empty_means_all=False):
+    """Parse a comma-separated component allow/deny list."""
+    tokens = [token.strip().lower() for token in value.split(',') if token.strip()]
+    if not tokens:
+        return set(COMPONENTS) if empty_means_all else set()
+    if 'all' in tokens:
+        if len(tokens) != 1:
+            raise RuntimeError(
+                f"'{argument_name}:=all' não pode ser combinado com outros "
+                'componentes.')
+        return set(COMPONENTS)
+
+    unknown = sorted(set(tokens) - set(COMPONENTS))
+    if unknown:
+        available = ', '.join(COMPONENTS)
+        raise RuntimeError(
+            f"Componente(s) desconhecido(s) em '{argument_name}': "
+            f"{', '.join(unknown)}. Disponíveis: {available}.")
+    return set(tokens)
+
+
+def _selected_components(context):
+    selected = _parse_components(
+        LaunchConfiguration('components').perform(context),
+        'components',
+        empty_means_all=True,
+    )
+    disabled = _parse_components(
+        LaunchConfiguration('disable_components').perform(context),
+        'disable_components',
+    )
+    selected -= disabled
+
+    # Backwards-compatible filters. They never add a component to an explicit
+    # allow-list; they only preserve the old enable_*:=false behaviour.
+    legacy_groups = {
+        'enable_vision': {'camera', 'vision'},
+        'enable_navigation': {'localization', 'navigation'},
+        'enable_manipulation': {'manipulation'},
+        'enable_mission': {'mission'},
+    }
+    for argument, group in legacy_groups.items():
+        if not _enabled(context, argument):
+            selected -= group
+    return selected
 
 
 def _resolve_map_file(map_name, maps_directory=None):
@@ -49,7 +108,8 @@ def _shutdown(reason):
 
 
 def _launch_setup(context):
-    manipulation_enabled = _enabled(context, 'enable_manipulation')
+    selected = _selected_components(context)
+    manipulation_enabled = 'manipulation' in selected
     moveit_config = None
     move_group_entities = []
     if manipulation_enabled:
@@ -62,69 +122,68 @@ def _launch_setup(context):
         moveit_config = get_combined_moveit_config()
         move_group_entities = generate_move_group_launch(moveit_config).entities
 
-    if moveit_config is None:
-        robot_description = ParameterValue(Command([
-            'xacro ', PathJoinSubstitution([
-                FindPackageShare('robot_description'), 'urdf',
-                'robot.urdf.xacro']),
-        ]), value_type=str)
-        rsp_parameters = [
-            {'robot_description': robot_description, 'use_sim_time': False},
-        ]
-    else:
-        rsp_parameters = [
-            moveit_config.robot_description,
-            {'use_sim_time': False},
-        ]
+    actions = []
 
-    rsp = Node(
-        package='robot_state_publisher', executable='robot_state_publisher',
-        parameters=rsp_parameters, output='screen')
-    ekf = Node(
-        package='robot_localization', executable='ekf_node',
-        name='ekf_filter_node', output='screen',
-        parameters=[PathJoinSubstitution([
-            FindPackageShare('imu'), 'config', 'ekf.yaml'])],
-        remappings=[('odometry/filtered', '/odom')])
-    actions = [
-        rsp,
-        ekf,
-        RegisterEventHandler(OnProcessExit(
-            target_action=ekf,
-            on_exit=[EmitEvent(event=Shutdown(
-                reason='O filtro de odometria encerrou.'))])),
-    ]
+    if 'rsp' in selected:
+        if moveit_config is None:
+            robot_description = ParameterValue(Command([
+                'xacro ', PathJoinSubstitution([
+                    FindPackageShare('robot_description'), 'urdf',
+                    'robot.urdf.xacro']),
+            ]), value_type=str)
+            rsp_parameters = [
+                {'robot_description': robot_description, 'use_sim_time': False},
+            ]
+        else:
+            rsp_parameters = [
+                moveit_config.robot_description,
+                {'use_sim_time': False},
+            ]
+        actions.append(Node(
+            package='robot_state_publisher', executable='robot_state_publisher',
+            parameters=rsp_parameters, output='screen'))
 
-    if _enabled(context, 'enable_vision'):
+    if 'ekf' in selected:
+        ekf = Node(
+            package='robot_localization', executable='ekf_node',
+            name='ekf_filter_node', output='screen',
+            parameters=[PathJoinSubstitution([
+                FindPackageShare('imu'), 'config', 'ekf.yaml'])],
+            remappings=[('odometry/filtered', '/odom')])
         actions.extend([
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(PathJoinSubstitution([
-                    FindPackageShare('camera'), 'launch', 'camera.launch.py'])),
-                launch_arguments={
-                    'rectify': 'true',
-                    'framerate': LaunchConfiguration('camera_framerate'),
-                }.items()),
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(PathJoinSubstitution([
-                    FindPackageShare('vision'), 'launch',
-                    'vision.launch.py'])),
-                launch_arguments={
-                    'image_topic': LaunchConfiguration('image_topic'),
-                    'camera_info_topic': LaunchConfiguration('camera_info_topic'),
-                    'base_frame': LaunchConfiguration('base_frame'),
-                }.items()),
+            ekf,
+            RegisterEventHandler(OnProcessExit(
+                target_action=ekf,
+                on_exit=[EmitEvent(event=Shutdown(
+                    reason='O filtro de odometria encerrou.'))])),
         ])
 
-    if _enabled(context, 'enable_navigation'):
+    if 'camera' in selected:
+        actions.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare('camera'), 'launch', 'camera.launch.py'])),
+            launch_arguments={
+                'rectify': 'true',
+                'framerate': LaunchConfiguration('camera_framerate'),
+            }.items()))
+
+    if 'vision' in selected:
+        actions.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare('vision'), 'launch', 'vision.launch.py'])),
+            launch_arguments={
+                'image_topic': LaunchConfiguration('image_topic'),
+                'camera_info_topic': LaunchConfiguration('camera_info_topic'),
+                'base_frame': LaunchConfiguration('base_frame'),
+            }.items()))
+
+    if 'localization' in selected:
         map_file = _resolve_map_file(LaunchConfiguration('map').perform(context))
         localization_params = PathJoinSubstitution([
             FindPackageShare('bringup'), 'config', 'amcl_localization.yaml'])
-        navigation_params = PathJoinSubstitution([
-            FindPackageShare('bringup'), 'config',
-            'nav2_navigation_light.yaml'])
-        actions.extend([
-            # Scope both includes because they declare generic names such as
-            # params_file. Without this, AMCL's YAML leaks into Nav2.
+        actions.append(
+            # Scope the include because it declares generic names such as
+            # params_file. Without this, AMCL's YAML can leak into siblings.
             GroupAction(scoped=True, actions=[
                 IncludeLaunchDescription(
                     PythonLaunchDescriptionSource(PathJoinSubstitution([
@@ -140,20 +199,24 @@ def _launch_setup(context):
                         'use_respawn': 'False',
                         'log_level': 'info',
                     }.items()),
-            ]),
-            GroupAction(scoped=True, actions=[
-                IncludeLaunchDescription(
-                    PythonLaunchDescriptionSource(PathJoinSubstitution([
-                        FindPackageShare('bringup'), 'launch',
-                        'navigation.launch.py'])),
-                    launch_arguments={
-                        'params_file': navigation_params,
-                        'use_sim_time': 'false',
-                        'autostart': 'true',
-                        'log_level': 'info',
-                    }.items()),
-            ]),
-        ])
+            ]))
+
+    if 'navigation' in selected:
+        navigation_params = PathJoinSubstitution([
+            FindPackageShare('bringup'), 'config',
+            'nav2_navigation_light.yaml'])
+        actions.append(GroupAction(scoped=True, actions=[
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(PathJoinSubstitution([
+                    FindPackageShare('bringup'), 'launch',
+                    'navigation.launch.py'])),
+                launch_arguments={
+                    'params_file': navigation_params,
+                    'use_sim_time': 'false',
+                    'autostart': 'true',
+                    'log_level': 'info',
+                }.items()),
+        ]))
 
     if manipulation_enabled:
         controller_ready = Node(
@@ -178,7 +241,7 @@ def _launch_setup(context):
                 on_exit=start_manipulation)),
         ])
 
-    if _enabled(context, 'enable_mission'):
+    if 'mission' in selected:
         actions.append(IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([
                 FindPackageShare('mission_manager'), 'launch',
@@ -189,6 +252,15 @@ def _launch_setup(context):
 
 def generate_launch_description():
     return LaunchDescription([
+        DeclareLaunchArgument(
+            'components', default_value='all',
+            description=(
+                'Lista separada por vírgulas dos componentes a iniciar: '
+                + ', '.join(COMPONENTS) + '. O padrão all inicia todos.')),
+        DeclareLaunchArgument(
+            'disable_components', default_value='',
+            description=(
+                'Lista separada por vírgulas removida de components; aceita all.')),
         DeclareLaunchArgument(
             'enable_vision', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument(
