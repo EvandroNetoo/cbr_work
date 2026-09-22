@@ -65,6 +65,8 @@ placements:
     enabled: true
     calibrated_reference: true
     reference_offset_xyz: [0.0, 0.0, 0.01]
+    # Durante a soltura, esta junta não pode superar o limite configurado.
+    link3_to_link4_max_deg: 0.0
     # Partial image-edge contours may be targets when the fit is plausible.
     partial_target_min_overlap: 0.35
     partial_target_max_uncertainty_m: 1

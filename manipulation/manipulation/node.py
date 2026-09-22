@@ -1148,7 +1148,7 @@ class ManipulationServer(Node):
 
     def _release_in_container(
         self, goal_handle: Any, release_pose: PoseStamped,
-        destination: str,
+        destination: str, link3_to_link4_max_deg: float = -10.0,
     ) -> tuple[str, int, PoseStamped]:
         """Move straight to the target position, release and return."""
         self._feedback(
@@ -1160,7 +1160,8 @@ class ManipulationServer(Node):
         self.container_target_publisher.publish(release_pose)
         self._motion.executar_objetivo(
             GRUPO_BRACO_CONTAINER,
-            restricoes_de_deposito_em_container(release_pose),
+            restricoes_de_deposito_em_container(
+                release_pose, link3_to_link4_max_deg),
             VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
         )
         self._open_for_placement(goal_handle, PlaceInContainer, destination)
@@ -1371,6 +1372,7 @@ class ManipulationServer(Node):
             return self._release_in_container(
                 goal_handle, release_pose,
                 f'contêiner {colors[color]}',
+                profile.link3_to_link4_max_deg,
             )
 
         return self._run(

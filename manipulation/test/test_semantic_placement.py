@@ -157,7 +157,7 @@ def test_container_release_restricts_position_and_wrist_then_returns_directly():
     server._transfer_state = lambda *_args: events.append('observation')
 
     _message, location, placed_pose = server._release_in_container(
-        object(), _pose(), 'contêiner azul',
+        object(), _pose(), 'contêiner azul', -25.0,
     )
 
     assert events == ['target', 'motion', 'open', 'observation']
@@ -174,12 +174,16 @@ def test_container_release_restricts_position_and_wrist_then_returns_directly():
     assert motions[0][0] == 'arm_container'
     assert constraints.position_constraints[0].link_name == 'gripper_tcp_near'
     assert constraints.orientation_constraints == []
-    assert len(constraints.joint_constraints) == 1
-    wrist = constraints.joint_constraints[0]
+    assert len(constraints.joint_constraints) == 2
+    wrist, elbow = constraints.joint_constraints
     assert wrist.joint_name == 'link4_to_link5'
     assert wrist.position == pytest.approx(math.pi / 2.0)
     assert wrist.tolerance_above == pytest.approx(math.radians(5.0))
     assert wrist.tolerance_below == pytest.approx(math.radians(5.0))
+    assert elbow.joint_name == 'link3_to_link4'
+    assert elbow.position == pytest.approx(math.radians(-25.0))
+    assert elbow.tolerance_above == 0.0
+    assert elbow.position - elbow.tolerance_below == pytest.approx(-math.pi)
     assert location == ManipulationResult.LOCATION_DESTINATION
     assert placed_pose.pose.position.z == pytest.approx(0.10)
 
@@ -699,7 +703,8 @@ def test_container_release_height_uses_table_bin_and_offset(
         height_cm / 100.0 + external_height_m + 0.07
     )
     assert pose.pose.orientation.w == pytest.approx(1.0)
-    assert len(released[0]) == 3
+    assert len(released[0]) == 4
+    assert released[0][3] == pytest.approx(-10.0)
 
 
 def test_partial_container_can_be_selected_as_deposit_target():

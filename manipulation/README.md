@@ -85,7 +85,9 @@ usa X/Y da detecção com os offsets do perfil. Sua altura é
 `ws_height_cm / 100 + external_height_m + reference_offset_xyz[2]`, sem usar o
 Z visual. O objetivo MoveIt restringe a posição do TCP e mantém a junta
 `link4_to_link5` em −90° com tolerância de ±5°, sem impor orientação cartesiana
-ao TCP. A orientação neutra em `placed_pose` não representa o ângulo real
+ao TCP. Também limita `link3_to_link4` ao máximo configurado em
+`placements.container.link3_to_link4_max_deg` (−10° por padrão). A orientação
+neutra em `placed_pose` não representa o ângulo real
 alcançado. O braço vai diretamente à pose de soltura, sem aproximação. Após
 abrir a garra, volta diretamente para `detect_apriltags`, sem pose de recuo. A
 action rejeita ausência, duplicidade e geometria inválida antes do movimento ao

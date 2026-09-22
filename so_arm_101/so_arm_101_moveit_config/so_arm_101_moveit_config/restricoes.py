@@ -93,8 +93,11 @@ def _criar_restricao_de_orientacao(
     return restricao
 
 
-def restricoes_de_deposito_em_container(posicao: PoseStamped) -> ListaDeRestricoes:
-    """Restringe o TCP de depósito e o punho, deixando a orientação livre."""
+def restricoes_de_deposito_em_container(
+    posicao: PoseStamped,
+    link3_to_link4_max_deg: float = -10.0,
+) -> ListaDeRestricoes:
+    """Restringe o TCP e as juntas necessárias ao depósito em contêiner."""
     restricoes = Constraints()
     restricoes.position_constraints.append(
         _criar_restricao_de_posicao(posicao, LINK_TCP_PROXIMO)
@@ -106,6 +109,17 @@ def restricoes_de_deposito_em_container(posicao: PoseStamped) -> ListaDeRestrico
     punho.tolerance_below = math.radians(5.0)
     punho.weight = 1.0
     restricoes.joint_constraints.append(punho)
+
+    limite_link4 = math.radians(link3_to_link4_max_deg)
+    link4 = JointConstraint()
+    link4.joint_name = 'link3_to_link4'
+    link4.position = limite_link4
+    link4.tolerance_above = 0.0
+    # Expressa o intervalo [-pi, limite] como uma restrição do MoveIt. Os
+    # limites mais estreitos do URDF continuam sendo aplicados normalmente.
+    link4.tolerance_below = limite_link4 + math.pi
+    link4.weight = 1.0
+    restricoes.joint_constraints.append(link4)
     return [restricoes]
 
 

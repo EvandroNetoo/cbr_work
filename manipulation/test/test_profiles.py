@@ -42,6 +42,7 @@ def test_container_profile_keeps_xy_and_height_offsets_explicit():
     assert profile.calibrated_reference is True
     assert profile.reference_offset_xyz[:2] == (0.0, 0.0)
     assert profile.reference_offset_xyz[2] >= 0.0
+    assert profile.link3_to_link4_max_deg == pytest.approx(-10.0)
 
 
 def test_table_release_calibration_is_complete_or_empty():
@@ -156,6 +157,19 @@ def test_reach_minimum_radius_must_be_smaller_than_maximum(tmp_path):
     profile_path.write_text(profiles)
 
     with pytest.raises(ConfigurationError, match='deve ser menor'):
+        load_profiles(profile_path, PACKAGE / 'config' / 'cargo_slots.yaml')
+
+
+def test_container_joint_limit_must_be_a_valid_angle(tmp_path):
+    profiles = (PACKAGE / 'config' / 'profiles.yaml').read_text()
+    profiles = profiles.replace(
+        'link3_to_link4_max_deg: -10.0',
+        'link3_to_link4_max_deg: -180.0',
+    )
+    profile_path = tmp_path / 'profiles.yaml'
+    profile_path.write_text(profiles)
+
+    with pytest.raises(ConfigurationError, match='entre -180 e 180'):
         load_profiles(profile_path, PACKAGE / 'config' / 'cargo_slots.yaml')
 
 

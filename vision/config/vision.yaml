@@ -74,7 +74,7 @@ scene_analyzer:
     container_association_distance_m: 0.07
     container_final_merge_distance_m: 0.07
     # Uma observação isolada nunca é devolvida como container confirmado.
-    min_container_observations: 2
+    min_container_observations: 1
     max_container_position_deviation_m: 0.06
     # Yaw é comparado módulo 180 graus pela simetria do retângulo externo.
     max_container_yaw_deviation_deg: 20.0
