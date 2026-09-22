@@ -24,6 +24,7 @@ from interfaces.action import (
 )
 from interfaces.msg import (
     ContainerStampedDetection, ManipulationFeedback, ManipulationResult,
+    TableSurfaceGrid,
 )
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
@@ -811,6 +812,155 @@ class ManipulationServer(Node):
         return candidates
 
     @staticmethod
+    def _table_search_trials(
+        profile: PlacementProfile,
+        yaw_options_deg: tuple[float, ...],
+    ) -> list[tuple[float, float, float, float]]:
+        """Build candidate/yaw/padding trials in placement preference order."""
+        if min(
+            profile.free_space_half_extent_x_m,
+            profile.free_space_half_extent_y_m,
+        ) <= 0.0:
+            raise ConfigurationError(
+                'As meias dimensões da garra devem ser positivas.')
+        preferred = float(profile.free_space_preferred_padding_m)
+        minimum = float(profile.free_space_min_padding_m)
+        if minimum < 0.0 or preferred < minimum:
+            raise ConfigurationError(
+                'As margens devem ser não negativas e a preferencial deve '
+                'ser maior ou igual à mínima.')
+        if not yaw_options_deg:
+            raise ConfigurationError('Configure ao menos uma orientação da garra.')
+        candidates = ManipulationServer._table_search_candidates(profile)
+        random.shuffle(candidates)
+        return [
+            (x, y, float(yaw_deg), padding)
+            for padding in dict.fromkeys((preferred, minimum))
+            for x, y in candidates
+            for yaw_deg in yaw_options_deg
+        ]
+
+    @staticmethod
+    def _table_analysis_bounds(
+        profile: PlacementProfile,
+        yaw_options_deg: tuple[float, ...],
+    ) -> tuple[float, float, float, float]:
+        """Expand the center search region to observe every possible footprint."""
+        x_min = float(profile.search_x_min_m)
+        x_max = float(profile.search_x_max_m)
+        y_min = float(profile.search_y_min_m)
+        y_max = float(profile.search_y_max_m)
+        half_x = float(profile.free_space_half_extent_x_m)
+        half_y = float(profile.free_space_half_extent_y_m)
+        padding = float(profile.free_space_preferred_padding_m)
+        extents = []
+        for yaw_deg in yaw_options_deg:
+            yaw = math.radians(yaw_deg)
+            cosine = abs(math.cos(yaw))
+            sine = abs(math.sin(yaw))
+            extents.append((
+                (half_x + padding) * cosine + (half_y + padding) * sine,
+                (half_x + padding) * sine + (half_y + padding) * cosine,
+            ))
+        extent_x = max(value[0] for value in extents)
+        extent_y = max(value[1] for value in extents)
+        return (
+            x_min - extent_x,
+            x_max + extent_x,
+            y_min - extent_y,
+            y_max + extent_y,
+        )
+
+    @staticmethod
+    def _table_grid_footprint_is_free(
+        grid: TableSurfaceGrid,
+        x: float,
+        y: float,
+        yaw_deg: float,
+        half_extent_x_m: float,
+        half_extent_y_m: float,
+        padding_m: float,
+    ) -> bool:
+        """Require every grid cell intersecting the oriented footprint to be free."""
+        resolution = float(grid.resolution_m)
+        width, height = int(grid.width), int(grid.height)
+        if (
+            resolution <= 0.0
+            or width <= 0
+            or height <= 0
+            or len(grid.cells) != width * height
+        ):
+            raise PerceptionUnavailable('A grade da mesa possui geometria inválida.')
+        yaw = math.radians(yaw_deg)
+        cosine, sine = math.cos(yaw), math.sin(yaw)
+        footprint_half = (
+            float(half_extent_x_m) + float(padding_m),
+            float(half_extent_y_m) + float(padding_m),
+        )
+        cell_half = resolution / 2.0
+        extent_x = (
+            footprint_half[0] * abs(cosine)
+            + footprint_half[1] * abs(sine))
+        extent_y = (
+            footprint_half[0] * abs(sine)
+            + footprint_half[1] * abs(cosine))
+        covered_x_min = float(grid.x_min_m) - cell_half
+        covered_x_max = (
+            float(grid.x_min_m) + (width - 1) * resolution + cell_half)
+        covered_y_min = float(grid.y_min_m) - cell_half
+        covered_y_max = (
+            float(grid.y_min_m) + (height - 1) * resolution + cell_half)
+        if (
+            x - extent_x < covered_x_min - 1e-9
+            or x + extent_x > covered_x_max + 1e-9
+            or y - extent_y < covered_y_min - 1e-9
+            or y + extent_y > covered_y_max + 1e-9
+        ):
+            return False
+
+        column_min = max(0, math.floor(
+            (x - extent_x - cell_half - grid.x_min_m) / resolution))
+        column_max = min(width - 1, math.ceil(
+            (x + extent_x + cell_half - grid.x_min_m) / resolution))
+        row_min = max(0, math.floor(
+            (y - extent_y - cell_half - grid.y_min_m) / resolution))
+        row_max = min(height - 1, math.ceil(
+            (y + extent_y + cell_half - grid.y_min_m) / resolution))
+
+        footprint_axes = ((cosine, sine), (-sine, cosine))
+        cell_axes = ((1.0, 0.0), (0.0, 1.0))
+
+        def intersects(cell_x: float, cell_y: float) -> bool:
+            delta = (cell_x - x, cell_y - y)
+            for axis in footprint_axes + cell_axes:
+                center_distance = abs(
+                    delta[0] * axis[0] + delta[1] * axis[1])
+                footprint_projection = sum(
+                    footprint_half[index] * abs(
+                        basis[0] * axis[0] + basis[1] * axis[1])
+                    for index, basis in enumerate(footprint_axes)
+                )
+                cell_projection = cell_half * (
+                    abs(axis[0]) + abs(axis[1]))
+                if center_distance > (
+                    footprint_projection + cell_projection + 1e-9
+                ):
+                    return False
+            return True
+
+        checked = 0
+        for row in range(row_min, row_max + 1):
+            cell_y = float(grid.y_min_m) + row * resolution
+            for column in range(column_min, column_max + 1):
+                cell_x = float(grid.x_min_m) + column * resolution
+                if not intersects(cell_x, cell_y):
+                    continue
+                checked += 1
+                if grid.cells[row * width + column] != TableSurfaceGrid.FREE:
+                    return False
+        return checked > 0
+
+    @staticmethod
     def _select_free_table_position(
         candidates: list[tuple[float, float]],
         obstacles: list[tuple[float, ...]],
@@ -1065,11 +1215,13 @@ class ManipulationServer(Node):
                     'depósito na mesa.'
                 )
             tcp_offset_cm, preferred_yaw_deg, alternate_yaw_deg = calibration
-            candidates = self._table_search_candidates(profile)
             yaw_options = (
                 float(preferred_yaw_deg),
                 float(alternate_yaw_deg),
             )
+            trials = self._table_search_trials(profile, yaw_options)
+            analysis_bounds = self._table_analysis_bounds(
+                profile, yaw_options)
             observation = self._profiles.pickup_profile(
                 'tabletop').observation_state
             self._feedback(
@@ -1081,65 +1233,53 @@ class ManipulationServer(Node):
             duration = float(
                 self.get_parameter('vision_analysis_duration_s').value)
             try:
-                tag_detections, container_detections = (
+                _tags, _containers, table_grid = (
                     self._motion.analisar_cena(
                         duration,
-                        analisar_apriltags=True,
-                        analisar_containers=True,
+                        analisar_apriltags=False,
+                        analisar_containers=False,
+                        analisar_mesa_branca=True,
                         altura_mesa_m=height_cm / 100.0,
+                        mesa_x_min_m=analysis_bounds[0],
+                        mesa_x_max_m=analysis_bounds[1],
+                        mesa_y_min_m=analysis_bounds[2],
+                        mesa_y_max_m=analysis_bounds[3],
+                        resolucao_grade_m=float(profile.search_step_m),
                     )
                 )
             except OperacaoCancelada:
                 raise
             except RuntimeError as error:
                 raise PerceptionUnavailable(str(error)) from error
-            obstacles: list[tuple[float, ...]] = []
-            for detection in tag_detections:
-                x = float(detection.pose.position.x)
-                y = float(detection.pose.position.y)
-                if not math.isfinite(x) or not math.isfinite(y):
-                    raise PerceptionUnavailable(
-                        f'AprilTag {detection.id} possui posição XY inválida.')
-                obstacles.append((x, y))
-            for detection in container_detections:
-                x = float(detection.pose.position.x)
-                y = float(detection.pose.position.y)
-                width = float(detection.external_width_m)
-                depth = float(detection.external_depth_m)
-                orientation = detection.pose.orientation
-                yaw = math.atan2(
-                    2.0 * (orientation.w * orientation.z +
-                           orientation.x * orientation.y),
-                    1.0 - 2.0 * (orientation.y ** 2 + orientation.z ** 2),
-                )
-                if not all(math.isfinite(value) for value in (
-                    x, y, width, depth, yaw
-                )) or width <= 0.0 or depth <= 0.0:
-                    raise PerceptionUnavailable(
-                        'Contêiner possui geometria externa inválida.')
-                # For table clearance, partial and complete detections use the
-                # same fitted external rectangle.  The previous isotropic
-                # uncertainty expansion could make one image-edge container
-                # cover the entire reachable search region.
-                obstacles.append((x, y, depth, width, yaw, 0.0))
-            selected_x_m, selected_y_m, selected_yaw_deg = (
-                self._select_free_table_position(
-                    candidates,
-                    obstacles,
+            if not isinstance(table_grid, TableSurfaceGrid):
+                raise PerceptionUnavailable(
+                    'A visão não retornou uma grade válida da mesa.')
+            selected = next((
+                trial
+                for trial in trials
+                if self._table_grid_footprint_is_free(
+                    table_grid,
+                    trial[0],
+                    trial[1],
+                    trial[2],
                     float(profile.free_space_half_extent_x_m),
                     float(profile.free_space_half_extent_y_m),
-                    float(profile.free_space_preferred_padding_m),
-                    yaw_options,
-                    minimum_padding_m=float(profile.free_space_min_padding_m),
+                    trial[3],
                 )
-            )
+            ), None)
+            if selected is None:
+                raise NoFreeSpace(
+                    'Nenhuma pose da região de busca teve toda a área da '
+                    'garra confirmada como mesa branca.')
+            selected_x_m, selected_y_m, selected_yaw_deg, selected_padding_m = (
+                selected)
             self._feedback(
                 goal_handle, PlaceOnTable, ManipulationFeedback.OBSERVING,
                 0.30,
                 f'Posição livre selecionada: '
                 f'x={selected_x_m:.3f}, y={selected_y_m:.3f} m; '
                 f'yaw={selected_yaw_deg:.1f}°; '
-                f'{len(obstacles)} obstáculo(s) da cena',
+                f'margem={selected_padding_m:.3f} m; área branca confirmada',
             )
             release_pose = criar_pose(
                 float(selected_x_m),

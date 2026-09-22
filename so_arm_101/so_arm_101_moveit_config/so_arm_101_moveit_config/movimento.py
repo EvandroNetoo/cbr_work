@@ -11,7 +11,9 @@ from collections.abc import Callable
 import rclpy
 from action_msgs.msg import GoalStatus
 from interfaces.action import AnalyzeScene
-from interfaces.msg import AprilTagStampedDetection, ContainerStampedDetection
+from interfaces.msg import (
+    AprilTagStampedDetection, ContainerStampedDetection, TableSurfaceGrid,
+)
 from moveit_msgs.action import MoveGroup
 from rclpy.action import ActionClient
 from rclpy.node import Node
@@ -203,7 +205,13 @@ class ExecutorDoMoveIt:
         *,
         analisar_apriltags: bool,
         analisar_containers: bool,
+        analisar_mesa_branca: bool = False,
         altura_mesa_m: float = 0.0,
+        mesa_x_min_m: float = 0.0,
+        mesa_x_max_m: float = 0.0,
+        mesa_y_min_m: float = 0.0,
+        mesa_y_max_m: float = 0.0,
+        resolucao_grade_m: float = 0.0,
     ) -> tuple[
         list[AprilTagStampedDetection],
         list[ContainerStampedDetection],
@@ -211,8 +219,25 @@ class ExecutorDoMoveIt:
         """Run one coherent camera session for the requested detectors."""
         if duracao_da_analise <= 0.0:
             raise ValueError("A duração da análise deve ser positiva.")
-        if not analisar_apriltags and not analisar_containers:
+        if (
+            not analisar_apriltags
+            and not analisar_containers
+            and not analisar_mesa_branca
+        ):
             raise ValueError("A análise deve solicitar ao menos um detector.")
+        if analisar_mesa_branca:
+            bounds = (
+                mesa_x_min_m, mesa_x_max_m, mesa_y_min_m, mesa_y_max_m,
+                resolucao_grade_m,
+            )
+            if not all(math.isfinite(value) for value in bounds):
+                raise ValueError('A grade da mesa deve possuir valores finitos.')
+            if (
+                mesa_x_min_m > mesa_x_max_m
+                or mesa_y_min_m > mesa_y_max_m
+                or resolucao_grade_m <= 0.0
+            ):
+                raise ValueError('Os limites ou a resolução da mesa são inválidos.')
 
         self.no.get_logger().info(
             "Aguardando /vision/analyze_scene para analisar a cena..."
@@ -229,11 +254,18 @@ class ExecutorDoMoveIt:
             objetivo.requested_detectors |= AnalyzeScene.Goal.APRILTAGS
         if analisar_containers:
             objetivo.requested_detectors |= AnalyzeScene.Goal.CONTAINERS
+        if analisar_mesa_branca:
+            objetivo.requested_detectors |= AnalyzeScene.Goal.TABLE_SURFACE
         nanossegundos_totais = round(duracao_da_analise * 1_000_000_000)
         segundos, nanossegundos = divmod(nanossegundos_totais, 1_000_000_000)
         objetivo.duration.sec = segundos
         objetivo.duration.nanosec = nanossegundos
         objetivo.work_surface_height_m = float(altura_mesa_m)
+        objetivo.table_search_x_min_m = float(mesa_x_min_m)
+        objetivo.table_search_x_max_m = float(mesa_x_max_m)
+        objetivo.table_search_y_min_m = float(mesa_y_min_m)
+        objetivo.table_search_y_max_m = float(mesa_y_max_m)
+        objetivo.table_grid_resolution_m = float(resolucao_grade_m)
 
         futuro_do_envio = self.cliente_da_visao.send_goal_async(objetivo)
         try:
@@ -276,6 +308,7 @@ class ExecutorDoMoveIt:
 
         apriltags = list(resultado_da_acao.result.best_apriltags_base)
         containers = list(resultado_da_acao.result.best_containers_base)
+        table_grid = resultado_da_acao.result.table_surface_grid
         if any(
             not isinstance(item, ContainerStampedDetection)
             for item in containers
@@ -291,10 +324,27 @@ class ExecutorDoMoveIt:
                 f"A análise retornou detecções fora de {REFERENCIAL_BASE}: "
                 f"{referencias_invalidas}."
             )
+        if analisar_mesa_branca:
+            if not isinstance(table_grid, TableSurfaceGrid):
+                raise RuntimeError('A visão retornou uma grade de mesa inválida.')
+            if table_grid.header.frame_id != REFERENCIAL_BASE:
+                raise RuntimeError(
+                    f'A grade da mesa não está em {REFERENCIAL_BASE}.')
+            if (
+                not math.isfinite(table_grid.resolution_m)
+                or table_grid.resolution_m <= 0.0
+                or len(table_grid.cells) != table_grid.width * table_grid.height
+            ):
+                raise RuntimeError('A grade da mesa possui geometria inválida.')
+        free_cells = sum(
+            value == TableSurfaceGrid.FREE for value in table_grid.cells)
         self.no.get_logger().info(
             f"Análise encontrou {len(apriltags)} AprilTag(s) e "
-            f"{len(containers)} container(s) em {REFERENCIAL_BASE}."
+            f"{len(containers)} container(s) em {REFERENCIAL_BASE}; "
+            f"{free_cells} célula(s) livres de mesa branca."
         )
+        if analisar_mesa_branca:
+            return apriltags, containers, table_grid
         return apriltags, containers
 
     def obter_deteccoes_de_april_tags(

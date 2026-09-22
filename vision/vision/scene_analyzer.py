@@ -20,6 +20,7 @@ from interfaces.msg import (
     ContainerDetection,
     ContainerDetectionArray,
     ContainerStampedDetection,
+    TableSurfaceGrid,
 )
 import numpy as np
 from pupil_apriltags import Detector
@@ -46,6 +47,7 @@ from .partial_container import fit_partial_container, rotation_from_quaternion
 
 APRILTAGS = AnalyzeScene.Goal.APRILTAGS
 CONTAINERS = AnalyzeScene.Goal.CONTAINERS
+TABLE_SURFACE = AnalyzeScene.Goal.TABLE_SURFACE
 RED = ContainerStampedDetection.RED
 BLUE = ContainerStampedDetection.BLUE
 COLOR_NAMES = {RED: 'red', BLUE: 'blue'}
@@ -168,6 +170,13 @@ class Session:
     containers_ready_at: float = math.inf
     last_feedback: float = 0.0
     last_base_transform: TransformStamped | None = None
+    table_search_x_min_m: float = 0.0
+    table_search_y_min_m: float = 0.0
+    table_grid_resolution_m: float = 0.0
+    table_grid_width: int = 0
+    table_grid_height: int = 0
+    table_cell_observations: list[int] = field(default_factory=list)
+    table_cell_confirmations: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -272,6 +281,13 @@ class SceneAnalyzer(Node):
         self.declare_parameter('min_container_observations', 3)
         self.declare_parameter('max_container_position_deviation_m', 0.04)
         self.declare_parameter('max_container_yaw_deviation_deg', 20.0)
+        self.declare_parameter('white_surface_max_saturation', 45)
+        self.declare_parameter('white_surface_min_value', 40)
+        self.declare_parameter('white_surface_max_value', 250)
+        self.declare_parameter('white_surface_min_fraction', 0.88)
+        self.declare_parameter('white_surface_max_unknown_fraction', 0.12)
+        self.declare_parameter('white_surface_min_confirmed_frames', 2)
+        self.declare_parameter('white_surface_min_confirmed_ratio', 0.60)
 
         self.warning_filter = (NativeWarningFilter()
                                if bool(self.get_parameter('suppress_native_pose_warning').value)
@@ -317,6 +333,7 @@ class SceneAnalyzer(Node):
             quad_decimate=float(self.get_parameter('quad_decimate').value),
             refine_edges=1)
         self._configure_container_detector()
+        self._configure_white_surface_detector()
         self.tf_broadcaster = TransformBroadcaster(self)
         output_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -340,6 +357,8 @@ class SceneAnalyzer(Node):
             ContainerDetectionArray, 'containers/detections', output_qos)
         self.container_debug_image_publisher = self.create_publisher(
             Image, 'containers/debug_image', qos_profile_sensor_data)
+        self.table_surface_debug_image_publisher = self.create_publisher(
+            Image, 'table_surface/debug_image', qos_profile_sensor_data)
         self.latest_container_debug_frame: ContainerDebugFrame | None = None
         self.container_target_subscription = self.create_subscription(
             PoseStamped,
@@ -457,6 +476,43 @@ class SceneAnalyzer(Node):
             raise ValueError(
                 'max_container_yaw_deviation_deg must not exceed 90 degrees')
 
+    def _configure_white_surface_detector(self) -> None:
+        """Validate the conservative white-table classification thresholds."""
+        self.white_surface_max_saturation = int(
+            self.get_parameter('white_surface_max_saturation').value)
+        self.white_surface_min_value = int(
+            self.get_parameter('white_surface_min_value').value)
+        self.white_surface_max_value = int(
+            self.get_parameter('white_surface_max_value').value)
+        self.white_surface_min_fraction = float(
+            self.get_parameter('white_surface_min_fraction').value)
+        self.white_surface_max_unknown_fraction = float(
+            self.get_parameter('white_surface_max_unknown_fraction').value)
+        self.white_surface_min_confirmed_frames = int(
+            self.get_parameter('white_surface_min_confirmed_frames').value)
+        self.white_surface_min_confirmed_ratio = float(
+            self.get_parameter('white_surface_min_confirmed_ratio').value)
+        if not 0 <= self.white_surface_max_saturation <= 255:
+            raise ValueError('white_surface_max_saturation must be in [0, 255]')
+        if not (
+            0 <= self.white_surface_min_value
+            < self.white_surface_max_value <= 255
+        ):
+            raise ValueError(
+                'white surface value limits must satisfy 0 <= min < max <= 255')
+        for name, value in (
+            ('white_surface_min_fraction', self.white_surface_min_fraction),
+            ('white_surface_max_unknown_fraction',
+             self.white_surface_max_unknown_fraction),
+            ('white_surface_min_confirmed_ratio',
+             self.white_surface_min_confirmed_ratio),
+        ):
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f'{name} must be in [0, 1]')
+        if self.white_surface_min_confirmed_frames <= 0:
+            raise ValueError(
+                'white_surface_min_confirmed_frames must be positive')
+
     def destroy_node(self):
         with self.sessions_lock:
             self.session = None
@@ -475,11 +531,33 @@ class SceneAnalyzer(Node):
             self.get_logger().warning('Rejecting non-finite work surface height.')
             return GoalResponse.REJECT
         requested = int(goal_request.requested_detectors)
-        known = APRILTAGS | CONTAINERS
+        known = APRILTAGS | CONTAINERS | TABLE_SURFACE
         if requested == 0 or requested & ~known:
             self.get_logger().warning(
                 f'Rejecting scene goal with invalid detector mask: {requested}.')
             return GoalResponse.REJECT
+        if requested & TABLE_SURFACE:
+            x_min = float(goal_request.table_search_x_min_m)
+            x_max = float(goal_request.table_search_x_max_m)
+            y_min = float(goal_request.table_search_y_min_m)
+            y_max = float(goal_request.table_search_y_max_m)
+            resolution = float(goal_request.table_grid_resolution_m)
+            if (
+                not all(math.isfinite(value) for value in (
+                    x_min, x_max, y_min, y_max, resolution))
+                or x_min > x_max
+                or y_min > y_max
+                or resolution <= 0.0
+            ):
+                self.get_logger().warning(
+                    'Rejecting invalid white-table grid geometry.')
+                return GoalResponse.REJECT
+            grid_width = math.ceil((x_max - x_min) / resolution - 1e-9) + 1
+            grid_height = math.ceil((y_max - y_min) / resolution - 1e-9) + 1
+            if grid_width * grid_height > 250_000:
+                self.get_logger().warning(
+                    'Rejecting white-table grid with more than 250000 cells.')
+                return GoalResponse.REJECT
         with self.sessions_lock:
             if self.state != 'idle':
                 self.get_logger().warning(
@@ -664,13 +742,34 @@ class SceneAnalyzer(Node):
         if not goal_handle.is_cancel_requested:
             goal_handle.executing()
         duration = _duration_seconds(goal_handle.request.duration)
+        resolution = float(goal_handle.request.table_grid_resolution_m)
+        x_min = float(goal_handle.request.table_search_x_min_m)
+        x_max = float(goal_handle.request.table_search_x_max_m)
+        y_min = float(goal_handle.request.table_search_y_min_m)
+        y_max = float(goal_handle.request.table_search_y_max_m)
+        table_requested = bool(
+            int(goal_handle.request.requested_detectors) & TABLE_SURFACE)
+        grid_width = (
+            math.ceil((x_max - x_min) / resolution - 1e-9) + 1
+            if table_requested else 0)
+        grid_height = (
+            math.ceil((y_max - y_min) / resolution - 1e-9) + 1
+            if table_requested else 0)
         session = Session(
             goal_handle=goal_handle,
             duration=duration,
             requested_detectors=int(goal_handle.request.requested_detectors),
             work_surface_height_m=float(
                 goal_handle.request.work_surface_height_m),
+            table_search_x_min_m=x_min if table_requested else 0.0,
+            table_search_y_min_m=y_min if table_requested else 0.0,
+            table_grid_resolution_m=resolution if table_requested else 0.0,
+            table_grid_width=grid_width,
+            table_grid_height=grid_height,
         )
+        cell_count = grid_width * grid_height
+        session.table_cell_observations = [0] * cell_count
+        session.table_cell_confirmations = [0] * cell_count
         with self.sessions_lock:
             self.session = session
             self.state = 'analyzing'
@@ -691,7 +790,7 @@ class SceneAnalyzer(Node):
             now = time.monotonic()
             session.containers_ready_at = (
                 now + self.container_warmup
-                if session.requested_detectors & CONTAINERS
+                if session.requested_detectors & (CONTAINERS | TABLE_SURFACE)
                 else now
             )
             # The requested analysis duration starts after exposure/white-balance
@@ -754,12 +853,34 @@ class SceneAnalyzer(Node):
                 for track in session.container_tracks]
             frames_processed = session.frames_processed
             frames_with_base_transform = session.frames_with_base_transform
+            table_observations = list(session.table_cell_observations)
+            table_confirmations = list(session.table_cell_confirmations)
         result = AnalyzeScene.Result()
         result.best_apriltags_camera = apriltags_camera
         result.best_apriltags_base = apriltags_base
         camera, base = self._confirmed_container_results(tracks)
         result.best_containers_camera = camera
         result.best_containers_base = base
+        grid = TableSurfaceGrid()
+        grid.header.frame_id = self.base_frame
+        grid.resolution_m = session.table_grid_resolution_m
+        grid.x_min_m = session.table_search_x_min_m
+        grid.y_min_m = session.table_search_y_min_m
+        grid.width = session.table_grid_width
+        grid.height = session.table_grid_height
+        grid.cells = [
+            (
+                TableSurfaceGrid.FREE
+                if observations >= self.white_surface_min_confirmed_frames
+                and confirmations / observations
+                >= self.white_surface_min_confirmed_ratio
+                else TableSurfaceGrid.BLOCKED
+            ) if observations >= self.white_surface_min_confirmed_frames
+            else TableSurfaceGrid.UNKNOWN
+            for observations, confirmations in zip(
+                table_observations, table_confirmations)
+        ]
+        result.table_surface_grid = grid
         result.frames_processed = frames_processed
         result.frames_with_base_transform = frames_with_base_transform
         result.elapsed = _ros_duration(time.monotonic() - session.started)
@@ -799,6 +920,11 @@ class SceneAnalyzer(Node):
         parameters = (
             float(info.p[0]), float(info.p[5]),
             float(info.p[2]), float(info.p[6]))
+        camera_matrix = np.array([
+            [info.p[0], 0.0, info.p[2]],
+            [0.0, info.p[5], info.p[6]],
+            [0.0, 0.0, 1.0],
+        ], dtype=np.float64)
         camera_items: list[AprilTagStampedDetection] = []
         camera_poses: list[PoseStamped] = []
         transforms: list[TransformStamped] = []
@@ -847,11 +973,6 @@ class SceneAnalyzer(Node):
         container_camera_items: list[ContainerStampedDetection] = []
         container_camera_poses: list[PoseStamped] = []
         if session.requested_detectors & CONTAINERS:
-            camera_matrix = np.array([
-                [info.p[0], 0.0, info.p[2]],
-                [0.0, info.p[5], info.p[6]],
-                [0.0, 0.0, 1.0],
-            ], dtype=np.float64)
             masks = self.container_color_masks(bgr)
             candidates = self.detect_container_candidates(
                 masks, bgr.shape[:2], camera_matrix)
@@ -871,13 +992,16 @@ class SceneAnalyzer(Node):
             session.requested_detectors & CONTAINERS
             and any(candidate.reason == 'border' for candidate in candidates)
         )
-        if (camera_poses or container_camera_poses or has_partial) and tf_buffer is not None:
+        if (
+            camera_poses or container_camera_poses or has_partial
+            or session.requested_detectors & TABLE_SURFACE
+        ) and tf_buffer is not None:
             try:
                 base_transform = tf_buffer.lookup_transform(
                     self.base_frame, camera_frame, message.header.stamp,
                     timeout=Duration())
             except TransformException:
-                if has_partial:
+                if has_partial or session.requested_detectors & TABLE_SURFACE:
                     try:
                         # The arm is stationary during scene analysis. A latest
                         # transform is preferable to dropping a border contour
@@ -957,6 +1081,18 @@ class SceneAnalyzer(Node):
                     container_camera_items.append(camera_item)
                     container_base_items.append(self.copy_container_stamped(
                         camera_item, pose_base, self.base_frame))
+        table_observed = [False] * (
+            session.table_grid_width * session.table_grid_height)
+        table_confirmed = [False] * len(table_observed)
+        if (
+            session.requested_detectors & TABLE_SURFACE
+            and base_transform is not None
+        ):
+            table_observed, table_confirmed, table_debug = (
+                self.evaluate_white_table_grid(
+                    session, bgr, camera_matrix, base_transform))
+            if self.publish_debug_image:
+                self.publish_table_surface_debug_image(message, table_debug)
         if session.requested_detectors & CONTAINERS and self.publish_debug_image:
             self.publish_container_debug_image(
                 message, bgr, masks, candidates, camera_matrix, base_transform)
@@ -992,6 +1128,11 @@ class SceneAnalyzer(Node):
             session.latest_containers_base = [
                 self.copy_container_stamped(item)
                 for item in container_base_items]
+            for index, observed in enumerate(table_observed):
+                if observed:
+                    session.table_cell_observations[index] += 1
+                if table_confirmed[index]:
+                    session.table_cell_confirmations[index] += 1
             for item in camera_items:
                 self._update_best(session.best_camera, item)
             for item in base_items:
@@ -1002,6 +1143,135 @@ class SceneAnalyzer(Node):
                 container_base_items,
                 session.frames_processed,
             )
+
+    def evaluate_white_table_grid(
+        self,
+        session: Session,
+        bgr: np.ndarray,
+        camera_matrix: np.ndarray,
+        camera_to_base: TransformStamped,
+    ) -> tuple[list[bool], list[bool], np.ndarray]:
+        """Classify a base-frame grid without assuming any tool geometry."""
+        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+        saturation = hsv[:, :, 1]
+        value = hsv[:, :, 2]
+        unknown = np.logical_or(
+            value < self.white_surface_min_value,
+            value > self.white_surface_max_value,
+        )
+        white = np.logical_and.reduce((
+            ~unknown,
+            saturation <= self.white_surface_max_saturation,
+        ))
+        debug = bgr.copy()
+        debug[unknown] = (0, 180, 255)
+        debug[white] = (
+            0.35 * debug[white] + 0.65 * np.array([40, 210, 40])
+        ).astype(np.uint8)
+
+        transform = camera_to_base.transform
+        rotation = rotation_from_quaternion(transform.rotation)
+        origin = np.array([
+            transform.translation.x,
+            transform.translation.y,
+            transform.translation.z,
+        ], dtype=np.float64)
+        height, width = bgr.shape[:2]
+        cell_count = session.table_grid_width * session.table_grid_height
+        observed = np.zeros(cell_count, dtype=bool)
+        confirmed = np.zeros(cell_count, dtype=bool)
+        if cell_count == 0:
+            return observed.tolist(), confirmed.tolist(), debug
+
+        x_indices = np.tile(
+            np.arange(session.table_grid_width), session.table_grid_height)
+        y_indices = np.repeat(
+            np.arange(session.table_grid_height), session.table_grid_width)
+        centers = np.column_stack((
+            session.table_search_x_min_m
+            + x_indices * session.table_grid_resolution_m,
+            session.table_search_y_min_m
+            + y_indices * session.table_grid_resolution_m,
+        ))
+        half_cell = session.table_grid_resolution_m / 2.0
+        # Project the four metric corners of every cell. The complete projected
+        # quadrilateral is rasterized below, so classification uses every image
+        # pixel covered by the 1 cm cell rather than a fixed sparse sample.
+        offsets = np.array([
+            [-half_cell, -half_cell],
+            [half_cell, -half_cell],
+            [half_cell, half_cell],
+            [-half_cell, half_cell],
+        ], dtype=np.float64)
+        corner_xy = centers[:, None, :] + offsets[None, :, :]
+        samples_base = np.concatenate((
+            corner_xy,
+            np.full((*corner_xy.shape[:2], 1), session.work_surface_height_m),
+        ), axis=2)
+        samples_camera = (samples_base - origin) @ rotation
+        depths = samples_camera[:, :, 2]
+        finite = np.all(np.isfinite(samples_camera), axis=2)
+        in_front = np.logical_and(finite, depths > 1e-6)
+        safe_depths = np.where(in_front, depths, 1.0)
+        pixels_x = (
+            camera_matrix[0, 0] * samples_camera[:, :, 0] / safe_depths
+            + camera_matrix[0, 2])
+        pixels_y = (
+            camera_matrix[1, 1] * samples_camera[:, :, 1] / safe_depths
+            + camera_matrix[1, 2])
+        in_image = np.logical_and.reduce((
+            in_front,
+            pixels_x >= 0.0,
+            pixels_x <= width - 1,
+            pixels_y >= 0.0,
+            pixels_y <= height - 1,
+        ))
+        fully_visible = np.all(in_image, axis=1)
+        projected_corners = np.stack((pixels_x, pixels_y), axis=2)
+        fixed_point_scale = 256
+        for index in np.flatnonzero(fully_visible):
+            corners = projected_corners[index]
+            x_start = max(0, int(math.floor(float(corners[:, 0].min()))))
+            x_end = min(width - 1, int(math.ceil(float(corners[:, 0].max()))))
+            y_start = max(0, int(math.floor(float(corners[:, 1].min()))))
+            y_end = min(height - 1, int(math.ceil(float(corners[:, 1].max()))))
+            polygon = corners - np.array([x_start, y_start])
+            polygon_fixed = np.rint(
+                polygon * fixed_point_scale).astype(np.int32)
+            pixel_mask = np.zeros(
+                (y_end - y_start + 1, x_end - x_start + 1),
+                dtype=np.uint8,
+            )
+            cv2.fillConvexPoly(
+                pixel_mask,
+                polygon_fixed,
+                1,
+                lineType=cv2.LINE_8,
+                shift=8,
+            )
+            selected = pixel_mask.astype(bool)
+            pixel_count = int(np.count_nonzero(selected))
+            if pixel_count == 0:
+                continue
+            cell_unknown = unknown[
+                y_start:y_end + 1, x_start:x_end + 1][selected]
+            unknown_fraction = (
+                float(np.count_nonzero(cell_unknown)) / pixel_count)
+            if unknown_fraction > self.white_surface_max_unknown_fraction:
+                continue
+            observed[index] = True
+            cell_white = white[
+                y_start:y_end + 1, x_start:x_end + 1][selected]
+            white_fraction = float(np.count_nonzero(cell_white)) / pixel_count
+            confirmed[index] = (
+                white_fraction >= self.white_surface_min_fraction)
+        return observed.tolist(), confirmed.tolist(), debug
+
+    def publish_table_surface_debug_image(
+        self, message: Image, debug: np.ndarray,
+    ) -> None:
+        output = self._bgr_image_message(message.header, debug)
+        self.table_surface_debug_image_publisher.publish(output)
 
     @staticmethod
     def to_pose(translation: np.ndarray, rotation: np.ndarray) -> Pose:

@@ -1,5 +1,6 @@
 uint8 APRILTAGS=1
 uint8 CONTAINERS=2
+uint8 TABLE_SURFACE=4
 
 # Bit mask of the requested detectors. At least one known bit is required.
 uint8 requested_detectors
@@ -8,11 +9,18 @@ builtin_interfaces/Duration duration
 # Height of the work surface in the requested base frame. Used to recover
 # partially visible container poses from the known top-surface plane.
 float64 work_surface_height_m
+# Rectangular base-frame region sampled independently of any gripper geometry.
+float64 table_search_x_min_m
+float64 table_search_x_max_m
+float64 table_search_y_min_m
+float64 table_search_y_max_m
+float64 table_grid_resolution_m
 ---
 interfaces/AprilTagStampedDetection[] best_apriltags_camera
 interfaces/AprilTagStampedDetection[] best_apriltags_base
 interfaces/ContainerStampedDetection[] best_containers_camera
 interfaces/ContainerStampedDetection[] best_containers_base
+interfaces/TableSurfaceGrid table_surface_grid
 uint64 frames_processed
 uint64 frames_with_base_transform
 builtin_interfaces/Duration elapsed

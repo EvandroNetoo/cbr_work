@@ -19,6 +19,14 @@ ros2 action send_goal /vision/analyze_scene interfaces/action/AnalyzeScene \
 ```
 
 Containers only use `requested_detectors: 2`; both use `3`.
+White-table mapping uses `requested_detectors: 4`. Its goal contains only a
+base-frame XY region, the work-surface height and a grid resolution. The result
+is a row-major `TableSurfaceGrid` whose cells are free, blocked or unknown.
+Each metric cell is projected onto the camera image and classified from every
+pixel inside its quadrilateral, so perspective changes the pixel count without
+changing the cell size in metres.
+Vision has no knowledge of the gripper; table placement applies its footprint,
+padding and yaw options to the returned grid.
 For partial containers at the image edge, pass the work-surface height in the
 base frame as `work_surface_height_m` (for example `0.125` for a 12.5 cm WS).
 The table and container placement actions supply this value automatically.
@@ -27,6 +35,8 @@ Debug topics remain algorithm-specific:
 
 - `/apriltags/debug_image`
 - `/containers/debug_image`
+- `/table_surface/debug_image` (green: usable white pixels; orange: unknown
+  because the image is too dark or saturated)
 
 After container perception finishes, manipulation publishes the exact TCP
 release pose on `/manipulation/container_release_target`. The vision node

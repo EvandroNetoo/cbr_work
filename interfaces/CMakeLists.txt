@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ManipulationFeedback.msg"
   "msg/ManipulationResult.msg"
   "msg/ManipulationState.msg"
+  "msg/TableSurfaceGrid.msg"
   "msg/WheelCommand.msg"
   "action/AnalyzeScene.action"
   "action/ExecuteMission.action"

@@ -7,7 +7,9 @@ import math
 import cv2
 from geometry_msgs.msg import Pose, TransformStamped
 from interfaces.action import AnalyzeScene
-from interfaces.msg import AprilTagStampedDetection, ContainerStampedDetection
+from interfaces.msg import (
+    AprilTagStampedDetection, ContainerStampedDetection, TableSurfaceGrid,
+)
 import numpy as np
 import pytest
 from sensor_msgs.msg import Image
@@ -242,13 +244,39 @@ def test_goal_requires_a_known_nonempty_detector_mask():
         return SimpleNamespace(
             requested_detectors=mask,
             duration=SimpleNamespace(sec=1, nanosec=0),
-            work_surface_height_m=0.125)
+            work_surface_height_m=0.125,
+            table_search_x_min_m=-0.1,
+            table_search_x_max_m=0.1,
+            table_search_y_min_m=-0.3,
+            table_search_y_max_m=-0.1,
+            table_grid_resolution_m=0.01,
+        )
 
     assert analyzer.goal_callback(request(0)).name == 'REJECT'
-    assert analyzer.goal_callback(request(4)).name == 'REJECT'
+    assert analyzer.goal_callback(request(8)).name == 'REJECT'
     assert analyzer.goal_callback(request(AnalyzeScene.Goal.APRILTAGS)).name == 'ACCEPT'
     assert analyzer.state == 'activating'
     assert analyzer.goal_callback(request(AnalyzeScene.Goal.CONTAINERS)).name == 'REJECT'
+
+
+def test_goal_accepts_geometry_independent_white_table_grid():
+    analyzer = object.__new__(SceneAnalyzer)
+    analyzer.sessions_lock = threading.RLock()
+    analyzer.state = 'idle'
+    analyzer.get_logger = lambda: _Logger()
+    analyzer._create_inputs_locked = lambda: None
+    request = SimpleNamespace(
+        requested_detectors=AnalyzeScene.Goal.TABLE_SURFACE,
+        duration=SimpleNamespace(sec=1, nanosec=0),
+        work_surface_height_m=0.125,
+        table_search_x_min_m=-0.27,
+        table_search_x_max_m=0.27,
+        table_search_y_min_m=-0.35,
+        table_search_y_max_m=-0.03,
+        table_grid_resolution_m=0.01,
+    )
+
+    assert analyzer.goal_callback(request).name == 'ACCEPT'
 
 
 def test_profile_combines_apriltag_and_measured_bin3_parameters():
@@ -568,6 +596,120 @@ def test_analyze_scene_interface_contains_both_modalities():
     ).read_text()
     assert 'uint8 APRILTAGS=1' in action
     assert 'uint8 CONTAINERS=2' in action
+    assert 'uint8 TABLE_SURFACE=4' in action
     assert 'best_apriltags_base' in action
     assert 'best_containers_base' in action
+    assert 'interfaces/TableSurfaceGrid table_surface_grid' in action
+    assert 'table_candidate_poses_base' not in action
+    assert 'table_footprint_half_extent' not in action
+    grid = (
+        PACKAGE.parent / 'interfaces' / 'msg' / 'TableSurfaceGrid.msg'
+    ).read_text()
+    assert 'uint8 FREE=1' in grid
+    assert 'float64 resolution_m' in grid
+    assert 'uint8[] cells' in grid
     assert 'bool continuous' in action
+
+
+def _white_surface_analyzer() -> SceneAnalyzer:
+    analyzer = object.__new__(SceneAnalyzer)
+    analyzer.white_surface_max_saturation = 45
+    analyzer.white_surface_min_value = 40
+    analyzer.white_surface_max_value = 250
+    analyzer.white_surface_min_fraction = 0.95
+    analyzer.white_surface_max_unknown_fraction = 0.05
+    return analyzer
+
+
+def _white_surface_session() -> Session:
+    return Session(
+        goal_handle=SimpleNamespace(is_cancel_requested=False),
+        duration=1.0,
+        requested_detectors=AnalyzeScene.Goal.TABLE_SURFACE,
+        work_surface_height_m=0.0,
+        table_search_x_min_m=0.0,
+        table_search_y_min_m=0.0,
+        table_grid_resolution_m=0.10,
+        table_grid_width=1,
+        table_grid_height=1,
+    )
+
+
+def _downward_camera_transform() -> TransformStamped:
+    transform = TransformStamped()
+    transform.transform.translation.z = 1.0
+    # Camera optical +Z points toward base -Z.
+    transform.transform.rotation.x = 1.0
+    transform.transform.rotation.w = 0.0
+    return transform
+
+
+def test_white_surface_grid_cell_requires_its_local_patch_to_be_white():
+    analyzer = _white_surface_analyzer()
+    session = _white_surface_session()
+    matrix = np.array([[100.0, 0.0, 50.0],
+                       [0.0, 100.0, 50.0],
+                       [0.0, 0.0, 1.0]])
+    image = np.full((100, 100, 3), 220, dtype=np.uint8)
+
+    observed, confirmed, _debug = analyzer.evaluate_white_table_grid(
+        session, image, matrix, _downward_camera_transform())
+    assert observed == [True]
+    assert confirmed == [True]
+
+    image[43:58, 43:58] = (0, 0, 180)
+    _observed, confirmed, _debug = analyzer.evaluate_white_table_grid(
+        session, image, matrix, _downward_camera_transform())
+    assert confirmed == [False]
+
+
+def test_white_surface_grid_uses_all_pixels_inside_projected_cell():
+    analyzer = _white_surface_analyzer()
+    session = _white_surface_session()
+    matrix = np.array([[100.0, 0.0, 50.0],
+                       [0.0, 100.0, 50.0],
+                       [0.0, 0.0, 1.0]])
+    image = np.full((100, 100, 3), 220, dtype=np.uint8)
+
+    # This stripe lies between the former 3x3 sample columns (45, 50, 55).
+    # Rasterizing the complete projected cell must still detect it.
+    image[45:56, 47:49] = (0, 0, 180)
+
+    observed, confirmed, _debug = analyzer.evaluate_white_table_grid(
+        session, image, matrix, _downward_camera_transform())
+
+    assert observed == [True]
+    assert confirmed == [False]
+
+
+def test_white_surface_does_not_treat_clipped_highlights_as_free_space():
+    analyzer = _white_surface_analyzer()
+    session = _white_surface_session()
+    matrix = np.array([[100.0, 0.0, 50.0],
+                       [0.0, 100.0, 50.0],
+                       [0.0, 0.0, 1.0]])
+    image = np.full((100, 100, 3), 255, dtype=np.uint8)
+
+    observed, confirmed, _debug = analyzer.evaluate_white_table_grid(
+        session, image, matrix, _downward_camera_transform())
+    assert observed == [False]
+    assert confirmed == [False]
+
+
+def test_white_surface_result_requires_repeated_confirmation():
+    analyzer = _white_surface_analyzer()
+    analyzer.sessions_lock = threading.RLock()
+    analyzer.base_frame = 'arm_base_link'
+    analyzer.white_surface_min_confirmed_frames = 2
+    analyzer.white_surface_min_confirmed_ratio = 0.60
+    session = _white_surface_session()
+    session.table_cell_observations = [3]
+    session.table_cell_confirmations = [2]
+
+    result = analyzer._result(session, 'ok')
+
+    assert list(result.table_surface_grid.cells) == [TableSurfaceGrid.FREE]
+
+    session.table_cell_confirmations = [1]
+    result = analyzer._result(session, 'ok')
+    assert list(result.table_surface_grid.cells) == [TableSurfaceGrid.BLOCKED]

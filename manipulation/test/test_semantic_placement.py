@@ -5,7 +5,7 @@ from geometry_msgs.msg import PoseStamped
 from interfaces.action import PlaceInContainer, PlaceOnTable
 from interfaces.msg import (
     AprilTagStampedDetection, ContainerStampedDetection,
-    ManipulationFeedback, ManipulationResult,
+    ManipulationFeedback, ManipulationResult, TableSurfaceGrid,
 )
 
 from manipulation.errors import (
@@ -72,6 +72,24 @@ def _search_profile(**overrides):
     }
     values.update(overrides)
     return PlacementProfile(**values)
+
+
+def _table_grid(default=TableSurfaceGrid.FREE):
+    grid = TableSurfaceGrid()
+    grid.header.frame_id = 'arm_base_link'
+    grid.resolution_m = 0.01
+    grid.x_min_m = -0.50
+    grid.y_min_m = -0.60
+    grid.width = 101
+    grid.height = 101
+    grid.cells = [default] * (grid.width * grid.height)
+    return grid
+
+
+def _set_grid_cell(grid, x, y, value):
+    column = round((x - grid.x_min_m) / grid.resolution_m)
+    row = round((y - grid.y_min_m) / grid.resolution_m)
+    grid.cells[row * grid.width + column] = value
 
 
 def _detection(tag_id, x, y):
@@ -219,11 +237,9 @@ def test_table_deposit_always_uses_one_combined_scene_request():
     server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
     calls = []
 
-    def analyze(duration, *, analisar_apriltags, analisar_containers,
-                altura_mesa_m):
-        calls.append((duration, analisar_apriltags, analisar_containers,
-                      altura_mesa_m))
-        return [], []
+    def analyze(duration, **kwargs):
+        calls.append((duration, kwargs))
+        return [], [], _table_grid()
 
     server._motion = SimpleNamespace(analisar_cena=analyze)
     server._release_at_pose = (
@@ -234,7 +250,17 @@ def test_table_deposit_always_uses_one_combined_scene_request():
     goal.ws_height_cm = 12.5
     server._execute_place_on_table(SimpleNamespace(request=goal))
 
-    assert calls == [(2.0, True, True, 0.125)]
+    duration, request = calls[0]
+    assert duration == 2.0
+    assert request['analisar_apriltags'] is False
+    assert request['analisar_containers'] is False
+    assert request['analisar_mesa_branca'] is True
+    assert request['altura_mesa_m'] == pytest.approx(0.125)
+    assert request['resolucao_grade_m'] == pytest.approx(0.01)
+    assert request['mesa_x_min_m'] < -0.16
+    assert request['mesa_x_max_m'] > 0.16
+    assert request['mesa_y_min_m'] < -0.24
+    assert request['mesa_y_max_m'] > -0.14
 
 
 def test_table_requires_release_orientation_calibration_before_detection():
@@ -277,7 +303,7 @@ def test_table_empty_scene_uses_fixed_xy_and_height_plus_tcp_offset():
     server._arm_state = lambda *_args: None
     server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
     server._motion = SimpleNamespace(
-        analisar_cena=lambda *_args, **_kwargs: ([], []))
+        analisar_cena=lambda *_args, **_kwargs: ([], [], _table_grid()))
     captured = {}
 
     def release(_handle, _action, pose, _profile, _destination):
@@ -336,6 +362,22 @@ def test_table_search_rejects_disjoint_rectangle_and_reach_annulus():
 
     with pytest.raises(ConfigurationError, match='não contém candidatos'):
         ManipulationServer._table_search_candidates(profile)
+
+
+def test_table_grid_requires_every_intersecting_footprint_cell_to_be_free():
+    grid = _table_grid()
+    assert ManipulationServer._table_grid_footprint_is_free(
+        grid, 0.0, -0.20, 0.0, 0.07, 0.04, 0.0)
+
+    _set_grid_cell(grid, 0.06, -0.20, TableSurfaceGrid.BLOCKED)
+    assert not ManipulationServer._table_grid_footprint_is_free(
+        grid, 0.0, -0.20, 0.0, 0.07, 0.04, 0.0)
+    assert ManipulationServer._table_grid_footprint_is_free(
+        grid, 0.0, -0.20, -90.0, 0.07, 0.04, 0.0)
+
+    _set_grid_cell(grid, 0.0, -0.20, TableSurfaceGrid.UNKNOWN)
+    assert not ManipulationServer._table_grid_footprint_is_free(
+        grid, 0.0, -0.20, -90.0, 0.07, 0.04, 0.0)
 
 
 def test_table_search_prefers_nearest_candidate_with_comfortable_clearance():
@@ -429,7 +471,7 @@ def test_table_search_rotates_container_and_supports_clearance_uncertainty():
     assert selected == pytest.approx((0.0, 0.20, 0.0))
 
 
-def test_table_deposit_treats_partial_container_like_complete_obstacle():
+def test_table_deposit_reports_no_space_without_confirmed_white_surface():
     server = _operation_only_server()
     server._profiles = SimpleNamespace(
         placements={'table': _search_profile()},
@@ -439,41 +481,18 @@ def test_table_deposit_treats_partial_container_like_complete_obstacle():
     )
     server._arm_state = lambda *_args: None
     server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
-    container = _container_detection(PlaceInContainer.Goal.RED)
-    container.partial = True
-    container.position_uncertainty_m = 0.50
-    container.position_spread_m = 0.25
-    container.yaw_uncertainty_deg = 90.0
-    container.yaw_spread_deg = 45.0
     server._motion = SimpleNamespace(analisar_cena=lambda *_args, **_kwargs: (
-        [], [container]
+        [], [], _table_grid(TableSurfaceGrid.BLOCKED)
     ))
-    captured = {}
-
-    def select(_candidates, obstacles, *_args, **_kwargs):
-        captured['obstacles'] = obstacles
-        return 0.0, -0.20, 0.0
-
-    server._select_free_table_position = select
     server._release_at_pose = lambda *_args: ('ok', 4, _args[2])
     goal = PlaceOnTable.Goal()
     goal.ws_height_cm = 10.0
 
-    server._execute_place_on_table(SimpleNamespace(request=goal))
-
-    assert captured['obstacles'] == pytest.approx([
-        (
-            container.pose.position.x,
-            container.pose.position.y,
-            container.external_depth_m,
-            container.external_width_m,
-            0.0,
-            0.0,
-        )
-    ])
+    with pytest.raises(NoFreeSpace, match='mesa branca'):
+        server._execute_place_on_table(SimpleNamespace(request=goal))
 
 
-def test_table_apriltag_analysis_treats_every_detection_as_obstacle(monkeypatch):
+def test_table_deposit_uses_first_shuffled_candidate_free_in_grid(monkeypatch):
     monkeypatch.setattr(
         'manipulation.node.random.shuffle', lambda _candidates: None)
     server = _operation_only_server()
@@ -486,25 +505,19 @@ def test_table_apriltag_analysis_treats_every_detection_as_obstacle(monkeypatch)
     server._arm_state = lambda *_args: None
     server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
     server._motion = SimpleNamespace(analisar_cena=lambda *_args, **_kwargs: (
-        [_detection(5, 0.0, -0.20)], []
+        [], [], _table_grid()
     ))
     captured = {}
-
-    def select(_candidates, obstacles, *_args, **_kwargs):
-        captured['obstacles'] = obstacles
-        return -0.10, -0.30, 0.0
 
     def release(_handle, _action, pose, _profile, _destination):
         captured['pose'] = pose
         return 'ok', 4, pose
 
-    server._select_free_table_position = select
     server._release_at_pose = release
     goal = PlaceOnTable.Goal()
     goal.ws_height_cm = 10.0
     server._execute_place_on_table(SimpleNamespace(request=goal))
 
-    assert captured['obstacles'] == pytest.approx([(0.0, -0.20)])
     assert captured['pose'].pose.position.x == pytest.approx(-0.10)
     assert captured['pose'].pose.position.y == pytest.approx(-0.30)
 
@@ -517,6 +530,8 @@ def test_table_deposit_applies_alternate_yaw_selected_by_free_space_search():
             search_x_max_m=0.0,
             search_y_min_m=-0.20,
             search_y_max_m=-0.20,
+            free_space_min_padding_m=0.0,
+            free_space_preferred_padding_m=0.0,
         )},
         pickup_profile=lambda _name: SimpleNamespace(
             observation_state='detect_apriltags'
@@ -524,8 +539,10 @@ def test_table_deposit_applies_alternate_yaw_selected_by_free_space_search():
     )
     server._arm_state = lambda *_args: None
     server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
+    grid = _table_grid()
+    _set_grid_cell(grid, 0.06, -0.20, TableSurfaceGrid.BLOCKED)
     server._motion = SimpleNamespace(analisar_cena=lambda *_args, **_kwargs: (
-        [_detection(8, 0.055, -0.20)], []
+        [], [], grid
     ))
     captured = {}
 
@@ -559,25 +576,23 @@ def test_table_deposit_tests_profile_yaw_preference_first():
     server._arm_state = lambda *_args: None
     server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
     server._motion = SimpleNamespace(analisar_cena=lambda *_args, **_kwargs: (
-        [], []
+        [], [], _table_grid()
     ))
     captured = {}
 
-    def select(
-        _candidates, _obstacles, _half_x, _half_y, _padding, yaws,
-        **_kwargs,
-    ):
-        captured['yaws'] = yaws
-        return 0.0, -0.20, yaws[0]
+    def release(_handle, _action, pose, _profile, _destination):
+        captured['pose'] = pose
+        return 'ok', 4, pose
 
-    server._select_free_table_position = select
-    server._release_at_pose = lambda *_args: ('ok', 4, _args[2])
+    server._release_at_pose = release
     goal = PlaceOnTable.Goal()
     goal.ws_height_cm = 10.0
 
     server._execute_place_on_table(SimpleNamespace(request=goal))
 
-    assert captured['yaws'] == (-90.0, 0.0)
+    orientation = captured['pose'].pose.orientation
+    assert orientation.z == pytest.approx(-0.5)
+    assert orientation.w == pytest.approx(0.5)
 
 
 def test_table_apriltag_analysis_requires_complete_search_bounds_before_motion():
