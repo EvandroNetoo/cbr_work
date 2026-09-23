@@ -7,7 +7,7 @@ Na Banana Pi, `hardware.launch.py` inicia apenas drivers físicos e controle de
 baixo nível: braço, base, LiDAR, IMU, VL53, um único `controller_manager`,
 `joint_state_broadcaster` e os controllers. Na Raspberry Pi 4,
 `processing.launch.py` inicia `robot_state_publisher`, EKF e, por padrão,
-visão, localização/Nav2, MoveIt/manipulação e missão. RViz e teleop continuam
+visão, localização/Nav2, MoveIt, manipulação e missão. RViz e teleop continuam
 separados no perfil de workstation.
 
 ```bash
@@ -38,8 +38,9 @@ ros2 launch bringup processing.launch.py components:=mission
 ```
 
 As listas aceitam `rsp`, `ekf`, `camera`, `vision`, `localization`, `navigation`,
-`manipulation` e `mission`, separados por vírgulas. `components` é a lista do
-que pode iniciar e seu padrão é `all`; `disable_components` é removido dela.
+`moveit`, `manipulation` e `mission`, separados por vírgulas. `components` é a
+lista do que pode iniciar e seu padrão é `all`; `disable_components` é removido
+dela.
 Assim, cada componente deve aparecer em apenas uma máquina. Por exemplo, para
 manter a câmera física no Raspberry e executar sua análise no notebook:
 
@@ -52,27 +53,25 @@ ros2 launch bringup processing.launch.py \
 ros2 launch bringup processing.launch.py components:=vision,mission
 ```
 
-Os argumentos antigos `enable_vision`, `enable_navigation`,
-`enable_manipulation` e `enable_mission` continuam aceitos como filtros de
-compatibilidade. `enable_navigation:=false` retira conjuntamente map server,
-AMCL e Nav2; `enable_vision:=false` retira câmera e análise de visão.
-Quando `manipulation` está selecionado, MoveIt e o servidor semântico só são
-iniciados depois que os controllers remotos do braço respondem como ativos.
+`moveit` inicia o `move_group` depois que os controllers remotos do braço
+respondem como ativos. `manipulation` inicia separadamente o servidor
+semântico, permitindo que os dois componentes sejam distribuídos entre máquinas
+diferentes.
 
 O perfil distribuído usa câmera a 15 FPS, detector AprilTag limitado a 10 Hz e
 `controller_manager` a 30 Hz. O braço amostra o setpoint mais recente a 60 Hz,
 mas só escreve na serial quando ele muda; a taxa maior evita alias com o loop
 de controle. A base mantém somente o comando mais recente e reenvia o alvo
-estacionário a 5 Hz. O LiDAR permanece ativo no perfil de hardware; MoveIt
-pode ser desligado com `enable_manipulation:=false`.
+estacionário a 5 Hz. O LiDAR permanece ativo no perfil de hardware; MoveIt pode
+ser retirado com `disable_components:=moveit`.
 
 As poses cartesianas e as detecções usadas pela manipulação são expressas em
 `arm_base_link`. No perfil composto, `base_link` pertence ao chassi e difere da
 base do braço pelo yaw físico de 90 graus do suporte.
 
-O servidor `manipulation_server` é iniciado depois da ativação dos controllers,
-junto ao MoveIt. O gerenciador de missão pode ser desligado independentemente;
-o notebook não é requisito para a autonomia.
+O servidor `manipulation_server` e o MoveIt podem ser selecionados
+independentemente. O gerenciador de missão também pode ser desligado sem afetar
+os demais componentes; o notebook não é requisito para a autonomia.
 
 No notebook, a workstation consome os tópicos publicados pelo robô sem iniciar
 drivers, controllers ou outro `robot_state_publisher`:

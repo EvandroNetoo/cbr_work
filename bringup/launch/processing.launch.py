@@ -28,13 +28,10 @@ COMPONENTS = (
     'vision',
     'localization',
     'navigation',
+    'moveit',
     'manipulation',
     'mission',
 )
-
-
-def _enabled(context, name):
-    return LaunchConfiguration(name).perform(context).lower() == 'true'
 
 
 def _parse_components(value, argument_name, *, empty_means_all=False):
@@ -69,18 +66,6 @@ def _selected_components(context):
         'disable_components',
     )
     selected -= disabled
-
-    # Backwards-compatible filters. They never add a component to an explicit
-    # allow-list; they only preserve the old enable_*:=false behaviour.
-    legacy_groups = {
-        'enable_vision': {'camera', 'vision'},
-        'enable_navigation': {'localization', 'navigation'},
-        'enable_manipulation': {'manipulation'},
-        'enable_mission': {'mission'},
-    }
-    for argument, group in legacy_groups.items():
-        if not _enabled(context, argument):
-            selected -= group
     return selected
 
 
@@ -109,10 +94,10 @@ def _shutdown(reason):
 
 def _launch_setup(context):
     selected = _selected_components(context)
-    manipulation_enabled = 'manipulation' in selected
+    moveit_enabled = 'moveit' in selected
     moveit_config = None
     move_group_entities = []
-    if manipulation_enabled:
+    if moveit_enabled:
         # Keep MoveIt imports and configuration out of disabled profiles.
         from moveit_configs_utils.launches import generate_move_group_launch
         from so_arm_101_moveit_config.configuration import (
@@ -218,28 +203,30 @@ def _launch_setup(context):
                 }.items()),
         ]))
 
-    if manipulation_enabled:
+    if moveit_enabled:
         controller_ready = Node(
             package='so_arm_101_bringup', executable='wait_for_controllers',
             output='screen', parameters=[{'timeout_sec': 60.0}])
-        manipulation = IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(PathJoinSubstitution([
-                FindPackageShare('manipulation'), 'launch',
-                'manipulation.launch.py'])))
 
-        def start_manipulation(event, launch_context):
+        def start_moveit(event, launch_context):
             del launch_context
             if event.returncode != 0:
                 return _shutdown(
                     'Controllers do braço não ficaram ativos para o MoveIt.')
-            return move_group_entities + [manipulation]
+            return move_group_entities
 
         actions.extend([
             controller_ready,
             RegisterEventHandler(OnProcessExit(
                 target_action=controller_ready,
-                on_exit=start_manipulation)),
+                on_exit=start_moveit)),
         ])
+
+    if 'manipulation' in selected:
+        actions.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare('manipulation'), 'launch',
+                'manipulation.launch.py']))))
 
     if 'mission' in selected:
         actions.append(IncludeLaunchDescription(
@@ -261,14 +248,6 @@ def generate_launch_description():
             'disable_components', default_value='',
             description=(
                 'Lista separada por vírgulas removida de components; aceita all.')),
-        DeclareLaunchArgument(
-            'enable_vision', default_value='true', choices=['true', 'false']),
-        DeclareLaunchArgument(
-            'enable_navigation', default_value='true', choices=['true', 'false']),
-        DeclareLaunchArgument(
-            'enable_manipulation', default_value='true', choices=['true', 'false']),
-        DeclareLaunchArgument(
-            'enable_mission', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument(
             'map', default_value='arena',
             description='Nome de um mapa instalado, sem caminho ou extensão.'),

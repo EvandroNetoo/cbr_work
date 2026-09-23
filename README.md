@@ -69,9 +69,9 @@ ros2 launch bringup processing.launch.py components:=mission
 ```
 
 Os nomes disponíveis são `rsp`, `ekf`, `camera`, `vision`, `localization`,
-`navigation`, `manipulation` e `mission`. Separe vários nomes por vírgulas.
-Os argumentos `enable_vision`, `enable_navigation`, `enable_manipulation` e
-`enable_mission` permanecem disponíveis para compatibilidade.
+`navigation`, `moveit`, `manipulation` e `mission`. Separe vários nomes por
+vírgulas. MoveIt e o servidor de manipulação podem ser selecionados
+independentemente.
 
 A localização usa `arena` por padrão. Para trocar o mapa, informe somente o
 nome instalado, sem diretório e sem `.yaml`:
@@ -85,9 +85,10 @@ mesmos AprilTags e frames do perfil anterior. O LiDAR e a IMU continuam na
 Banana, publicando `/scan_front` e `/imu/data` para AMCL/Nav2 e EKF no Raspberry.
 
 O hardware aguarda estados completos do braço, base e IMU antes de ativar os
-controllers. O Raspberry aguarda os controllers do braço antes de iniciar
-MoveIt e manipulação. Falhas físicas continuam encerrando o launch da Banana
-para reinício por um supervisor externo, como `systemd`.
+controllers. O componente `moveit` aguarda os controllers do braço antes de
+iniciar; `manipulation` é iniciado separadamente. Falhas físicas continuam
+encerrando o launch da Banana para reinício por um supervisor externo, como
+`systemd`.
 
 O perfil monolítico anterior permanece inalterado para rollback:
 

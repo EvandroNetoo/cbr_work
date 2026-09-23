@@ -44,12 +44,15 @@ def test_hardware_profile_contains_only_hardware_and_local_control():
     assert 'OnProcessExit(target_action=base, on_exit=start_vl53)' in source
 
 
-def test_processing_profile_exposes_independent_full_autonomy_flags():
+def test_processing_profile_exposes_component_selection():
     source = _source('processing.launch.py')
 
-    for feature in ('vision', 'navigation', 'manipulation', 'mission'):
-        assert f"'enable_{feature}', default_value='true'" in source
-        assert f"'enable_{feature}':" in source
+    assert "'components', default_value='all'" in source
+    assert "'disable_components', default_value=''" in source
+    for legacy_argument in (
+            'enable_vision', 'enable_navigation', 'enable_manipulation',
+            'enable_mission'):
+        assert legacy_argument not in source
 
     assert "'map', default_value='arena'" in source
     assert "'camera_framerate', default_value='15.0'" in source
@@ -70,10 +73,6 @@ def test_processing_component_lists_default_to_everything_and_can_be_filtered(
     context.launch_configurations.update({
         'components': 'all',
         'disable_components': 'mission',
-        'enable_vision': 'true',
-        'enable_navigation': 'true',
-        'enable_manipulation': 'true',
-        'enable_mission': 'true',
     })
 
     selected = module._selected_components(context)
@@ -87,15 +86,11 @@ def test_processing_component_allow_list_starts_only_requested_items(
     monkeypatch.setenv('ROS_LOG_DIR', str(tmp_path))
     context = LaunchContext()
     context.launch_configurations.update({
-        'components': 'mission',
+        'components': 'moveit,manipulation',
         'disable_components': '',
-        'enable_vision': 'true',
-        'enable_navigation': 'true',
-        'enable_manipulation': 'true',
-        'enable_mission': 'true',
     })
 
-    assert module._selected_components(context) == {'mission'}
+    assert module._selected_components(context) == {'moveit', 'manipulation'}
 
 
 def test_processing_component_lists_reject_unknown_names():
