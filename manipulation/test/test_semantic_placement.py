@@ -786,22 +786,38 @@ def test_ambiguous_partial_container_is_not_used_as_drop_center(
             _container_goal(PlaceInContainer.Goal.RED))
 
 
-def test_container_missing_or_ambiguous_color_does_not_start_release():
-    for detections, error in (
-        ([], ObjectNotFound),
-        ([_container_detection(PlaceInContainer.Goal.RED),
-          _container_detection(PlaceInContainer.Goal.RED, x=0.10)],
-         PerceptionUnavailable),
-    ):
-        server = _container_operation_server(detections)
-        released = []
-        server._release_in_container = lambda *args: released.append(args)
+def test_missing_container_does_not_start_release():
+    server = _container_operation_server([])
+    released = []
+    server._release_in_container = lambda *args: released.append(args)
 
-        with pytest.raises(error):
-            server._execute_place_in_container(
-                _container_goal(PlaceInContainer.Goal.RED)
-            )
-        assert released == []
+    with pytest.raises(ObjectNotFound):
+        server._execute_place_in_container(
+            _container_goal(PlaceInContainer.Goal.RED)
+        )
+    assert released == []
+
+
+def test_nearest_same_color_container_is_selected():
+    farther = _container_detection(
+        PlaceInContainer.Goal.RED, x=0.18, y=-0.22)
+    nearest = _container_detection(
+        PlaceInContainer.Goal.RED, x=0.03, y=-0.16)
+    other_color = _container_detection(
+        PlaceInContainer.Goal.BLUE, x=0.01, y=-0.05)
+    server = _container_operation_server([farther, other_color, nearest])
+    released = []
+    server._release_in_container = lambda *args: released.append(args) or (
+        'ok', ManipulationResult.LOCATION_DESTINATION, args[1]
+    )
+
+    _message, _location, pose = server._execute_place_in_container(
+        _container_goal(PlaceInContainer.Goal.RED)
+    )
+
+    assert len(released) == 1
+    assert pose.pose.position.x == pytest.approx(nearest.pose.position.x)
+    assert pose.pose.position.y == pytest.approx(nearest.pose.position.y)
 
 
 @pytest.mark.parametrize('invalid_field', [

@@ -1362,13 +1362,16 @@ class ManipulationServer(Node):
             if not matches:
                 raise ObjectNotFound(
                     f'Contêiner {colors[color]} não foi encontrado.')
-            if len(matches) != 1:
-                raise PerceptionUnavailable(
-                    f'A cena contém {len(matches)} contêineres '
-                    f'{colors[color]}s; o destino é ambíguo.')
-            if matches[0].partial:
-                overlap = float(matches[0].partial_fit_overlap)
-                uncertainty = float(matches[0].position_uncertainty_m)
+            selected = min(
+                matches,
+                key=lambda detection: math.hypot(
+                    float(detection.pose.position.x),
+                    float(detection.pose.position.y),
+                ),
+            )
+            if selected.partial:
+                overlap = float(selected.partial_fit_overlap)
+                uncertainty = float(selected.position_uncertainty_m)
                 if (not math.isfinite(overlap) or
                     not math.isfinite(uncertainty) or
                     overlap < profile.partial_target_min_overlap or
@@ -1378,14 +1381,14 @@ class ManipulationServer(Node):
                         'centro excede os limites configurados para depósito: '
                         f'overlap={overlap:.2f}, incerteza XY={uncertainty:.3f} m.')
             release_pose = self._container_release_pose(
-                matches[0], height_cm, profile.reference_offset_xyz,
+                selected, height_cm, profile.reference_offset_xyz,
             )
-            if matches[0].partial:
+            if selected.partial:
                 self._feedback(
                     goal_handle, PlaceInContainer,
                     ManipulationFeedback.OBSERVING, 0.30,
                     'Contêiner parcialmente visível: usando centro estimado '
-                    f'(incerteza XY {matches[0].position_uncertainty_m:.3f} m)',
+                    f'(incerteza XY {selected.position_uncertainty_m:.3f} m)',
                 )
             return self._release_in_container(
                 goal_handle, release_pose,
