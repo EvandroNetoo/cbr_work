@@ -4,6 +4,11 @@ initial_location: ws_2
 
 # Os cubos e os contêineres vermelho e azul estão na mesa 2.
 steps:
+
+  - id: navigate_to_ws_2
+    action: navigate
+    target: ws_2
+
   - id: pegar_cubo_1
     action: pick
     tag_id: 1
