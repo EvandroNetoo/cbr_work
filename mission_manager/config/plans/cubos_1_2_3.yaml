@@ -1,11 +1,10 @@
 schema_version: 1
 plan_id: cubos_1_2_3
-initial_location: ws_2
 
 # Os cubos e os contêineres vermelho e azul estão na mesa 2.
 steps:
 
-  - id: navigate_to_ws_2
+  - id: navigate_to_ws_1
     action: navigate
     target: ws_1
 
@@ -13,16 +12,16 @@ steps:
     action: pick
     tag_id: 1
 
-  - id: depositar_cubo_1_no_container_vermelho
+  - id: depositar_cubo_1_no_container
     action: place_on_table
 
-  # - id: pegar_cubo_2
-  #   action: pick
-  #   tag_id: 2
+  - id: pegar_cubo_2
+    action: pick
+    tag_id: 2
 
-  # - id: depositar_cubo_2_no_container_azul
-  #   action: place_in_container
-  #   container_color: blue
+  - id: depositar_cubo_2_no_container
+    action: place_in_container
+    container_color: red
 
   # - id: pegar_cubo_3
   #   action: pick

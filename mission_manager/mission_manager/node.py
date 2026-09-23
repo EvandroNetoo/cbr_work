@@ -23,7 +23,9 @@ from interfaces.action import (
     StackObject,
     StoreObject,
 )
-from interfaces.msg import CargoSlotState, ManipulationResult, ManipulationState
+from interfaces.msg import (
+    CargoSlotState, ManipulationResult, ManipulationState, SceneObservation,
+)
 from nav2_msgs.action import NavigateToPose
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
@@ -36,6 +38,7 @@ from .errors import ConfigurationError, MissionCanceled, StateConflict, StepFail
 from .loaders import load_arena, load_plan, PLAN_ID_PATTERN, validate_plan
 from .models import (
     Arena,
+    ContainerObservation,
     PickupRecoveryConfig,
     Plan,
     Step,
@@ -52,6 +55,7 @@ class MissionManager(Node):
         super().__init__('mission_manager')
         if (
             not hasattr(PickObject.Result(), 'observed_detections')
+            or not hasattr(PickObject.Result(), 'scene_observation')
             or not hasattr(PrepareManipulator.Goal(), 'gripper_loaded')
             or not hasattr(PlaceOnTable.Goal(), 'use_fallback_pose')
         ):
@@ -115,6 +119,10 @@ class MissionManager(Node):
         self._current_wall_distance_mm: float | None = None
         self._current_lateral_position_mm = 0.0
         self._tag_observations: dict[tuple[str, int], TagObservation] = {}
+        self._container_observations: dict[
+            tuple[str, int], ContainerObservation
+        ] = {}
+        self._container_search_positions: dict[str, set[int]] = {}
         self._visited_search_positions: dict[str, set[int]] = {}
         self._last_table_observation: TableObservation | None = None
         self._active_child = None
@@ -427,6 +435,7 @@ class MissionManager(Node):
         self._reconcile_manipulation_result(
             operation, tag_id, slot_id, result
         )
+        self._remember_scene_observations(result)
         return result
 
     @staticmethod
@@ -600,29 +609,69 @@ class MissionManager(Node):
             result.traveled_distance_mm
         )
 
-    def _remember_pick_observations(self, result: PickObject.Result) -> None:
-        assert self._arena is not None
-        if self._current_wall_distance_mm is None:
-            return
-        config = self._arena.pickup_recovery
-        observation_completed = bool(result.observed_detections) or (
-            result.outcome.code
-            in {ManipulationResult.SUCCESS, ManipulationResult.OBJECT_NOT_FOUND}
+    @staticmethod
+    def _container_observation_quality(detection: Any) -> tuple[Any, ...]:
+        """Prefer complete, well-supported and geometrically stable views."""
+        def finite_or_infinity(value: Any) -> float:
+            number = float(value)
+            return number if math.isfinite(number) else math.inf
+
+        return (
+            not bool(detection.partial),
+            int(detection.observation_count),
+            -finite_or_infinity(detection.position_spread_m),
+            -finite_or_infinity(detection.position_uncertainty_m),
+            -finite_or_infinity(detection.pose_error),
         )
-        if observation_completed:
+
+    def _remember_scene_observations(self, result: Any) -> None:
+        """Merge one action's camera snapshot into mission-owned memory."""
+        arena = getattr(self, '_arena', None)
+        if arena is None or self._current_wall_distance_mm is None:
+            return
+        scene = getattr(result, 'scene_observation', None)
+        if scene is not None and bool(scene.completed):
+            detections = list(scene.apriltags)
+            containers = list(scene.containers)
+            apriltag_observation_completed = bool(
+                int(scene.requested_detectors) & SceneObservation.APRILTAGS
+            )
+            container_observation_completed = bool(
+                int(scene.requested_detectors) & SceneObservation.CONTAINERS
+            )
+        else:
+            detections = list(getattr(result, 'observed_detections', []))
+            containers = []
+            apriltag_observation_completed = (
+                hasattr(result, 'observed_detections')
+                and (
+                    bool(detections)
+                    or result.outcome.code in {
+                        ManipulationResult.SUCCESS,
+                        ManipulationResult.OBJECT_NOT_FOUND,
+                    }
+                )
+            )
+            container_observation_completed = False
+        config = arena.pickup_recovery
+        if apriltag_observation_completed or container_observation_completed:
             self._last_table_observation = TableObservation(
                 area_id=self._current_location,
                 wall_distance_mm=self._current_wall_distance_mm,
                 lateral_position_mm=self._current_lateral_position_mm,
                 detected_tag_ids=frozenset(
-                    int(detection.id)
-                    for detection in result.observed_detections
+                    int(detection.id) for detection in detections
                 ),
+                apriltags_observed=apriltag_observation_completed,
+                detected_container_colors=frozenset(
+                    int(detection.color) for detection in containers
+                ),
+                containers_observed=container_observation_completed,
             )
             visited = self._visited_search_positions.setdefault(
                 self._current_location, set()
             )
-            area = self._arena.service_areas[self._current_location]
+            area = arena.service_areas[self._current_location]
             if (
                 abs(
                     area.alignment.distance_mm
@@ -637,7 +686,30 @@ class MissionManager(Node):
                     ):
                         visited.add(position)
 
-        for detection in result.observed_detections:
+        if container_observation_completed:
+            area = arena.service_areas[self._current_location]
+            if (
+                abs(
+                    area.alignment.distance_mm
+                    - self._current_wall_distance_mm
+                )
+                <= config.wall_tolerance_mm
+            ):
+                observed_positions = getattr(
+                    self, '_container_search_positions', None)
+                if observed_positions is None:
+                    observed_positions = {}
+                    self._container_search_positions = observed_positions
+                positions = observed_positions.setdefault(
+                    self._current_location, set())
+                for position in config.search_positions_mm:
+                    if (
+                        abs(position - self._current_lateral_position_mm)
+                        <= config.travel_tolerance_mm
+                    ):
+                        positions.add(position)
+
+        for detection in detections:
             pose = detection.pose.position
             pickup_wall, pickup_travel = self._pickup_recovery_correction(
                 self._current_wall_distance_mm,
@@ -658,6 +730,32 @@ class MissionManager(Node):
             self._tag_observations[
                 (self._current_location, int(detection.id))
             ] = observation
+
+        container_memory = getattr(self, '_container_observations', None)
+        if container_memory is None:
+            container_memory = {}
+            self._container_observations = container_memory
+        for detection in containers:
+            color = int(detection.color)
+            key = (self._current_location, color)
+            previous = container_memory.get(key)
+            if (
+                previous is not None
+                and self._container_observation_quality(previous.detection)
+                > self._container_observation_quality(detection)
+            ):
+                continue
+            container_memory[key] = ContainerObservation(
+                area_id=self._current_location,
+                color=color,
+                wall_distance_mm=self._current_wall_distance_mm,
+                lateral_position_mm=self._current_lateral_position_mm,
+                detection=copy.deepcopy(detection),
+            )
+
+    def _remember_pick_observations(self, result: PickObject.Result) -> None:
+        """Compatibility wrapper for callers of the former pick-only memory."""
+        self._remember_scene_observations(result)
 
     def _forget_picked_tag(self, tag_id: int) -> None:
         for key in [key for key in self._tag_observations if key[1] == tag_id]:
@@ -695,7 +793,36 @@ class MissionManager(Node):
         return (
             same_wall_distance
             and same_lateral_position
+            and observation.apriltags_observed
             and tag_id not in observation.detected_tag_ids
+        )
+
+    def _current_observation_excludes_container(self, color: int) -> bool:
+        if self._current_wall_distance_mm is None:
+            return False
+        observation = getattr(self, '_last_table_observation', None)
+        if observation is None or observation.area_id != self._current_location:
+            return False
+        config = self._arena.pickup_recovery
+        same_wall_distance = (
+            abs(
+                observation.wall_distance_mm
+                - self._current_wall_distance_mm
+            )
+            <= config.wall_tolerance_mm
+        )
+        same_lateral_position = (
+            abs(
+                observation.lateral_position_mm
+                - self._current_lateral_position_mm
+            )
+            <= config.travel_tolerance_mm
+        )
+        return (
+            same_wall_distance
+            and same_lateral_position
+            and observation.containers_observed
+            and int(color) not in observation.detected_container_colors
         )
 
     def _move_to_table_position(
@@ -785,6 +912,29 @@ class MissionManager(Node):
             f'retorno à posição armazenada da AprilTag {tag_id}',
         )
         return observation
+
+    def _position_from_container_memory(self, color: int) -> bool:
+        memory = getattr(self, '_container_observations', {})
+        observation = memory.get((self._current_location, int(color)))
+        if observation is None:
+            return False
+        color_name = {
+            PlaceInContainer.Goal.RED: 'vermelho',
+            PlaceInContainer.Goal.BLUE: 'azul',
+        }.get(int(color), str(color))
+        self.get_logger().info(
+            f'Contêiner {color_name} já observado em '
+            f'{self._current_location}; retornando ao ponto de observação '
+            f'parede={observation.wall_distance_mm:.0f} mm, '
+            f'lateral={observation.lateral_position_mm:.0f} mm. Uma nova '
+            'detecção será feita antes do depósito.'
+        )
+        self._move_to_table_position(
+            round(observation.wall_distance_mm),
+            observation.lateral_position_mm,
+            f'retorno ao contêiner {color_name} observado',
+        )
+        return True
 
     def _return_to_original_observation(
         self,
@@ -1052,6 +1202,9 @@ class MissionManager(Node):
             goal = PickObject.Goal()
             goal.tag_id = int(step.tag_id)
             goal.profile = ''
+            goal.ws_height_cm = float(
+                self._arena.service_areas[self._current_location].height_cm
+            )
             result = self._call_manipulation_action(
                 self._pick_client,
                 goal,
@@ -1060,7 +1213,6 @@ class MissionManager(Node):
                 'pick',
                 int(step.tag_id),
             )
-            self._remember_pick_observations(result)
             failure = self._manipulation_failure(result)
             if failure is None:
                 self._forget_picked_tag(int(step.tag_id))
@@ -1110,8 +1262,37 @@ class MissionManager(Node):
         timeout: float,
     ) -> None:
         """Retry perception-based placement across table search points."""
-        visited: set[int] = set()
+        visited: set[int] = set(
+            getattr(self, '_container_search_positions', {}).get(
+                self._current_location, set()
+            )
+            if step.action == 'place_in_container'
+            else ()
+        )
+        positioned_from_memory = False
+        if step.action == 'place_in_container':
+            color = int(goal.container_color)
+            positioned_from_memory = self._position_from_container_memory(
+                color)
         while True:
+            if (
+                step.action == 'place_in_container'
+                and not positioned_from_memory
+                and self._current_observation_excludes_container(color)
+            ):
+                self.get_logger().info(
+                    f"Contêiner do passo '{step.step_id}' ausente na última "
+                    'observação da posição atual; evitando uma nova detecção '
+                    'no mesmo local.'
+                )
+                self._mark_current_search_position(visited)
+                if self._move_to_next_place_search_position(step, visited):
+                    # FollowWall may be stopped before producing any physical
+                    # displacement. Re-check the measured position before
+                    # spending another camera session at the same viewpoint.
+                    continue
+                break
+            positioned_from_memory = False
             result = self._call_manipulation_action(
                 client,
                 goal,
@@ -1229,6 +1410,7 @@ class MissionManager(Node):
                 elif step.action == 'stack':
                     goal = StackObject.Goal()
                     goal.support_tag_id = int(step.support_tag_id)
+                    goal.ws_height_cm = float(area.height_cm)
                     client = self._stack_client
                 elif step.action == 'place_on_shelf':
                     goal = PlaceOnShelf.Goal()
@@ -1334,6 +1516,8 @@ class MissionManager(Node):
         self._current_wall_distance_mm = None
         self._current_lateral_position_mm = 0.0
         self._tag_observations.clear()
+        self._container_observations.clear()
+        self._container_search_positions.clear()
         self._visited_search_positions.clear()
         self._last_table_observation = None
         completed = 0

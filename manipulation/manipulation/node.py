@@ -24,7 +24,7 @@ from interfaces.action import (
 )
 from interfaces.msg import (
     ContainerStampedDetection, ManipulationFeedback, ManipulationResult,
-    TableSurfaceGrid,
+    SceneObservation, TableSurfaceGrid,
 )
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
@@ -89,6 +89,7 @@ class ManipulationServer(Node):
         super().__init__('manipulation_server')
         if (
             not hasattr(PickObject.Result(), 'observed_detections')
+            or not hasattr(PickObject.Result(), 'scene_observation')
             or not hasattr(PrepareManipulator.Goal(), 'gripper_loaded')
             or not hasattr(ContainerStampedDetection(), 'external_height_m')
         ):
@@ -115,6 +116,10 @@ class ManipulationServer(Node):
             'prepare_action': 'manipulation/prepare',
             'moveit_server_timeout_s': 15.0,
             'vision_analysis_duration_s': 2.0,
+            'vision_detectors.pick': ['apriltags', 'containers'],
+            'vision_detectors.place_on_table': ['table_surface'],
+            'vision_detectors.place_in_container': ['apriltags', 'containers'],
+            'vision_detectors.stack': ['apriltags', 'containers'],
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -129,6 +134,16 @@ class ManipulationServer(Node):
         )
         self._profiles = load_profiles(profiles_path, cargo_path)
         self._validate_named_states(self._profiles)
+        self._vision_detector_masks = {
+            operation: self._parse_detector_names(
+                operation,
+                list(self.get_parameter(
+                    f'vision_detectors.{operation}').value),
+            )
+            for operation in (
+                'pick', 'place_on_table', 'place_in_container', 'stack'
+            )
+        }
 
         self._callback_group = ReentrantCallbackGroup()
         self._busy = False
@@ -309,6 +324,104 @@ class ManipulationServer(Node):
                 f"Action '{self.get_parameter('move_group_action').value}' indisponível."
             )
 
+    @staticmethod
+    def _parse_detector_names(operation: str, names: list[str]) -> int:
+        bits = {
+            'apriltags': SceneObservation.APRILTAGS,
+            'containers': SceneObservation.CONTAINERS,
+            'table_surface': SceneObservation.TABLE_SURFACE,
+        }
+        unknown = sorted({str(name) for name in names} - bits.keys())
+        if unknown:
+            raise ConfigurationError(
+                f'vision_detectors.{operation} contém detectores desconhecidos: '
+                f'{unknown}.'
+            )
+        mask = 0
+        for name in names:
+            mask |= bits[str(name)]
+        required = {
+            'pick': SceneObservation.APRILTAGS,
+            'place_on_table': SceneObservation.TABLE_SURFACE,
+            'place_in_container': SceneObservation.CONTAINERS,
+            'stack': SceneObservation.APRILTAGS,
+        }[operation]
+        if not mask & required:
+            raise ConfigurationError(
+                f'vision_detectors.{operation} deve incluir o detector '
+                'necessário para a operação.'
+            )
+        return mask
+
+    def _detector_mask(self, operation: str) -> int:
+        configured = getattr(self, '_vision_detector_masks', None)
+        if configured is not None:
+            return int(configured[operation])
+        defaults = {
+            'pick': SceneObservation.APRILTAGS | SceneObservation.CONTAINERS,
+            'place_on_table': SceneObservation.TABLE_SURFACE,
+            'place_in_container': (
+                SceneObservation.APRILTAGS | SceneObservation.CONTAINERS
+            ),
+            'stack': SceneObservation.APRILTAGS | SceneObservation.CONTAINERS,
+        }
+        return defaults[operation]
+
+    def _new_scene_observation(self, operation: str) -> SceneObservation:
+        observation = SceneObservation()
+        observation.requested_detectors = self._detector_mask(operation)
+        return observation
+
+    @staticmethod
+    def _record_scene_observation(
+        observation: SceneObservation,
+        apriltags: list[Any],
+        containers: list[Any],
+    ) -> None:
+        """Merge one successful camera session into the action observation."""
+        observation.completed = True
+        tags_by_id = {int(item.id): item for item in observation.apriltags}
+        tags_by_id.update({int(item.id): item for item in apriltags})
+        observation.apriltags = [
+            copy.deepcopy(tags_by_id[tag_id]) for tag_id in sorted(tags_by_id)
+        ]
+        observation.containers.extend(copy.deepcopy(containers))
+
+    def _analyze_for_operation(
+        self,
+        operation: str,
+        duration: float,
+        observation: SceneObservation,
+        *,
+        work_surface_height_m: float,
+        table_bounds: tuple[float, float, float, float, float] | None = None,
+    ) -> tuple[list[Any], list[Any], TableSurfaceGrid | None]:
+        mask = int(observation.requested_detectors)
+        table_requested = bool(mask & SceneObservation.TABLE_SURFACE)
+        bounds = table_bounds or (0.0, 0.0, 0.0, 0.0, 0.0)
+        result = self._motion.analisar_cena(
+            duration,
+            analisar_apriltags=bool(mask & SceneObservation.APRILTAGS),
+            analisar_containers=bool(mask & SceneObservation.CONTAINERS),
+            analisar_mesa_branca=table_requested,
+            altura_mesa_m=float(work_surface_height_m),
+            mesa_x_min_m=bounds[0],
+            mesa_x_max_m=bounds[1],
+            mesa_y_min_m=bounds[2],
+            mesa_y_max_m=bounds[3],
+            resolucao_grade_m=bounds[4],
+        )
+        if table_requested:
+            apriltags, containers, table_grid = result
+        else:
+            apriltags, containers = result
+            table_grid = None
+        apriltags = list(apriltags)
+        containers = list(containers)
+        self._record_scene_observation(
+            observation, apriltags, containers)
+        return apriltags, containers, table_grid
+
     def _record_effect(self, location: int) -> None:
         """Record a completed physical load transition for the action result."""
         self._effect_location = int(location)
@@ -328,6 +441,7 @@ class ManipulationServer(Node):
         placed_pose: Any | None = None,
         failure: Exception | None = None,
         observed_detections: list[Any] | None = None,
+        scene_observation: SceneObservation | None = None,
     ) -> Any:
         result = action_type.Result()
         result.outcome.code = int(code)
@@ -349,6 +463,8 @@ class ManipulationServer(Node):
             result.moveit_error_code = failure.moveit_error_code
         if action_type is PickObject and observed_detections is not None:
             result.observed_detections = copy.deepcopy(observed_detections)
+        if scene_observation is not None and hasattr(result, 'scene_observation'):
+            result.scene_observation = copy.deepcopy(scene_observation)
         if code == ManipulationResult.SUCCESS:
             goal_handle.succeed()
         elif code == ManipulationResult.CANCELED:
@@ -366,6 +482,7 @@ class ManipulationServer(Node):
         *,
         requires_moveit: bool = True,
         observed_detections: list[Any] | None = None,
+        scene_observation: SceneObservation | None = None,
     ) -> Any:
         self._set_active(operation_name)
         self._effect_known = True
@@ -387,6 +504,7 @@ class ManipulationServer(Node):
                 action_type, goal_handle, ManipulationResult.SUCCESS,
                 message, location, placed_pose,
                 observed_detections=observed_detections,
+                scene_observation=scene_observation,
             )
         except OperacaoCancelada as error:
             self._cancel_event.clear()
@@ -394,6 +512,7 @@ class ManipulationServer(Node):
                 action_type, goal_handle, ManipulationResult.CANCELED,
                 f'{error} O braço foi mantido na posição em que parou.',
                 observed_detections=observed_detections,
+                scene_observation=scene_observation,
             )
         except Exception as error:
             code = ManipulationResult.MOTION_FAILED
@@ -410,6 +529,7 @@ class ManipulationServer(Node):
             return self._make_result(
                 action_type, goal_handle, code, str(error),
                 failure=error, observed_detections=observed_detections,
+                scene_observation=scene_observation,
             )
         finally:
             self._cancel_event.clear()
@@ -422,6 +542,7 @@ class ManipulationServer(Node):
     def _execute_pick(self, goal_handle: Any) -> PickObject.Result:
         tag_id = int(goal_handle.request.tag_id)
         observed_detections: list[Any] = []
+        scene_observation = self._new_scene_observation('pick')
 
         def remember(detections: list[Any]) -> None:
             by_id = {int(item.id): item for item in observed_detections}
@@ -454,11 +575,17 @@ class ManipulationServer(Node):
                     )
                     attempt_detections: list[Any] = []
                     try:
-                        x, y, tag_z, yaw = self._motion.obter_pose_da_april_tag(
-                            tag_id,
+                        tags, _containers, _table = self._analyze_for_operation(
+                            'pick',
                             duration,
-                            deteccoes_observadas=attempt_detections,
+                            scene_observation,
+                            work_surface_height_m=(
+                                float(goal_handle.request.ws_height_cm) / 100.0
+                            ),
                         )
+                        attempt_detections.extend(tags)
+                        x, y, tag_z, yaw = self._motion.pose_da_april_tag(
+                            tags, tag_id, duration)
                     finally:
                         remember(attempt_detections)
                     detected_pose = criar_pose(x, y, tag_z, yaw)
@@ -569,6 +696,7 @@ class ManipulationServer(Node):
             'pick',
             operation,
             observed_detections=observed_detections,
+            scene_observation=scene_observation,
         )
 
     def _execute_store(self, goal_handle: Any) -> StoreObject.Result:
@@ -1202,6 +1330,8 @@ class ManipulationServer(Node):
         return pose
 
     def _execute_place_on_table(self, goal_handle: Any) -> PlaceOnTable.Result:
+        scene_observation = self._new_scene_observation('place_on_table')
+
         def operation() -> tuple[str, int, Any]:
             height_cm = float(goal_handle.request.ws_height_cm)
             profile = self._placement_profile('table', 'Depósito na mesa')
@@ -1254,19 +1384,14 @@ class ManipulationServer(Node):
             duration = float(
                 self.get_parameter('vision_analysis_duration_s').value)
             try:
-                _tags, _containers, table_grid = (
-                    self._motion.analisar_cena(
-                        duration,
-                        analisar_apriltags=False,
-                        analisar_containers=False,
-                        analisar_mesa_branca=True,
-                        altura_mesa_m=height_cm / 100.0,
-                        mesa_x_min_m=analysis_bounds[0],
-                        mesa_x_max_m=analysis_bounds[1],
-                        mesa_y_min_m=analysis_bounds[2],
-                        mesa_y_max_m=analysis_bounds[3],
-                        resolucao_grade_m=float(profile.search_step_m),
-                    )
+                _tags, _containers, table_grid = self._analyze_for_operation(
+                    'place_on_table', duration, scene_observation,
+                    work_surface_height_m=height_cm / 100.0,
+                    table_bounds=(
+                        analysis_bounds[0], analysis_bounds[1],
+                        analysis_bounds[2], analysis_bounds[3],
+                        float(profile.search_step_m),
+                    ),
                 )
             except OperacaoCancelada:
                 raise
@@ -1315,11 +1440,14 @@ class ManipulationServer(Node):
 
         return self._run(
             PlaceOnTable, goal_handle, 'place_on_table', operation,
+            scene_observation=scene_observation,
         )
 
     def _execute_place_in_container(
         self, goal_handle: Any
     ) -> PlaceInContainer.Result:
+        scene_observation = self._new_scene_observation('place_in_container')
+
         def operation() -> tuple[str, int, Any]:
             color = int(goal_handle.request.container_color)
             colors = {
@@ -1349,8 +1477,10 @@ class ManipulationServer(Node):
             duration = float(
                 self.get_parameter('vision_analysis_duration_s').value)
             try:
-                detections = self._motion.obter_deteccoes_de_containers(
-                    duration, altura_mesa_m=height_cm / 100.0)
+                _tags, detections, _table = self._analyze_for_operation(
+                    'place_in_container', duration, scene_observation,
+                    work_surface_height_m=height_cm / 100.0,
+                )
             except OperacaoCancelada:
                 raise
             except RuntimeError as error:
@@ -1398,10 +1528,12 @@ class ManipulationServer(Node):
 
         return self._run(
             PlaceInContainer, goal_handle, 'place_in_container', operation,
+            scene_observation=scene_observation,
         )
 
     def _execute_stack(self, goal_handle: Any) -> StackObject.Result:
         support_tag_id = int(goal_handle.request.support_tag_id)
+        scene_observation = self._new_scene_observation('stack')
 
         def operation() -> tuple[str, int, Any]:
             if support_tag_id < 0:
@@ -1422,9 +1554,14 @@ class ManipulationServer(Node):
             self._arm_state(observation, 'Preparando câmera para empilhamento')
             duration = float(self.get_parameter('vision_analysis_duration_s').value)
             try:
-                x, y, z, yaw = self._motion.obter_pose_da_april_tag(
-                    support_tag_id, duration
+                tags, _containers, _table = self._analyze_for_operation(
+                    'stack', duration, scene_observation,
+                    work_surface_height_m=(
+                        float(goal_handle.request.ws_height_cm) / 100.0
+                    ),
                 )
+                x, y, z, yaw = self._motion.pose_da_april_tag(
+                    tags, support_tag_id, duration)
             except RuntimeError as error:
                 if 'não encontrada' in str(error).lower():
                     raise ObjectNotFound(str(error)) from error
@@ -1441,7 +1578,10 @@ class ManipulationServer(Node):
                 f'empilhamento sobre o objeto {support_tag_id}',
             )
 
-        return self._run(StackObject, goal_handle, 'stack', operation)
+        return self._run(
+            StackObject, goal_handle, 'stack', operation,
+            scene_observation=scene_observation,
+        )
 
     def _execute_place_on_shelf(
         self, goal_handle: Any

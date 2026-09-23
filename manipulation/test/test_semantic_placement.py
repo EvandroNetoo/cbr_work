@@ -699,7 +699,7 @@ def _container_operation_server(detections):
     server._arm_state = lambda *_args: None
     server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
     server._motion = SimpleNamespace(
-        obter_deteccoes_de_containers=lambda _duration, **_kwargs: detections,
+        analisar_cena=lambda _duration, **_kwargs: ([], detections),
     )
     return server
 

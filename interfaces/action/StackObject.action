@@ -1,7 +1,11 @@
 # Stack the object currently held by the gripper on a tagged support object.
 int32 support_tag_id
+# Work-surface height used when optional container perception needs to recover
+# a partially visible container pose.
+float32 ws_height_cm
 ---
 interfaces/ManipulationResult outcome
 geometry_msgs/PoseStamped placed_pose
+interfaces/SceneObservation scene_observation
 ---
 interfaces/ManipulationFeedback status

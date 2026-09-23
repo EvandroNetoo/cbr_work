@@ -7,5 +7,6 @@ bool use_fallback_pose
 ---
 interfaces/ManipulationResult outcome
 geometry_msgs/PoseStamped placed_pose
+interfaces/SceneObservation scene_observation
 ---
 interfaces/ManipulationFeedback status

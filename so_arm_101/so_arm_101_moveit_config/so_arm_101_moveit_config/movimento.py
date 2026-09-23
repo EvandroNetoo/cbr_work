@@ -382,6 +382,17 @@ class ExecutorDoMoveIt:
         deteccoes = self.obter_deteccoes_de_april_tags(duracao_da_analise)
         if deteccoes_observadas is not None:
             deteccoes_observadas.extend(deteccoes)
+        return self.pose_da_april_tag(deteccoes, tag_id, duracao_da_analise)
+
+    def pose_da_april_tag(
+        self,
+        deteccoes: Sequence[AprilTagStampedDetection],
+        tag_id: int,
+        duracao_da_analise: float,
+    ) -> tuple[float, float, float, float]:
+        """Extract one tag pose from an already completed scene analysis."""
+        if tag_id < 0:
+            raise ValueError("O ID da AprilTag não pode ser negativo.")
         deteccao = self._selecionar_april_tag(deteccoes, tag_id)
         if deteccao is None:
             ids_encontrados = sorted({item.id for item in deteccoes})

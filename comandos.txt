@@ -54,7 +54,7 @@ ros2 action send_goal /manipulation/prepare interfaces/action/PrepareManipulator
 
 # Coletar pela AprilTag (perfil atual: tabletop)
 ros2 action send_goal /manipulation/pick interfaces/action/PickObject \
-  "{tag_id: 5, profile: tabletop}" --feedback
+  "{tag_id: 5, profile: tabletop, ws_height_cm: 12.5}" --feedback
 
 # Armazenar no compartimento interno (slot_id: left ou right)
 ros2 action send_goal /manipulation/store interfaces/action/StoreObject \
@@ -80,7 +80,7 @@ ros2 action send_goal /manipulation/place_in_container interfaces/action/PlaceIn
 
 # Empilhar o objeto carregado sobre o objeto identificado pela AprilTag 5
 ros2 action send_goal /manipulation/stack interfaces/action/StackObject \
-  "{support_tag_id: 5}" --feedback
+  "{support_tag_id: 5, ws_height_cm: 12.5}" --feedback
 
 # Colocar na prateleira fixa
 # O perfil shelf esta desativado em manipulation/config/profiles.yaml.

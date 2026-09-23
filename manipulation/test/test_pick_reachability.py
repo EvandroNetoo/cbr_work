@@ -3,7 +3,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from interfaces.action import PickObject
-from interfaces.msg import AprilTagStampedDetection, ManipulationResult
+from interfaces.msg import (
+    AprilTagStampedDetection, ContainerStampedDetection, ManipulationResult,
+    SceneObservation,
+)
 from manipulation.errors import ObjectOutOfReach, PickRecoveryRequired
 from manipulation.node import ManipulationServer
 from manipulation.profiles import load_profiles
@@ -41,13 +44,19 @@ def test_pick_rejects_out_of_reach_tag_before_target_motion_or_retry():
     server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
     detection_calls = []
 
-    def detect(_tag_id, _duration, **kwargs):
+    def analyze(_duration, **kwargs):
         detection_calls.append(True)
-        kwargs['deteccoes_observadas'].extend([_detection(1), _detection(3)])
+        assert kwargs['analisar_apriltags'] is True
+        assert kwargs['analisar_containers'] is True
+        assert kwargs['analisar_mesa_branca'] is False
+        return [_detection(1), _detection(3)], []
+
+    def pose(_detections, _tag_id, _duration):
         return 0.0, -0.10, 0.10, 0.0
 
     server._motion = SimpleNamespace(
-        obter_pose_da_april_tag=detect,
+        analisar_cena=analyze,
+        pose_da_april_tag=pose,
         executar_objetivo=lambda *_args: pytest.fail(
             'não deveria planejar movimento para uma tag fora do alcance'
         ),
@@ -95,7 +104,8 @@ def test_pick_exposes_detected_pose_when_moveit_returns_99999():
         raise FalhaDoMoveIt('MoveIt falhou com código 99999.', 99999)
 
     server._motion = SimpleNamespace(
-        obter_pose_da_april_tag=lambda *_args, **_kwargs: (
+        analisar_cena=lambda *_args, **_kwargs: ([_detection(1)], []),
+        pose_da_april_tag=lambda *_args, **_kwargs: (
             0.0, -0.20, 0.10, 0.0
         ),
         executar_objetivo=execute,
@@ -137,3 +147,28 @@ def test_pick_result_returns_all_observed_detections():
 
     assert statuses == ['succeeded']
     assert [item.id for item in result.observed_detections] == [1, 3]
+
+
+def test_common_scene_observation_is_returned_by_semantic_action():
+    server = ManipulationServer.__new__(ManipulationServer)
+    goal_handle = SimpleNamespace(succeed=lambda: None)
+    observation = SceneObservation()
+    observation.completed = True
+    observation.requested_detectors = (
+        SceneObservation.APRILTAGS | SceneObservation.CONTAINERS
+    )
+    observation.apriltags = [_detection(7)]
+    observation.containers = [ContainerStampedDetection()]
+
+    result = server._make_result(
+        PickObject,
+        goal_handle,
+        ManipulationResult.SUCCESS,
+        'ok',
+        ManipulationResult.LOCATION_GRIPPER,
+        scene_observation=observation,
+    )
+
+    assert result.scene_observation.completed is True
+    assert [item.id for item in result.scene_observation.apriltags] == [7]
+    assert len(result.scene_observation.containers) == 1

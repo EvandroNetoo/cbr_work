@@ -16,4 +16,11 @@ manipulation_server:
     place_at_pose_action: manipulation/place_at_pose
     prepare_action: manipulation/prepare
     moveit_server_timeout_s: 20.0
-    vision_analysis_duration_s: 2.0
+    vision_analysis_duration_s: 4.0
+    # Detector selection is operation-specific. This keeps table placement
+    # independent from container/tag perception while allowing shared camera
+    # sessions where those observations are useful to the mission.
+    vision_detectors.pick: [apriltags, containers]
+    vision_detectors.place_on_table: [table_surface]
+    vision_detectors.place_in_container: [apriltags, containers]
+    vision_detectors.stack: [apriltags, containers]

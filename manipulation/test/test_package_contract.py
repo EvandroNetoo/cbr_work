@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 
 PACKAGE = Path(__file__).parents[1]
 SOURCE_ROOT = PACKAGE.parent
@@ -32,14 +34,16 @@ def test_actions_cover_pick_cargo_and_semantic_placements():
 
     stack = (actions / 'StackObject.action').read_text()
     assert 'int32 support_tag_id' in stack
-    assert 'ws_height_cm' not in stack
+    assert 'float32 ws_height_cm' in stack
+    for action in ('PickObject', 'PlaceOnTable', 'PlaceInContainer', 'StackObject'):
+        assert 'interfaces/SceneObservation scene_observation' in (
+            actions / f'{action}.action').read_text()
 
     explicit = (actions / 'PlaceAtPose.action').read_text()
     assert 'geometry_msgs/PoseStamped release_pose' in explicit
 
 
 def test_scene_analysis_routes_modalities_by_operation():
-    actions = SOURCE_ROOT / 'interfaces' / 'action'
     source = (
         Path(__file__).parents[1] / 'manipulation' / 'node.py'
     ).read_text()
@@ -49,12 +53,22 @@ def test_scene_analysis_routes_modalities_by_operation():
     container = source.split(
         '    def _execute_place_in_container', 1)[1].split(
         '    def _execute_stack', 1)[0]
-    assert 'self._motion.analisar_cena(' in table
-    assert 'analisar_apriltags=False' in table
-    assert 'analisar_containers=False' in table
-    assert 'analisar_mesa_branca=True' in table
-    assert 'obter_deteccoes_de_containers' in container
-    assert 'obter_deteccoes_de_april_tags' not in container
+    assert "_analyze_for_operation(\n                    'place_on_table'" in table
+    assert "_analyze_for_operation(\n                    'place_in_container'" in container
+    assert "'vision_detectors.place_on_table': ['table_surface']" in source
+    assert "'vision_detectors.place_in_container': ['apriltags', 'containers']" in source
+
+
+def test_detector_policy_requires_each_operations_primary_detector():
+    from interfaces.msg import SceneObservation
+    from manipulation.errors import ConfigurationError
+    from manipulation.node import ManipulationServer
+    actions = SOURCE_ROOT / 'interfaces' / 'action'
+
+    assert ManipulationServer._parse_detector_names(
+        'place_on_table', ['table_surface']) == SceneObservation.TABLE_SURFACE
+    with pytest.raises(ConfigurationError, match='necessário'):
+        ManipulationServer._parse_detector_names('pick', ['containers'])
 
     pick = (actions / 'PickObject.action').read_text()
     assert 'uint8 RECOVERY_OUT_OF_REACH=1' in pick

@@ -8,18 +8,18 @@ Panels:
         - /RobotModel1
         - /LiDAR frontal1
         - /Odometria1
-      Splitter Ratio: 0.55
-    Tree Height: 650
+      Splitter Ratio: 0.550000011920929
+    Tree Height: 278
 Visualization Manager:
   Class: ""
   Displays:
-    - Alpha: 0.35
-      Cell Size: 0.1
+    - Alpha: 0.3499999940395355
+      Cell Size: 0.10000000149011612
       Class: rviz_default_plugins/Grid
       Color: 130; 130; 135
       Enabled: true
       Line Style:
-        Line Width: 0.03
+        Line Width: 0.029999999329447746
         Value: Lines
       Name: Grade do solo
       Normal Cell Count: 0
@@ -31,7 +31,9 @@ Visualization Manager:
       Plane Cell Count: 40
       Reference Frame: <Fixed Frame>
       Value: true
-    - Alpha: 0.7
+    - Alpha: 0.699999988079071
+      Binary representation: false
+      Binary threshold: 100
       Class: rviz_default_plugins/Map
       Color Scheme: map
       Draw Behind: false
@@ -40,6 +42,7 @@ Visualization Manager:
       Topic:
         Depth: 1
         Durability Policy: Transient Local
+        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /map
@@ -51,7 +54,7 @@ Visualization Manager:
         Value: /map_updates
       Use Timestamp: false
       Value: true
-    - Alpha: 0.45
+    - Alpha: 0.44999998807907104
       Binary representation: false
       Binary threshold: 100
       Class: rviz_default_plugins/Map
@@ -74,7 +77,7 @@ Visualization Manager:
         Value: /global_costmap/costmap_updates
       Use Timestamp: false
       Value: false
-    - Alpha: 0.55
+    - Alpha: 0.550000011920929
       Binary representation: false
       Binary threshold: 100
       Class: rviz_default_plugins/Map
@@ -102,11 +105,11 @@ Visualization Manager:
       Class: rviz_default_plugins/Path
       Color: 0; 170; 255
       Enabled: true
-      Head Diameter: 0.02
-      Head Length: 0.02
-      Length: 0.3
+      Head Diameter: 0.019999999552965164
+      Head Length: 0.019999999552965164
+      Length: 0.30000001192092896
       Line Style: Lines
-      Line Width: 0.03
+      Line Width: 0.029999999329447746
       Name: Plano global Nav2
       Offset:
         X: 0
@@ -114,9 +117,9 @@ Visualization Manager:
         Z: 0
       Pose Color: 255; 85; 255
       Pose Style: Arrows
-      Radius: 0.03
-      Shaft Diameter: 0.005
-      Shaft Length: 0.02
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.004999999888241291
+      Shaft Length: 0.019999999552965164
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -156,6 +159,109 @@ Visualization Manager:
         Expand Link Details: false
         Expand Tree: false
         Link Tree Style: Links in Alphabetic Order
+        arm_base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_footprint:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        camera_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        camera_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        clamp_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        clamp_2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_left_wheel_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_right_wheel_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        gripper_tcp:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        gripper_tcp_near:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        imu_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        lidar_front_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        link1_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        link2_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        link3_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        link4_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        link5_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        rear_left_wheel_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        rear_right_wheel_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        upper_platform_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
       Mass Properties:
         Inertia: false
         Mass: false
@@ -179,12 +285,14 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
+      Max Intensity: 4096
       Min Color: 0; 0; 0
+      Min Intensity: 0
       Name: LiDAR frontal
       Position Transformer: XYZ
       Selectable: true
       Size (Pixels): 4
-      Size (m): 0.02
+      Size (m): 0.019999999552965164
       Style: Points
       Topic:
         Depth: 5
@@ -196,7 +304,7 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: false
       Value: true
-    - Angle Tolerance: 0.1
+    - Angle Tolerance: 0.10000000149011612
       Class: rviz_default_plugins/Odometry
       Covariance:
         Orientation:
@@ -208,7 +316,7 @@ Visualization Manager:
           Scale: 1
           Value: false
         Position:
-          Alpha: 0.3
+          Alpha: 0.30000001192092896
           Color: 204; 51; 204
           Scale: 1
           Value: false
@@ -216,38 +324,43 @@ Visualization Manager:
       Enabled: true
       Keep: 100
       Name: Odometria
-      Position Tolerance: 0.1
+      Position Tolerance: 0.10000000149011612
       Shape:
         Alpha: 1
-        Axes Length: 0.2
-        Axes Radius: 0.01
+        Axes Length: 0.20000000298023224
+        Axes Radius: 0.009999999776482582
         Color: 60; 180; 255
-        Head Length: 0.07
-        Head Radius: 0.03
-        Shaft Length: 0.15
-        Shaft Radius: 0.01
+        Head Length: 0.07000000029802322
+        Head Radius: 0.029999999329447746
+        Shaft Length: 0.15000000596046448
+        Shaft Radius: 0.009999999776482582
         Value: Arrow
       Topic:
         Depth: 5
         Durability Policy: Volatile
+        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /odom
       Value: true
     - Class: rviz_default_plugins/TF
       Enabled: false
+      Filter (blacklist): ""
+      Filter (whitelist): ""
       Frame Timeout: 15
       Frames:
         All Enabled: true
-      Marker Scale: 0.12
+      Marker Scale: 0.11999999731779099
       Name: TF (diagnostico)
       Show Arrows: true
       Show Axes: true
       Show Names: true
+      Tree:
+        {}
       Update Interval: 0
       Value: false
     - Class: rviz_default_plugins/Image
-      Enabled: true
+      Enabled: false
       Max Value: 1
       Median window: 5
       Min Value: 0
@@ -259,9 +372,9 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /apriltags/debug_image
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Image
-      Enabled: true
+      Enabled: false
       Max Value: 1
       Median window: 5
       Min Value: 0
@@ -273,9 +386,9 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /containers/debug_image
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Image
-      Enabled: true
+      Enabled: false
       Max Value: 1
       Median window: 5
       Min Value: 0
@@ -287,25 +400,93 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /table_surface/debug_image
-      Value: true
-    - Class: moveit_rviz_plugin/MotionPlanning
+      Value: false
+    - Acceleration_Scaling_Factor: 0.1
+      Class: moveit_rviz_plugin/MotionPlanning
       Enabled: false
+      Move Group Namespace: ""
+      MoveIt_Allow_Approximate_IK: false
+      MoveIt_Allow_External_Program: false
+      MoveIt_Allow_Replanning: false
+      MoveIt_Allow_Sensor_Positioning: false
+      MoveIt_Planning_Attempts: 10
+      MoveIt_Planning_Time: 5
+      MoveIt_Use_Cartesian_Path: false
+      MoveIt_Use_Constraint_Aware_IK: false
+      MoveIt_Workspace:
+        Center:
+          X: 0
+          Y: 0
+          Z: 0
+        Size:
+          X: 2
+          Y: 2
+          Z: 2
       Name: MotionPlanning
       Planned Path:
+        Color Enabled: false
+        Interrupt Display: false
+        Links:
+          All Links Enabled: true
+          Expand Joint Details: false
+          Expand Link Details: false
+          Expand Tree: false
+          Link Tree Style: ""
         Loop Animation: true
+        Robot Alpha: 0.5
+        Robot Color: 150; 50; 150
+        Show Robot Collision: false
+        Show Robot Visual: true
+        Show Trail: false
         State Display Time: 0.05 s
+        Trail Step Size: 1
         Trajectory Topic: display_planned_path
+        Use Sim Time: false
+      Planning Metrics:
+        Payload: 1
+        Show Joint Torques: false
+        Show Manipulability: false
+        Show Manipulability Index: false
+        Show Weight Limit: false
+        TextHeight: 0.07999999821186066
+      Planning Request:
+        Colliding Link Color: 255; 0; 0
+        Goal State Alpha: 1
+        Goal State Color: 250; 128; 0
+        Interactive Marker Size: 0
+        Joint Violation Color: 255; 0; 255
+        Planning Group: ""
+        Query Goal State: true
+        Query Start State: false
+        Show Workspace: false
+        Start State Alpha: 1
+        Start State Color: 0; 255; 0
       Planning Scene Topic: monitored_planning_scene
       Robot Description: robot_description
       Scene Geometry:
         Scene Alpha: 0.5
+        Scene Color: 50; 230; 50
+        Scene Display Time: 0.009999999776482582
+        Show Scene Geometry: true
+        Voxel Coloring: Z-Axis
+        Voxel Rendering: Occupied Voxels
       Scene Robot:
+        Attached Body Color: 150; 50; 150
+        Links:
+          All Links Enabled: true
+          Expand Joint Details: false
+          Expand Link Details: false
+          Expand Tree: false
+          Link Tree Style: ""
         Robot Alpha: 1
+        Show Robot Collision: false
+        Show Robot Visual: true
       Value: false
+      Velocity_Scaling_Factor: 0.1
   Enabled: true
   Global Options:
     Background Color: 35; 35; 40
-    Fixed Frame: /map
+    Fixed Frame: map
     Frame Rate: 30
   Name: root
   Tools:
@@ -317,15 +498,15 @@ Visualization Manager:
     - Class: rviz_default_plugins/Measure
       Line color: 128; 128; 0
     - Class: rviz_default_plugins/SetInitialPose
+      Covariance x: 0.25
+      Covariance y: 0.25
+      Covariance yaw: 0.06853891909122467
       Topic:
         Depth: 1
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /initialpose
-      X std deviation: 0.5
-      Y std deviation: 0.5
-      Theta std deviation: 0.2617993950843811
     - Class: rviz_default_plugins/SetGoal
       Topic:
         Depth: 5
@@ -340,46 +521,58 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 2.5
+      Distance: 14.587671279907227
       Enable Stereo Rendering:
-        Stereo Eye Separation: 0.06
+        Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0
-        Y: 0
-        Z: 0.15
+        X: 0.7707939147949219
+        Y: 2.3841447830200195
+        Z: -0.0013556480407714844
       Focal Shape Fixed Size: true
-      Focal Shape Size: 0.05
+      Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
-      Name: Perspectiva
-      Near Clip Distance: 0.01
-      Pitch: 0.6
+      Name: Current View
+      Near Clip Distance: 0.009999999776482582
+      Pitch: 1.0750732421875
       Target Frame: base_footprint
       Value: Orbit (rviz)
-      Yaw: 0.8
+      Yaw: 4.398540496826172
     Saved:
-      - Class: rviz_default_plugins/TopDownOrtho
-        Angle: 0
+      - Angle: 0
+        Class: rviz_default_plugins/TopDownOrtho
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.05999999865889549
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Invert Z Axis: false
         Name: Vista superior
+        Near Clip Distance: 0.009999999776482582
         Scale: 80
         Target Frame: base_footprint
+        Value: TopDownOrtho (rviz_default_plugins)
         X: 0
         Y: 0
 Window Geometry:
-  Displays:
-    collapsed: false
   Debug AprilTag:
     collapsed: false
   Debug containers:
+    collapsed: false
+  Debug table:
+    collapsed: false
+  Displays:
     collapsed: false
   Height: 900
   Hide Left Dock: false
   Hide Right Dock: false
   MotionPlanning:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd00000001000000000000012c00000384fc0200000002fb000000100044006900730070006c0061007900730100000000000003840000001700fffffffb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e006700000001c5000001bf0000001700ffffff000004460000038400000004000000040000000800000008fc00000000
+  MotionPlanning - Trajectory Slider:
+    collapsed: false
+  QMainWindow State: 000000ff00000000fd00000001000000000000015600000326fc0200000006fb000000100044006900730070006c006100790073000000003f000001a4000000cc00fffffffb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e006700000001c5000001bf0000019600fffffffb000000200044006500620075006700200063006f006e007400610069006e006500720073000000003f000001090000001700fffffffb0000001c0044006500620075006700200041007000720069006c005400610067000000014e000001080000001700fffffffb00000016004400650062007500670020007400610062006c0065000000025c000001090000001700fffffffb00000044004d006f00740069006f006e0050006c0061006e006e0069006e00670020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000004400ffffff000005780000032600000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Width: 1400
   X: 80
   Y: 40

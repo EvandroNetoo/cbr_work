@@ -8,5 +8,6 @@ uint8 container_color
 ---
 interfaces/ManipulationResult outcome
 geometry_msgs/PoseStamped placed_pose
+interfaces/SceneObservation scene_observation
 ---
 interfaces/ManipulationFeedback status

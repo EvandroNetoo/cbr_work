@@ -1,6 +1,9 @@
 # Objects are always picked from a tabletop after the mobile base is aligned.
 int32 tag_id
 string profile
+# Work-surface height used when optional container perception needs to recover
+# a partially visible container pose.
+float32 ws_height_cm
 ---
 uint8 RECOVERY_NONE=0
 uint8 RECOVERY_OUT_OF_REACH=1
@@ -9,6 +12,7 @@ interfaces/ManipulationResult outcome
 uint8 recovery_reason
 # Best detection of every AprilTag observed while the base remained stationary.
 interfaces/AprilTagStampedDetection[] observed_detections
+interfaces/SceneObservation scene_observation
 bool has_detected_pose
 geometry_msgs/PoseStamped detected_pose
 int32 moveit_error_code

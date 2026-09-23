@@ -36,7 +36,15 @@ conhecido. O `mission_manager` é responsável por autorizar a operação antes 
 envio e atualizar seu inventário depois do resultado.
 No empilhamento, `support_tag_id` identifica apenas o cubo de apoio.
 As coordenadas X, Y e Z do apoio são obtidas da pose 3D dessa AprilTag; a
-altura da WS não faz parte da interface de empilhamento.
+altura da WS é enviada para permitir a detecção opcional de containers parciais
+na mesma sessão visual.
+
+As análises retornam um `SceneObservation` comum com todas as AprilTags e
+containers observados. A seleção é configurada por operação em
+`vision_detectors.*`: por padrão `pick`, `stack` e `place_in_container`
+analisam AprilTags e containers juntos, enquanto `place_on_table` solicita
+somente a superfície branca. Assim, depósitos em mesas sem tags ou containers
+não dependem desses detectores, e novas combinações não exigem mudar as actions.
 
 Quando `pickup.tabletop.reachability_filter_enabled` está habilitado, a coleta
 usa seus próprios limites `reach_x/y_*`, CP e CL, definidos em
@@ -56,7 +64,8 @@ fechar a garra, o MoveIt planeja explicitamente o retorno primeiro para
 reprodução de trajetórias armazenadas.
 
 `place_on_table` sempre posiciona a câmera e solicita uma única sessão de
-`/vision/analyze_scene` com AprilTags e containers. A grade nasce diretamente
+`/vision/analyze_scene` com a superfície da mesa. Detectores adicionais podem
+ser habilitados pela política da operação. A grade nasce diretamente
 dos limites `search_x_min_m`, `search_x_max_m`, `search_y_min_m` e
 `search_y_max_m`, usando `search_step_m`; a altura do TCP é calculada por
 `(ws_height_cm + tcp_release_offset_cm) / 100`. Os candidatos válidos para o
@@ -79,7 +88,7 @@ centrada em `reach_center_x_m/reach_center_y_m`: pontos abaixo de
 Os candidatos alcançáveis são embaralhados antes dos testes; se nenhum candidato
 for livre, a action retorna `NO_FREE_SPACE` sem iniciar o depósito.
 
-`place_in_container` usa uma sessão do detector de contêineres, escolhe a única
+`place_in_container` usa uma sessão combinada de visão, escolhe a única
 detecção da cor solicitada e solta o objeto no centro do contorno externo. O TCP
 usa X/Y da detecção com os offsets do perfil. Sua altura é
 `ws_height_cm / 100 + external_height_m + reference_offset_xyz[2]`, sem usar o
@@ -124,7 +133,7 @@ Coleta do objeto 5 sobre a mesa:
 
 ```bash
 ros2 action send_goal manipulation/pick interfaces/action/PickObject \
-  "{tag_id: 5, profile: tabletop}" --feedback
+  "{tag_id: 5, profile: tabletop, ws_height_cm: 12.5}" --feedback
 ```
 
 Armazenamento e retirada dos compartimentos calibrados:
@@ -185,7 +194,7 @@ Empilhamento sobre o cubo cuja AprilTag é 5:
 
 ```bash
 ros2 action send_goal manipulation/stack interfaces/action/StackObject \
-  "{support_tag_id: 5}" --feedback
+  "{support_tag_id: 5, ws_height_cm: 12.5}" --feedback
 ```
 
 Depósito na prateleira fixa:

@@ -64,11 +64,25 @@ class TagObservation:
 
 
 @dataclass(frozen=True)
+class ContainerObservation:
+    """Best known observation point for one container color in one area."""
+
+    area_id: str
+    color: int
+    wall_distance_mm: float
+    lateral_position_mm: float
+    detection: object
+
+
+@dataclass(frozen=True)
 class TableObservation:
     area_id: str
     wall_distance_mm: float
     lateral_position_mm: float
     detected_tag_ids: frozenset[int]
+    apriltags_observed: bool = True
+    detected_container_colors: frozenset[int] = frozenset()
+    containers_observed: bool = False
 
 
 @dataclass(frozen=True)

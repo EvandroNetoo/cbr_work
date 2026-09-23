@@ -68,13 +68,13 @@ scene_analyzer:
 
     # Aguarda exposição/balanço de branco se estabilizarem após ligar câmera e LED.
     # A janela solicitada pela action começa somente depois deste intervalo.
-    container_warmup_sec: 1.0
+    container_warmup_sec: 2.0
     # Associação temporal e fusão final. Dois Bin 3 físicos não podem ter seus
     # centros a menos que a largura externa (10,2 cm) sem se sobreporem.
     container_association_distance_m: 0.07
     container_final_merge_distance_m: 0.07
     # Uma observação isolada nunca é devolvida como container confirmado.
-    min_container_observations: 1
+    min_container_observations: 2
     max_container_position_deviation_m: 0.06
     # Yaw é comparado módulo 180 graus pela simetria do retângulo externo.
     max_container_yaw_deviation_deg: 20.0

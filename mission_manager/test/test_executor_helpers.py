@@ -6,7 +6,10 @@ from interfaces.action import (
     FollowWall, PickObject, PlaceInContainer, PlaceOnTable,
     PrepareManipulator,
 )
-from interfaces.msg import AprilTagStampedDetection, ManipulationResult
+from interfaces.msg import (
+    AprilTagStampedDetection, ContainerStampedDetection, ManipulationResult,
+    SceneObservation,
+)
 from mission_manager.errors import StepFailed
 from mission_manager.models import (
     AlignmentConfig,
@@ -90,6 +93,18 @@ def _place_result(
     result.outcome.effect_known = effect_known
     result.outcome.final_object_location = location
     return result
+
+
+def _container_detection(color, *, partial=False, observations=3, error=2.0):
+    detection = ContainerStampedDetection()
+    detection.color = color
+    detection.partial = partial
+    detection.observation_count = observations
+    detection.pose_error = error
+    detection.position_spread_m = 0.01
+    detection.position_uncertainty_m = 0.01 if partial else 0.0
+    detection.pose.orientation.w = 1.0
+    return detection
 
 
 def test_navigation_result_validator_preserves_nav2_error_message():
@@ -550,6 +565,189 @@ def test_pick_observations_are_updated_individually_and_survive_area_changes():
     manager._forget_picked_tag(1)
     assert ('ws_1', 1) not in manager._tag_observations
     assert ('ws_1', 3) in manager._tag_observations
+
+
+def test_scene_observation_keeps_best_container_memory_by_area_and_color():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 25.0
+    manager._tag_observations = {}
+    manager._container_observations = {}
+    manager._visited_search_positions = {}
+
+    result = PickObject.Result()
+    result.scene_observation.completed = True
+    result.scene_observation.requested_detectors = (
+        SceneObservation.APRILTAGS | SceneObservation.CONTAINERS
+    )
+    result.scene_observation.containers = [
+        _container_detection(1, observations=4, error=1.0)
+    ]
+    manager._remember_scene_observations(result)
+
+    manager._current_lateral_position_mm = 150.0
+    result.scene_observation.containers = [
+        _container_detection(1, partial=True, observations=1, error=8.0)
+    ]
+    manager._remember_scene_observations(result)
+
+    remembered = manager._container_observations[('ws_1', 1)]
+    assert remembered.lateral_position_mm == 25.0
+    assert remembered.detection.partial is False
+
+
+def test_container_memory_only_repositions_and_still_calls_semantic_action():
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._world_state.commit_pick(5)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 100.0
+    manager._container_observations = {
+        ('ws_1', PlaceInContainer.Goal.BLUE): SimpleNamespace(
+            wall_distance_mm=200.0,
+            lateral_position_mm=-50.0,
+        )
+    }
+    manager.get_logger = lambda: SimpleNamespace(
+        info=lambda *_args: None, warning=lambda *_args: None)
+    moves = []
+    manager._move_to_table_position = lambda wall, lateral, description: (
+        moves.append((wall, lateral, description)) or True)
+    calls = []
+
+    def call_action(client, goal, *_args, **_kwargs):
+        calls.append((client, goal))
+        return _place_result(
+            PlaceInContainer,
+            ManipulationResult.SUCCESS,
+            location=ManipulationResult.LOCATION_DESTINATION,
+        )
+
+    manager._call_manipulation_action = call_action
+    client = object()
+    goal = PlaceInContainer.Goal()
+    goal.container_color = PlaceInContainer.Goal.BLUE
+
+    manager._execute_place_with_recovery(
+        Step('place', 'place_in_container', container_color='blue'),
+        client, goal, 5, 12.5, 30.0,
+    )
+
+    assert moves[0][0:2] == (200, -50.0)
+    assert calls == [(client, goal)]
+
+
+def test_container_absence_skips_repeated_analysis_at_same_position():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._tag_observations = {}
+    manager._container_observations = {}
+    manager._visited_search_positions = {}
+    manager.get_logger = lambda: SimpleNamespace(
+        info=lambda *_args: None, warning=lambda *_args: None)
+
+    observed = PickObject.Result()
+    observed.scene_observation.completed = True
+    observed.scene_observation.requested_detectors = (
+        SceneObservation.APRILTAGS | SceneObservation.CONTAINERS
+    )
+    observed.scene_observation.containers = [
+        _container_detection(PlaceInContainer.Goal.BLUE)
+    ]
+    manager._remember_scene_observations(observed)
+
+    assert manager._current_observation_excludes_container(
+        PlaceInContainer.Goal.RED)
+    assert not manager._current_observation_excludes_container(
+        PlaceInContainer.Goal.BLUE)
+    assert manager._container_search_positions == {'ws_1': {0}}
+
+    events = []
+
+    def move(wall, lateral, description):
+        events.append(('move', wall, lateral, description))
+        manager._current_lateral_position_mm = float(lateral)
+        return True
+
+    def call_action(client, goal, *_args, **_kwargs):
+        events.append(('action', client, goal))
+        return _place_result(
+            PlaceInContainer,
+            ManipulationResult.SUCCESS,
+            location=ManipulationResult.LOCATION_DESTINATION,
+        )
+
+    manager._move_to_table_position = move
+    manager._call_manipulation_action = call_action
+    client = object()
+    goal = PlaceInContainer.Goal()
+    goal.container_color = PlaceInContainer.Goal.RED
+    manager._execute_place_with_recovery(
+        Step('place_red', 'place_in_container', container_color='red'),
+        client, goal, 1, 12.5, 30.0,
+    )
+
+    assert events[0][0:3] == ('move', 200, 250)
+    assert events[1] == ('action', client, goal)
+
+
+def test_container_search_skips_vision_when_base_did_not_move():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 100.0
+    manager._container_observations = {}
+    manager._container_search_positions = {'ws_1': {0}}
+    manager._last_table_observation = TableObservation(
+        area_id='ws_1',
+        wall_distance_mm=200.0,
+        lateral_position_mm=100.0,
+        detected_tag_ids=frozenset(),
+        apriltags_observed=True,
+        detected_container_colors=frozenset(),
+        containers_observed=True,
+    )
+    manager.get_logger = lambda: SimpleNamespace(
+        info=lambda *_args: None, warning=lambda *_args: None)
+    moves = []
+
+    def move(_wall, lateral, _description):
+        moves.append(lateral)
+        # Simulate the first FollowWall safety stop from the reported log: the
+        # requested point is marked attempted, but measured travel is zero.
+        if len(moves) > 1:
+            manager._current_lateral_position_mm = float(lateral)
+        return True
+
+    action_positions = []
+
+    def call_action(_client, _goal, *_args, **_kwargs):
+        action_positions.append(manager._current_lateral_position_mm)
+        return _place_result(
+            PlaceInContainer,
+            ManipulationResult.SUCCESS,
+            location=ManipulationResult.LOCATION_DESTINATION,
+        )
+
+    manager._move_to_table_position = move
+    manager._call_manipulation_action = call_action
+    goal = PlaceInContainer.Goal()
+    goal.container_color = PlaceInContainer.Goal.RED
+    manager._execute_place_with_recovery(
+        Step('place_red', 'place_in_container', container_color='red'),
+        object(), goal, 2, 12.5, 30.0,
+    )
+
+    assert moves == [250, -250]
+    assert action_positions == [-250.0]
 
 
 def test_search_selects_nearest_unvisited_absolute_position():
@@ -1077,4 +1275,4 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     assert calls[7][1].ws_height_cm == 12.5
     assert calls[7][1].container_color == calls[7][1].RED
     assert calls[5][1].support_tag_id == 3
-    assert not hasattr(calls[5][1], 'ws_height_cm')
+    assert calls[5][1].ws_height_cm == 12.5

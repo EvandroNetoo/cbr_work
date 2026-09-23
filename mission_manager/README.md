@@ -116,15 +116,24 @@ não é repetida: o robô segue diretamente para o ponto de busca não examinado
 mais próximo. Um ponto fixo só é marcado como examinado quando a distância da
 parede também corresponde à distância de observação da área.
 
+Os mesmos snapshots guardam containers por área e cor, assumindo nesta primeira
+versão no máximo um container de cada cor por área. A memória preserva a
+melhor observação completa e estável recebida durante a missão. Antes de um
+`place_in_container`, ela serve apenas para retornar a base ao ponto onde o
+container foi visto; a action sempre executa uma nova detecção antes de mover o
+braço. Trocar de área não apaga observações das áreas anteriores.
+
 ## Recuperação de depósito
 
 Os passos `place_on_table` e `place_in_container` também usam as posições de
 busca de `pickup_recovery.search_positions_mm`. Se a visão não encontrar espaço
 livre ou o contêiner solicitado, ou se a manipulação falhar antes de abrir a
 garra, o mission manager mantém o objeto na garra, move a base para a posição
-ainda não examinada mais próxima e repete a action semântica. Cada passo de
-depósito possui seu próprio conjunto de posições visitadas, independente da
-memória usada pelas coletas.
+ainda não examinada mais próxima e repete a action semântica.
+`place_in_container` reutiliza também as posições em que uma análise anterior
+da missão já procurou containers: se a cor solicitada não apareceu na última
+observação da posição atual, não repete a mesma detecção. `place_on_table`
+mantém seu conjunto de busca independente.
 
 Depois de examinar todas as posições configuradas, o gerenciador chama
 `PlaceOnTable` em modo de fallback. Nesse modo, a percepção é ignorada e a
