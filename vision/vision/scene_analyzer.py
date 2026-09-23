@@ -1001,11 +1001,15 @@ class SceneAnalyzer(Node):
                     self.base_frame, camera_frame, message.header.stamp,
                     timeout=Duration())
             except TransformException:
-                if has_partial or session.requested_detectors & TABLE_SURFACE:
+                if (
+                    container_camera_poses or has_partial
+                    or session.requested_detectors & TABLE_SURFACE
+                ):
                     try:
                         # The arm is stationary during scene analysis. A latest
-                        # transform is preferable to dropping a border contour
-                        # because its exact image timestamp arrived first.
+                        # transform is preferable to dropping a container or
+                        # table frame because its exact image timestamp arrived
+                        # before the corresponding TF sample.
                         base_transform = tf_buffer.lookup_transform(
                             self.base_frame, camera_frame, Time(),
                             timeout=Duration())

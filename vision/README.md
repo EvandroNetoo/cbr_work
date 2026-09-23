@@ -61,9 +61,11 @@ The fit requires camera calibration, a base-frame transform and a visible
 colored contour. The full-view PnP path is used for complete contours.
 Contours within `container_border_margin_px` of an image edge remain partial
 despite small mask fluctuations. During one analysis session, an exact TF is
-preferred; if its timestamp is temporarily unavailable, the detector uses the
-latest TF or the last transform obtained in that same session. The debug label
-`partial_waiting_tf` identifies frames seen before any transform was available.
+preferred for every container; if its timestamp is temporarily unavailable,
+the detector uses the latest TF or the last transform obtained in that same
+session. This is valid because the arm remains stationary during scene
+analysis. The debug label `partial_waiting_tf` identifies partial contours seen
+before any transform was available.
 
 Container results are temporal tracks, not isolated contours. The detector
 waits for camera/LED stabilization, requires repeated observations, rejects

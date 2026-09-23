@@ -557,6 +557,72 @@ def test_image_callback_publishes_and_confirms_border_container():
     assert base[0].pose.position.x == pytest.approx(x, abs=0.02)
 
 
+def test_complete_container_uses_latest_tf_when_image_timestamp_is_missing():
+    analyzer = _analyzer_for_container()
+    analyzer.base_frame = 'arm_base_link'
+    analyzer.sessions_lock = threading.RLock()
+    analyzer.session = Session(
+        goal_handle=SimpleNamespace(is_cancel_requested=False),
+        duration=2.0, requested_detectors=AnalyzeScene.Goal.CONTAINERS,
+    )
+    analyzer.session.containers_ready_at = 0.0
+    analyzer.last_detection_time = float('-inf')
+    analyzer.detection_period = 0.0
+    analyzer.publish_debug_image = False
+    analyzer.container_association_distance = 0.07
+    analyzer.container_final_merge_distance = 0.07
+    analyzer.camera_info = SimpleNamespace(
+        p=[400.0, 0.0, 10.0, 0.0, 0.0, 400.0, 10.0, 0.0,
+           0.0, 0.0, 1.0, 0.0],
+        header=SimpleNamespace(frame_id='camera'),
+    )
+    pose = Pose()
+    pose.position.x = 0.2
+    pose.position.z = 0.5
+    pose.orientation.w = 1.0
+    candidate = ContainerCandidate(
+        RED, np.empty((0, 1, 2)), np.empty((4, 2)), 7000.0, 0.95,
+        True, 'ok', pose, 1.0,
+    )
+    analyzer.detect_container_candidates = lambda *_args: [candidate]
+
+    transform = TransformStamped()
+    transform.header.frame_id = 'arm_base_link'
+    transform.child_frame_id = 'camera'
+    transform.transform.translation.x = 1.0
+    transform.transform.rotation.w = 1.0
+    transform_calls = []
+
+    def latest_only(*args, **_kwargs):
+        transform_calls.append(args[2])
+        if len(transform_calls) == 1:
+            raise TransformException('synthetic timestamp gap')
+        return transform
+
+    analyzer.tf_buffer = SimpleNamespace(lookup_transform=latest_only)
+    base_outputs = []
+    analyzer.container_detection_publisher = SimpleNamespace(
+        publish=base_outputs.append)
+    analyzer.container_camera_detection_publisher = SimpleNamespace(
+        publish=lambda *_args: None)
+    image = np.zeros((20, 20, 3), dtype=np.uint8)
+    message = Image()
+    message.header.frame_id = 'camera'
+    message.header.stamp.nanosec = 123
+    message.height, message.width = image.shape[:2]
+    message.encoding = 'bgr8'
+    message.step = message.width * 3
+    message.data = image.tobytes()
+
+    analyzer.image_callback(message)
+
+    assert len(transform_calls) == 2
+    assert len(base_outputs) == 1
+    assert len(base_outputs[0].detections) == 1
+    assert base_outputs[0].detections[0].pose.position.x == pytest.approx(1.2)
+    assert analyzer.session.frames_with_base_transform == 1
+
+
 def test_debug_images_are_algorithm_specific():
     source = (PACKAGE / 'vision' / 'scene_analyzer.py').read_text()
     assert "'apriltags/debug_image'" in source
