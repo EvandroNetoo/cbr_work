@@ -258,7 +258,7 @@ def test_table_deposit_always_uses_one_combined_scene_request():
 
     duration, request = calls[0]
     assert duration == 2.0
-    assert request['analisar_apriltags'] is False
+    assert request['analisar_apriltags'] is True
     assert request['analisar_containers'] is False
     assert request['analisar_mesa_branca'] is True
     assert request['altura_mesa_m'] == pytest.approx(0.125)

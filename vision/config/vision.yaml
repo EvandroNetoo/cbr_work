@@ -79,16 +79,19 @@ scene_analyzer:
     # Yaw é comparado módulo 180 graus pela simetria do retângulo externo.
     max_container_yaw_deviation_deg: 20.0
 
-    # White-table free-space detector. Saturated and very dark pixels are
-    # unknown rather than white so loss of image information never creates a
-    # false free-space confirmation.
+    # Superficie acromatica da mesa: aceita branco/cinza/preto (S baixo em
+    # qualquer luminosidade) e sombras profundas (V baixo em qualquer S).
+    # O resultado e uma mascara em "L" no plano Saturation x Value.
     white_surface_max_saturation: 70
-    white_surface_min_value: 70
-    white_surface_max_value: 250
-    # Cada célula usa 9 amostras. Estes limites toleram uma amostra divergente
-    # por célula, mas duas ainda impedem que ela seja considerada livre.
+    white_surface_dark_max_value: 45
+    white_surface_min_value: 0
+    # Pixels estourados perdem informacao e continuam desconhecidos.
+    white_surface_max_value: 255
+    # Uma celula precisa ter pelo menos 88% de pixels classificados como mesa.
     white_surface_min_fraction: 0.88
     white_surface_max_unknown_fraction: 0.20
     white_surface_min_confirmed_frames: 2
     # Tolera oscilações de exposição/sombra entre os frames da análise.
     white_surface_min_confirmed_ratio: 0.60
+    # Raio que circunscreve uma tag quadrada de 4 cm, independentemente do yaw.
+    table_apriltag_exclusion_radius_m: 0.029

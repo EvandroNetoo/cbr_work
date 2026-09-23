@@ -50,7 +50,7 @@ def test_scene_analysis_routes_modalities_by_operation():
         '    def _execute_place_in_container', 1)[1].split(
         '    def _execute_stack', 1)[0]
     assert 'self._motion.analisar_cena(' in table
-    assert 'analisar_apriltags=False' in table
+    assert 'analisar_apriltags=True' in table
     assert 'analisar_containers=False' in table
     assert 'analisar_mesa_branca=True' in table
     assert 'obter_deteccoes_de_containers' in container

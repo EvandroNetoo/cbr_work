@@ -292,6 +292,9 @@ def test_profile_combines_apriltag_and_measured_bin3_parameters():
     assert parameters['internal_depth_m'] == 0.140
     assert parameters['manage_camera_capture'] is True
     assert parameters['manage_vision_led'] is True
+    assert parameters['white_surface_max_saturation'] == 70
+    assert parameters['white_surface_dark_max_value'] == 45
+    assert parameters['table_apriltag_exclusion_radius_m'] == 0.029
     assert parameters['min_contour_area_px'] == 4000.0
     assert parameters['container_border_margin_px'] == 6
     assert parameters['container_warmup_sec'] == 0.5
@@ -680,10 +683,12 @@ def test_analyze_scene_interface_contains_both_modalities():
 def _white_surface_analyzer() -> SceneAnalyzer:
     analyzer = object.__new__(SceneAnalyzer)
     analyzer.white_surface_max_saturation = 45
-    analyzer.white_surface_min_value = 40
+    analyzer.white_surface_dark_max_value = 35
+    analyzer.white_surface_min_value = 0
     analyzer.white_surface_max_value = 250
     analyzer.white_surface_min_fraction = 0.95
     analyzer.white_surface_max_unknown_fraction = 0.05
+    analyzer.table_apriltag_exclusion_radius = 0.029
     return analyzer
 
 
@@ -726,6 +731,38 @@ def test_white_surface_grid_cell_requires_its_local_patch_to_be_white():
     image[43:58, 43:58] = (0, 0, 180)
     _observed, confirmed, _debug = analyzer.evaluate_white_table_grid(
         session, image, matrix, _downward_camera_transform())
+    assert confirmed == [False]
+
+
+def test_white_surface_grid_accepts_saturated_deep_shadow():
+    analyzer = _white_surface_analyzer()
+    session = _white_surface_session()
+    matrix = np.array([[100.0, 0.0, 50.0],
+                       [0.0, 100.0, 50.0],
+                       [0.0, 0.0, 1.0]])
+    # Red has maximum saturation, but this intensity is inside the dark arm
+    # of the S-V mask.
+    image = np.full((100, 100, 3), (0, 0, 30), dtype=np.uint8)
+
+    observed, confirmed, _debug = analyzer.evaluate_white_table_grid(
+        session, image, matrix, _downward_camera_transform())
+
+    assert observed == [True]
+    assert confirmed == [True]
+
+
+def test_white_surface_grid_rejects_saturated_pixel_above_dark_limit():
+    analyzer = _white_surface_analyzer()
+    session = _white_surface_session()
+    matrix = np.array([[100.0, 0.0, 50.0],
+                       [0.0, 100.0, 50.0],
+                       [0.0, 0.0, 1.0]])
+    image = np.full((100, 100, 3), (0, 0, 60), dtype=np.uint8)
+
+    observed, confirmed, _debug = analyzer.evaluate_white_table_grid(
+        session, image, matrix, _downward_camera_transform())
+
+    assert observed == [True]
     assert confirmed == [False]
 
 
@@ -779,3 +816,39 @@ def test_white_surface_result_requires_repeated_confirmation():
     session.table_cell_confirmations = [1]
     result = analyzer._result(session, 'ok')
     assert list(result.table_surface_grid.cells) == [TableSurfaceGrid.BLOCKED]
+
+
+def test_apriltag_exclusion_circle_blocks_intersecting_table_cells():
+    analyzer = _white_surface_analyzer()
+    analyzer.sessions_lock = threading.RLock()
+    analyzer.base_frame = 'arm_base_link'
+    analyzer.white_surface_min_confirmed_frames = 2
+    analyzer.white_surface_min_confirmed_ratio = 0.60
+    session = Session(
+        goal_handle=SimpleNamespace(is_cancel_requested=False),
+        duration=1.0,
+        requested_detectors=(
+            AnalyzeScene.Goal.APRILTAGS | AnalyzeScene.Goal.TABLE_SURFACE),
+        table_search_x_min_m=-0.03,
+        table_search_y_min_m=-0.03,
+        table_grid_resolution_m=0.01,
+        table_grid_width=7,
+        table_grid_height=7,
+    )
+    session.table_cell_observations = [2] * 49
+    session.table_cell_confirmations = [2] * 49
+    detection = AprilTagStampedDetection()
+    detection.id = 7
+    detection.pose.position.x = 0.0
+    detection.pose.position.y = 0.0
+    session.best_base[7] = detection
+
+    result = analyzer._result(session, 'ok')
+    cells = list(result.table_surface_grid.cells)
+
+    # The circle intersects the center and axial edge cells, but not the
+    # diagonal corners. This verifies circle-to-cell intersection rather than
+    # testing only whether each cell center lies inside the radius.
+    assert cells[3 * 7 + 3] == TableSurfaceGrid.BLOCKED
+    assert cells[3 * 7 + 6] == TableSurfaceGrid.BLOCKED
+    assert cells[6 * 7 + 6] == TableSurfaceGrid.FREE

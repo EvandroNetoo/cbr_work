@@ -281,13 +281,15 @@ class SceneAnalyzer(Node):
         self.declare_parameter('min_container_observations', 3)
         self.declare_parameter('max_container_position_deviation_m', 0.04)
         self.declare_parameter('max_container_yaw_deviation_deg', 20.0)
-        self.declare_parameter('white_surface_max_saturation', 45)
-        self.declare_parameter('white_surface_min_value', 40)
+        self.declare_parameter('white_surface_max_saturation', 70)
+        self.declare_parameter('white_surface_dark_max_value', 45)
+        self.declare_parameter('white_surface_min_value', 0)
         self.declare_parameter('white_surface_max_value', 250)
         self.declare_parameter('white_surface_min_fraction', 0.88)
         self.declare_parameter('white_surface_max_unknown_fraction', 0.12)
         self.declare_parameter('white_surface_min_confirmed_frames', 2)
         self.declare_parameter('white_surface_min_confirmed_ratio', 0.60)
+        self.declare_parameter('table_apriltag_exclusion_radius_m', 0.029)
 
         self.warning_filter = (NativeWarningFilter()
                                if bool(self.get_parameter('suppress_native_pose_warning').value)
@@ -477,9 +479,11 @@ class SceneAnalyzer(Node):
                 'max_container_yaw_deviation_deg must not exceed 90 degrees')
 
     def _configure_white_surface_detector(self) -> None:
-        """Validate the conservative white-table classification thresholds."""
+        """Validate the achromatic-table classification thresholds."""
         self.white_surface_max_saturation = int(
             self.get_parameter('white_surface_max_saturation').value)
+        self.white_surface_dark_max_value = int(
+            self.get_parameter('white_surface_dark_max_value').value)
         self.white_surface_min_value = int(
             self.get_parameter('white_surface_min_value').value)
         self.white_surface_max_value = int(
@@ -492,14 +496,27 @@ class SceneAnalyzer(Node):
             self.get_parameter('white_surface_min_confirmed_frames').value)
         self.white_surface_min_confirmed_ratio = float(
             self.get_parameter('white_surface_min_confirmed_ratio').value)
+        self.table_apriltag_exclusion_radius = float(
+            self.get_parameter('table_apriltag_exclusion_radius_m').value)
         if not 0 <= self.white_surface_max_saturation <= 255:
             raise ValueError('white_surface_max_saturation must be in [0, 255]')
+        if not 0 <= self.white_surface_dark_max_value <= 255:
+            raise ValueError(
+                'white_surface_dark_max_value must be in [0, 255]')
         if not (
             0 <= self.white_surface_min_value
             < self.white_surface_max_value <= 255
         ):
             raise ValueError(
                 'white surface value limits must satisfy 0 <= min < max <= 255')
+        if not (
+            self.white_surface_min_value
+            <= self.white_surface_dark_max_value
+            <= self.white_surface_max_value
+        ):
+            raise ValueError(
+                'white_surface_dark_max_value must be inside the configured '
+                'white surface value limits')
         for name, value in (
             ('white_surface_min_fraction', self.white_surface_min_fraction),
             ('white_surface_max_unknown_fraction',
@@ -512,6 +529,13 @@ class SceneAnalyzer(Node):
         if self.white_surface_min_confirmed_frames <= 0:
             raise ValueError(
                 'white_surface_min_confirmed_frames must be positive')
+        if (
+            not math.isfinite(self.table_apriltag_exclusion_radius)
+            or self.table_apriltag_exclusion_radius < 0.0
+        ):
+            raise ValueError(
+                'table_apriltag_exclusion_radius_m must be finite and '
+                'nonnegative')
 
     def destroy_node(self):
         with self.sessions_lock:
@@ -880,12 +904,50 @@ class SceneAnalyzer(Node):
             for observations, confirmations in zip(
                 table_observations, table_confirmations)
         ]
+        for index in self._apriltag_exclusion_cells(session, apriltags_base):
+            grid.cells[index] = TableSurfaceGrid.BLOCKED
         result.table_surface_grid = grid
         result.frames_processed = frames_processed
         result.frames_with_base_transform = frames_with_base_transform
         result.elapsed = _ros_duration(time.monotonic() - session.started)
         result.message = message
         return result
+
+    def _apriltag_exclusion_cells(
+        self,
+        session: Session,
+        detections: list[AprilTagStampedDetection],
+    ) -> set[int]:
+        """Return grid cells intersecting an AprilTag exclusion circle."""
+        resolution = session.table_grid_resolution_m
+        width = session.table_grid_width
+        height = session.table_grid_height
+        radius = self.table_apriltag_exclusion_radius
+        if resolution <= 0.0 or width <= 0 or height <= 0 or radius <= 0.0:
+            return set()
+
+        cell_half = resolution / 2.0
+        radius_squared = radius * radius
+        blocked: set[int] = set()
+        for detection in detections:
+            tag_x = float(detection.pose.position.x)
+            tag_y = float(detection.pose.position.y)
+            if not math.isfinite(tag_x) or not math.isfinite(tag_y):
+                continue
+            for row in range(height):
+                cell_y = session.table_search_y_min_m + row * resolution
+                distance_y = max(abs(cell_y - tag_y) - cell_half, 0.0)
+                if distance_y > radius:
+                    continue
+                for column in range(width):
+                    cell_x = (
+                        session.table_search_x_min_m + column * resolution)
+                    distance_x = max(abs(cell_x - tag_x) - cell_half, 0.0)
+                    distance_squared = (
+                        distance_x * distance_x + distance_y * distance_y)
+                    if distance_squared <= radius_squared:
+                        blocked.add(row * width + column)
+        return blocked
 
     def camera_info_callback(self, message: CameraInfo) -> None:
         if message.k[0] > 0.0 and message.k[4] > 0.0:
@@ -1163,10 +1225,13 @@ class SceneAnalyzer(Node):
             value < self.white_surface_min_value,
             value > self.white_surface_max_value,
         )
-        white = np.logical_and.reduce((
+        white = np.logical_and(
             ~unknown,
-            saturation <= self.white_surface_max_saturation,
-        ))
+            np.logical_or(
+                saturation <= self.white_surface_max_saturation,
+                value <= self.white_surface_dark_max_value,
+            ),
+        )
         debug = bgr.copy()
         debug[unknown] = (0, 180, 255)
         debug[white] = (

@@ -34,6 +34,14 @@ ros2 action send_goal /vision/analyze_scene interfaces/action/AnalyzeScene \
   "{requested_detectors: 3, duration: {sec: 2, nanosec: 0}, work_surface_height_m: 0.0}" \
   --feedback
 
+# Mapear a superficie branca da mesa por 200 segundos (detector 4)
+ros2 action send_goal /vision/analyze_scene interfaces/action/AnalyzeScene \
+  "{requested_detectors: 4, duration: {sec: 200, nanosec: 0}, \
+  work_surface_height_m: 0.0, table_search_x_min_m: -0.28, \
+  table_search_x_max_m: 0.28, table_search_y_min_m: -0.24, \
+  table_search_y_max_m: -0.10, table_grid_resolution_m: 0.01}" \
+  --feedback
+
 # Actions de manipulacao
 
 # Preparar para navegacao com a garra vazia

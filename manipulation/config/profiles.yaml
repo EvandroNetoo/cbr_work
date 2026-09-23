@@ -45,7 +45,7 @@ placements:
     search_x_max_m: 0.28
     search_y_min_m: -0.24
     search_y_max_m: -0.10
-    search_step_m: 0.01
+    search_step_m: 0.005
     approach_height_m: 0.06
     retreat_height_m: 0.06
 

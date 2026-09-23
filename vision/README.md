@@ -35,8 +35,9 @@ Debug topics remain algorithm-specific:
 
 - `/apriltags/debug_image`
 - `/containers/debug_image`
-- `/table_surface/debug_image` (green: usable white pixels; orange: unknown
-  because the image is too dark or saturated)
+- `/table_surface/debug_image` (green: usable achromatic or deeply shadowed
+  pixels; orange: unknown because the image is outside the configured Value
+  range)
 
 After container perception finishes, manipulation publishes the exact TCP
 release pose on `/manipulation/container_release_target`. The vision node

@@ -1257,7 +1257,7 @@ class ManipulationServer(Node):
                 _tags, _containers, table_grid = (
                     self._motion.analisar_cena(
                         duration,
-                        analisar_apriltags=False,
+                        analisar_apriltags=True,
                         analisar_containers=False,
                         analisar_mesa_branca=True,
                         altura_mesa_m=height_cm / 100.0,
