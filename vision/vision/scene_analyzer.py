@@ -820,11 +820,11 @@ class SceneAnalyzer(Node):
                     session.last_feedback = now
                     goal_handle.publish_feedback(self._feedback(session))
         finally:
-            if vision_led_enabled:
-                self._set_vision_led(False)
             with self.sessions_lock:
                 self.session = None
                 self.state = 'deactivating'
+            if vision_led_enabled:
+                self._set_vision_led(False)
             self.input_lifecycle_guard.trigger()
 
     def _feedback(self, session: Session):

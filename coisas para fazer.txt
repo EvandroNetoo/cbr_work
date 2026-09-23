@@ -1,4 +1,4 @@
-tratar caso trenha dois containers da mesma container
+ok tratar caso trenha dois containers da mesma container
 criar mapa occupancy grid no mapa para fita e mesa de 5cm
 nao bater na parede do lado ao guardar cubo
 se o chao for branco e o robo tiver do lado da mesa, ele pode depositar o cubo fora da mesa (limitar distancia para ir para o lado para depositar)

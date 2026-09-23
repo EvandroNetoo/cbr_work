@@ -233,6 +233,15 @@ def test_one_public_action_owns_one_camera_session():
     assert 'container_color_masks(bgr)' in source
 
 
+def test_scene_is_closed_before_vision_led_is_turned_off():
+    source = (PACKAGE / 'vision' / 'scene_analyzer.py').read_text()
+    teardown = source.split('        finally:', 1)[1].split(
+        '    def _feedback', 1)[0]
+
+    assert teardown.index('self.session = None') < teardown.index(
+        'self._set_vision_led(False)')
+
+
 def test_goal_requires_a_known_nonempty_detector_mask():
     analyzer = object.__new__(SceneAnalyzer)
     analyzer.sessions_lock = threading.RLock()
