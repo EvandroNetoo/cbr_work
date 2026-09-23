@@ -1222,6 +1222,24 @@ class ManipulationServer(Node):
                 float(preferred_yaw_deg),
                 float(alternate_yaw_deg),
             )
+            if bool(goal_handle.request.use_fallback_pose):
+                release_pose = criar_pose(
+                    0.0,
+                    -0.20,
+                    (height_cm + float(tcp_offset_cm)) / 100.0,
+                    float(preferred_yaw_deg),
+                )
+                self._feedback(
+                    goal_handle, PlaceOnTable,
+                    ManipulationFeedback.OBSERVING, 0.30,
+                    'Usando posição padrão de fallback: '
+                    f'x=0.000, y=-0.200 m; '
+                    f'yaw={float(preferred_yaw_deg):.1f}°',
+                )
+                return self._release_at_pose(
+                    goal_handle, PlaceOnTable, release_pose, profile,
+                    f'mesa com altura de {height_cm:g} cm (fallback)',
+                )
             trials = self._table_search_trials(profile, yaw_options)
             analysis_bounds = self._table_analysis_bounds(
                 profile, yaw_options)

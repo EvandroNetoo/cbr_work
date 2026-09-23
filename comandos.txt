@@ -15,9 +15,12 @@ ros2 launch bringup hardware.launch.py
 # Raspberry
 ros2 launch bringup processing.launch.py map:=arena2
 # Raspberry: inicia tudo, exceto a missão
-ros2 launch bringup processing.launch.py map:=arena2 disable_components:=mission
+ros2 launch bringup processing.launch.py map:=arena2 disable_components:=mission,manipulation,vision
 # Notebook: inicia somente a missão
-ros2 launch bringup processing.launch.py components:=mission
+ros2 launch bringup processing.launch.py components:=mission,manipulation,vision
+
+# Raspberry: inicia explicitamente todos os componentes possiveis
+ros2 launch bringup processing.launch.py map:=arena2 components:=rsp,ekf,camera,vision,localization,navigation,manipulation,mission
 
 # Forma antiga, mantida para compatibilidade
 ros2 launch bringup processing.launch.py \

@@ -1,6 +1,9 @@
 # Deposit the object currently held by the gripper on a work surface.
 # Surface height above the floor, in centimeters. Arbitrary values are accepted.
 float32 ws_height_cm
+# Skip perception and use the deterministic fallback position. Intended only
+# after every configured observation position has been exhausted.
+bool use_fallback_pose
 ---
 interfaces/ManipulationResult outcome
 geometry_msgs/PoseStamped placed_pose

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Time
 from interfaces.action import (
-    FollowWall, PickObject, PlaceAtPose, PlaceInContainer, PlaceOnTable,
+    FollowWall, PickObject, PlaceInContainer, PlaceOnTable,
     PrepareManipulator,
 )
 from interfaces.msg import AprilTagStampedDetection, ManipulationResult
@@ -816,7 +816,7 @@ def test_navigation_preparation_explicitly_reports_loaded_gripper():
     assert calls[0][1].gripper_loaded is True
 
 
-def test_table_place_searches_all_positions_then_uses_default_pose():
+def test_table_place_searches_all_positions_then_uses_table_fallback():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._world_state.commit_pick(5)
@@ -825,7 +825,6 @@ def test_table_place_searches_all_positions_then_uses_default_pose():
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._place_table_client = object()
-    manager._place_at_pose_client = object()
     manager._manipulation_timeout = lambda: 120.0
     manager._prepare_for_pick_observation = lambda: None
     manager.get_logger = lambda: SimpleNamespace(
@@ -843,9 +842,9 @@ def test_table_place_searches_all_positions_then_uses_default_pose():
 
     def call_action(client, goal, *_args, **_kwargs):
         action_calls.append((client, goal))
-        if client is manager._place_at_pose_client:
+        if goal.use_fallback_pose:
             return _place_result(
-                PlaceAtPose,
+                PlaceOnTable,
                 ManipulationResult.SUCCESS,
                 location=ManipulationResult.LOCATION_DESTINATION,
             )
@@ -862,13 +861,13 @@ def test_table_place_searches_all_positions_then_uses_default_pose():
 
     assert travels == [250, -500]
     assert [call[0] for call in action_calls].count(
-        manager._place_table_client) == 3
-    assert action_calls[-1][0] is manager._place_at_pose_client
-    pose = action_calls[-1][1].release_pose
-    assert pose.header.frame_id == 'arm_base_link'
-    assert pose.pose.position.x == pytest.approx(0.0)
-    assert pose.pose.position.y == pytest.approx(-0.20)
-    assert pose.pose.position.z == pytest.approx(0.125)
+        manager._place_table_client) == 4
+    assert action_calls[-1][0] is manager._place_table_client
+    assert action_calls[-1][1].use_fallback_pose is True
+    assert action_calls[-1][1].ws_height_cm == pytest.approx(12.5)
+    assert all(
+        not goal.use_fallback_pose for _, goal in action_calls[:-1]
+    )
     assert manager._world_state.snapshot()[1] == EMPTY
 
 
@@ -881,7 +880,6 @@ def test_container_place_retries_at_next_search_position_and_continues():
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._place_container_client = object()
-    manager._place_at_pose_client = object()
     manager._manipulation_timeout = lambda: 120.0
     manager._prepare_for_pick_observation = lambda: None
     manager.get_logger = lambda: SimpleNamespace(
@@ -923,6 +921,60 @@ def test_container_place_retries_at_next_search_position_and_continues():
     assert manager._world_state.snapshot()[1] == EMPTY
 
 
+def test_container_place_uses_table_fallback_after_all_search_positions():
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._world_state.commit_pick(8)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._place_container_client = object()
+    manager._place_table_client = object()
+    manager._manipulation_timeout = lambda: 120.0
+    manager._prepare_for_pick_observation = lambda: None
+    manager.get_logger = lambda: SimpleNamespace(
+        info=lambda _text: None, warning=lambda _text: None)
+    calls = []
+
+    def control_wall(distance, *_args, **kwargs):
+        result = FollowWall.Result()
+        result.final_average_distance_mm = float(distance)
+        result.traveled_distance_mm = float(kwargs['travel_distance_mm'])
+        return result
+
+    def call_action(client, goal, *_args, **_kwargs):
+        calls.append((client, goal))
+        if client is manager._place_table_client:
+            return _place_result(
+                PlaceOnTable,
+                ManipulationResult.SUCCESS,
+                location=ManipulationResult.LOCATION_DESTINATION,
+            )
+        return _place_result(
+            PlaceInContainer,
+            ManipulationResult.OBJECT_NOT_FOUND,
+            'contêiner não encontrado',
+        )
+
+    manager._control_wall = control_wall
+    manager._call_action = call_action
+
+    manager._execute_manipulation(
+        Step('place_blue', 'place_in_container', container_color='blue')
+    )
+
+    assert len(calls) == 4
+    assert all(
+        client is manager._place_container_client for client, _ in calls[:3]
+    )
+    fallback_client, fallback_goal = calls[-1]
+    assert fallback_client is manager._place_table_client
+    assert fallback_goal.use_fallback_pose is True
+    assert fallback_goal.ws_height_cm == pytest.approx(12.5)
+    assert manager._world_state.snapshot()[1] == EMPTY
+
+
 def test_place_does_not_retry_after_confirmed_release_cleanup_failure():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
@@ -932,7 +984,6 @@ def test_place_does_not_retry_after_confirmed_release_cleanup_failure():
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._place_table_client = object()
-    manager._place_at_pose_client = object()
     manager._manipulation_timeout = lambda: 120.0
     manager.get_logger = lambda: SimpleNamespace(
         info=lambda _text: None, warning=lambda _text: None)

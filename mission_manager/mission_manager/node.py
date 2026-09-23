@@ -15,7 +15,6 @@ from interfaces.action import (
     ExecuteMission,
     FollowWall,
     PickObject,
-    PlaceAtPose,
     PlaceInContainer,
     PlaceOnShelf,
     PlaceOnTable,
@@ -54,6 +53,7 @@ class MissionManager(Node):
         if (
             not hasattr(PickObject.Result(), 'observed_detections')
             or not hasattr(PrepareManipulator.Goal(), 'gripper_loaded')
+            or not hasattr(PlaceOnTable.Goal(), 'use_fallback_pose')
         ):
             raise ConfigurationError(
                 'As interfaces de manipulação instaladas estão desatualizadas; '
@@ -78,7 +78,6 @@ class MissionManager(Node):
             'retrieve_action': '/manipulation/retrieve',
             'place_on_table_action': '/manipulation/place_on_table',
             'place_in_container_action': '/manipulation/place_in_container',
-            'place_at_pose_action': '/manipulation/place_at_pose',
             'stack_action': '/manipulation/stack',
             'place_on_shelf_action': '/manipulation/place_on_shelf',
             'server_timeout_s': 10.0,
@@ -155,9 +154,6 @@ class MissionManager(Node):
         self._place_table_client = client(PlaceOnTable, 'place_on_table_action')
         self._place_container_client = client(
             PlaceInContainer, 'place_in_container_action'
-        )
-        self._place_at_pose_client = client(
-            PlaceAtPose, 'place_at_pose_action'
         )
         self._stack_client = client(StackObject, 'stack_action')
         self._place_shelf_client = client(PlaceOnShelf, 'place_on_shelf_action')
@@ -898,17 +894,11 @@ class MissionManager(Node):
         visited.add(destination)
         return True
 
-    def _default_place_goal(self, height_cm: float) -> PlaceAtPose.Goal:
-        """Build the final deterministic placement pose."""
-        goal = PlaceAtPose.Goal()
-        goal.release_pose.header.frame_id = 'arm_base_link'
-        goal.release_pose.pose.position.x = 0.0
-        goal.release_pose.pose.position.y = -0.20
-        goal.release_pose.pose.position.z = float(height_cm) / 100.0
-        # Downward-facing TCP at yaw zero, equivalent to criar_pose(..., 0).
-        half_sqrt = math.sqrt(0.5)
-        goal.release_pose.pose.orientation.x = half_sqrt
-        goal.release_pose.pose.orientation.w = half_sqrt
+    def _default_place_goal(self, height_cm: float) -> PlaceOnTable.Goal:
+        """Build the final deterministic table-placement request."""
+        goal = PlaceOnTable.Goal()
+        goal.ws_height_cm = float(height_cm)
+        goal.use_fallback_pose = True
         return goal
 
     def _navigate(self, target: str) -> None:
@@ -1168,13 +1158,12 @@ class MissionManager(Node):
         fallback_goal = self._default_place_goal(height_cm)
         self.get_logger().warning(
             f"Nenhum destino utilizável para o passo '{step.step_id}' nas "
-            'posições de busca; usando a pose padrão '
-            f'x=0.000, y=-0.200, z={height_cm / 100.0:.3f} m.'
+            'posições de busca; usando o fallback padrão de place_on_table.'
         )
         result = self._call_manipulation_action(
-            self._place_at_pose_client,
+            self._place_table_client,
             fallback_goal,
-            f"fallback do passo '{step.step_id}' (place_at_pose)",
+            f"fallback do passo '{step.step_id}' (place_on_table)",
             timeout,
             'place',
             tag_id,
@@ -1191,7 +1180,7 @@ class MissionManager(Node):
             )
             return
         raise StepFailed(
-            f"fallback do passo '{step.step_id}' (place_at_pose) falhou: "
+            f"fallback do passo '{step.step_id}' (place_on_table) falhou: "
             f'{failure}'
         )
 

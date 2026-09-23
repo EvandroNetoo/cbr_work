@@ -126,13 +126,14 @@ ainda não examinada mais próxima e repete a action semântica. Cada passo de
 depósito possui seu próprio conjunto de posições visitadas, independente da
 memória usada pelas coletas.
 
-Depois de examinar todas as posições configuradas, o gerenciador usa
-`PlaceAtPose` com a pose de soltura padrão no referencial `arm_base_link`:
-`x=0`, `y=-0,20` e `z=altura da mesa`. Se uma action confirmar que a garra já
-foi aberta no destino e falhar somente no recuo ou no retorno do braço, o efeito
-é aceito e o fluxo normal continua sem tentar depositar o mesmo objeto outra
-vez. Resultado com efeito físico incerto continua interrompendo a missão por
-segurança.
+Depois de examinar todas as posições configuradas, o gerenciador chama
+`PlaceOnTable` em modo de fallback. Nesse modo, a percepção é ignorada e a
+posição padrão `x=0`, `y=-0,20` é usada com a altura, o offset do TCP, a
+orientação preferencial e as restrições normais do perfil `table`. Se uma action
+confirmar que a garra já foi aberta no destino e falhar somente no recuo ou no
+retorno do braço, o efeito é aceito e o fluxo normal continua sem tentar
+depositar o mesmo objeto outra vez. Resultado com efeito físico incerto continua
+interrompendo a missão por segurança.
 
 ## Execução
 

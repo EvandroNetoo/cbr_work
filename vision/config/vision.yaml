@@ -88,7 +88,7 @@ scene_analyzer:
     # Cada célula usa 9 amostras. Estes limites toleram uma amostra divergente
     # por célula, mas duas ainda impedem que ela seja considerada livre.
     white_surface_min_fraction: 0.88
-    white_surface_max_unknown_fraction: 0.0
+    white_surface_max_unknown_fraction: 0.20
     white_surface_min_confirmed_frames: 2
     # Tolera oscilações de exposição/sombra entre os frames da análise.
     white_surface_min_confirmed_ratio: 0.60

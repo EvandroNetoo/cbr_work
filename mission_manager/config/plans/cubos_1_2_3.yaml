@@ -7,28 +7,27 @@ steps:
 
   - id: navigate_to_ws_2
     action: navigate
-    target: ws_2
+    target: ws_1
 
   - id: pegar_cubo_1
     action: pick
     tag_id: 1
 
   - id: depositar_cubo_1_no_container_vermelho
-    action: place_in_container
-    container_color: red
+    action: place_on_table
 
-  - id: pegar_cubo_2
-    action: pick
-    tag_id: 2
+  # - id: pegar_cubo_2
+  #   action: pick
+  #   tag_id: 2
 
-  - id: depositar_cubo_2_no_container_azul
-    action: place_in_container
-    container_color: blue
+  # - id: depositar_cubo_2_no_container_azul
+  #   action: place_in_container
+  #   container_color: blue
 
-  - id: pegar_cubo_3
-    action: pick
-    tag_id: 3
+  # - id: pegar_cubo_3
+  #   action: pick
+  #   tag_id: 3
 
-  - id: depositar_cubo_3_no_container_vermelho
-    action: place_in_container
-    container_color: red
+  # - id: depositar_cubo_3_no_container_vermelho
+  #   action: place_in_container
+  #   container_color: red

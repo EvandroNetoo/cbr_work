@@ -64,7 +64,7 @@ def test_follow_wall_safety_parameters_are_enabled_by_default():
     assert parameters['follow_wall.max_alignment_error_mm'] == 100
     assert parameters['follow_wall.alignment_recovery_distance_mm'] == 100
     assert parameters['follow_wall.minimum_lateral_clearance_mm'] == 10
-    assert parameters['place_at_pose_action'] == '/manipulation/place_at_pose'
+    assert 'place_at_pose_action' not in parameters
 
     arena = yaml.safe_load((PACKAGE / 'config' / 'arena.yaml').read_text())
     departure = arena['departure_defaults']

@@ -269,6 +269,49 @@ def test_table_deposit_always_uses_one_combined_scene_request():
     assert request['mesa_y_max_m'] > -0.14
 
 
+def test_table_fallback_skips_perception_and_uses_normal_table_profile():
+    server = _operation_only_server()
+    profile = _search_profile(
+        tcp_release_offset_cm=-3.0,
+        free_space_preferred_yaw_deg=-90.0,
+    )
+    server._profiles = SimpleNamespace(placements={'table': profile})
+    server._arm_state = lambda *_args: pytest.fail(
+        'fallback não deve preparar uma nova observação')
+    server._motion = SimpleNamespace(
+        analisar_cena=lambda *_args, **_kwargs: pytest.fail(
+            'fallback não deve analisar a cena'))
+    captured = {}
+
+    def release(_handle, action, pose, selected_profile, destination):
+        captured.update(
+            action=action,
+            pose=pose,
+            profile=selected_profile,
+            destination=destination,
+        )
+        return 'ok', ManipulationResult.LOCATION_DESTINATION, pose
+
+    server._release_at_pose = release
+    goal = PlaceOnTable.Goal()
+    goal.ws_height_cm = 12.5
+    goal.use_fallback_pose = True
+
+    server._execute_place_on_table(SimpleNamespace(request=goal))
+
+    pose = captured['pose']
+    assert captured['action'] is PlaceOnTable
+    assert captured['profile'] is profile
+    assert 'fallback' in captured['destination']
+    assert pose.pose.position.x == pytest.approx(0.0)
+    assert pose.pose.position.y == pytest.approx(-0.20)
+    assert pose.pose.position.z == pytest.approx(0.095)
+    assert pose.pose.orientation.x == pytest.approx(0.5)
+    assert pose.pose.orientation.y == pytest.approx(-0.5)
+    assert pose.pose.orientation.z == pytest.approx(-0.5)
+    assert pose.pose.orientation.w == pytest.approx(0.5)
+
+
 def test_table_requires_release_orientation_calibration_before_detection():
     server = _operation_only_server()
     server._profiles.placements['table'] = _search_profile(

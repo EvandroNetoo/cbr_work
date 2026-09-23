@@ -17,6 +17,7 @@ def test_actions_cover_pick_cargo_and_semantic_placements():
 
     table = (actions / 'PlaceOnTable.action').read_text()
     assert 'float32 ws_height_cm' in table
+    assert 'bool use_fallback_pose' in table
     assert 'analyze_apriltags' not in table
     assert 'analyze_containers' not in table
 

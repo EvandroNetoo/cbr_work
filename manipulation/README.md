@@ -169,6 +169,10 @@ ros2 action send_goal manipulation/place_on_table interfaces/action/PlaceOnTable
   "{ws_height_cm: 12.5}" --feedback
 ```
 
+O campo `use_fallback_pose` é reservado ao `mission_manager`: após esgotar as
+posições de observação, ele mantém a action `PlaceOnTable`, ignora uma nova
+análise da cena e usa a posição padrão com o perfil normal de depósito na mesa.
+
 Interface para depósito em contêiner:
 
 ```bash
