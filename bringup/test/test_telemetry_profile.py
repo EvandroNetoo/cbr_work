@@ -73,6 +73,16 @@ def test_telemetry_config_uses_live_robot_topics():
     assert 'nav2_rviz_plugins/GoalTool' not in tool_classes
 
 
+def test_debug_images_use_retained_reliable_qos():
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / 'config' / 'telemetry.rviz').read_text())
+
+    for name in ('Debug AprilTag', 'Debug containers', 'Debug table'):
+        topic = _display(config, name)['Topic']
+        assert topic['Durability Policy'] == 'Transient Local'
+        assert topic['Reliability Policy'] == 'Reliable'
+
+
 def test_rviz_config_is_installed_by_setup():
     setup_source = (PACKAGE_ROOT / 'setup.py').read_text()
     assert "glob('config/*.rviz')" in setup_source

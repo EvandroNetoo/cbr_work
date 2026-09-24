@@ -38,6 +38,15 @@ Debug topics remain algorithm-specific:
 - `/table_surface/debug_image` (green: usable white pixels; orange: unknown
   because the image is too dark or saturated)
 
+During an active session, the AprilTag and container images show the effective
+completed-frame rate, processed-frame count and base-transform coverage.  The
+last image is retained with transient-local QoS and is replaced at the end by a
+`FINAL` (or `CANCELED`) summary.  That summary draws only the base-frame
+detections returned by the action, including an explicit zero-accepted result;
+per-frame rejected candidates remain visible only in the live debug stream.
+Container summaries include temporal support and spread, while AprilTag
+summaries include pose error, decision margin and Hamming distance.
+
 After container perception finishes, manipulation publishes the exact TCP
 release pose on `/manipulation/container_release_target`. The vision node
 projects it over the stored observation frame and republishes

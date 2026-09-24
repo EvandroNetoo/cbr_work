@@ -170,6 +170,8 @@ class Session:
     containers_ready_at: float = math.inf
     last_feedback: float = 0.0
     last_base_transform: TransformStamped | None = None
+    recent_frame_times: list[float] = field(default_factory=list)
+    latest_debug_frame: 'ContainerDebugFrame | None' = None
     table_search_x_min_m: float = 0.0
     table_search_y_min_m: float = 0.0
     table_grid_resolution_m: float = 0.0
@@ -341,6 +343,12 @@ class SceneAnalyzer(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE,
         )
+        debug_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
         self.camera_pose_publisher = self.create_publisher(
             PoseArray, 'apriltags/poses_camera', output_qos)
         self.pose_publisher = self.create_publisher(
@@ -350,15 +358,15 @@ class SceneAnalyzer(Node):
         self.detection_publisher = self.create_publisher(
             AprilTagDetectionArray, 'apriltags/detections', output_qos)
         self.debug_image_publisher = self.create_publisher(
-            Image, 'apriltags/debug_image', qos_profile_sensor_data)
+            Image, 'apriltags/debug_image', debug_qos)
         self.container_camera_detection_publisher = self.create_publisher(
             ContainerDetectionArray, 'containers/detections_camera', output_qos)
         self.container_detection_publisher = self.create_publisher(
             ContainerDetectionArray, 'containers/detections', output_qos)
         self.container_debug_image_publisher = self.create_publisher(
-            Image, 'containers/debug_image', qos_profile_sensor_data)
+            Image, 'containers/debug_image', debug_qos)
         self.table_surface_debug_image_publisher = self.create_publisher(
-            Image, 'table_surface/debug_image', qos_profile_sensor_data)
+            Image, 'table_surface/debug_image', debug_qos)
         self.latest_container_debug_frame: ContainerDebugFrame | None = None
         self.container_target_subscription = self.create_subscription(
             PoseStamped,
@@ -800,19 +808,25 @@ class SceneAnalyzer(Node):
                 time.sleep(0.02)
                 elapsed = max(0.0, time.monotonic() - session.started)
                 if goal_handle.is_cancel_requested:
-                    result = self._result(
-                        session, 'Canceled; returning accumulated detections.')
+                    result = self._finish_session(
+                        session,
+                        'Canceled; returning accumulated detections.',
+                        'CANCELED',
+                    )
                     goal_handle.canceled(result)
                     return result
                 if duration > 0.0 and elapsed >= duration:
                     if session.frames_processed == 0:
-                        result = self._result(
+                        result = self._finish_session(
                             session,
                             'No calibrated image was processed during the '
-                            'requested window.')
+                            'requested window.',
+                            'ABORTED',
+                        )
                         goal_handle.abort(result)
                         return result
-                    result = self._result(session, 'Analysis completed.')
+                    result = self._finish_session(
+                        session, 'Analysis completed.', 'FINAL')
                     goal_handle.succeed(result)
                     return result
                 now = time.monotonic()
@@ -821,11 +835,30 @@ class SceneAnalyzer(Node):
                     goal_handle.publish_feedback(self._feedback(session))
         finally:
             with self.sessions_lock:
-                self.session = None
+                if self.session is session:
+                    self.session = None
                 self.state = 'deactivating'
             if vision_led_enabled:
                 self._set_vision_led(False)
             self.input_lifecycle_guard.trigger()
+
+    def _finish_session(
+        self, session: Session, message: str, status: str,
+    ):
+        """Freeze one session, then publish exactly the result being returned."""
+        with self.sessions_lock:
+            if self.session is session:
+                self.session = None
+            result = self._result(session, message)
+        if self.publish_debug_image:
+            try:
+                self.publish_final_debug_images(session, result, status)
+            except Exception as error:
+                # Debug rendering must never turn a valid perception result
+                # into a failed action.
+                self.get_logger().error(
+                    f'Could not publish final debug image: {error}')
+        return result
 
     def _feedback(self, session: Session):
         feedback = AnalyzeScene.Feedback()
@@ -841,6 +874,20 @@ class SceneAnalyzer(Node):
         feedback.remaining = _ros_duration(
             0.0 if feedback.continuous else session.duration - elapsed)
         return feedback
+
+    @staticmethod
+    def _observation_fps(session: Session) -> float:
+        """Return completed-frame throughput over the latest one-second window."""
+        stamps = session.recent_frame_times
+        if len(stamps) < 2:
+            return 0.0
+        elapsed = stamps[-1] - stamps[0]
+        return (len(stamps) - 1) / elapsed if elapsed > 0.0 else 0.0
+
+    @staticmethod
+    def _average_observation_fps(session: Session) -> float:
+        elapsed = max(0.0, time.monotonic() - session.started)
+        return session.frames_processed / elapsed if elapsed > 0.0 else 0.0
 
     def _result(self, session: Session, message: str):
         # Image callbacks may still be adding observations on the executor
@@ -925,6 +972,7 @@ class SceneAnalyzer(Node):
             [0.0, info.p[5], info.p[6]],
             [0.0, 0.0, 1.0],
         ], dtype=np.float64)
+        detections = []
         camera_items: list[AprilTagStampedDetection] = []
         camera_poses: list[PoseStamped] = []
         transforms: list[TransformStamped] = []
@@ -937,8 +985,6 @@ class SceneAnalyzer(Node):
                 if detection.hamming <= self.max_hamming
                 and detection.decision_margin >= self.min_decision_margin
             ]
-            if self.publish_debug_image:
-                self.publish_detection_debug_image(message, image, detections)
             for detection in valid:
                 family = (
                     detection.tag_family.decode()
@@ -970,6 +1016,8 @@ class SceneAnalyzer(Node):
                 transform.transform.rotation = pose.orientation
                 transforms.append(transform)
 
+        masks: dict[int, np.ndarray] = {}
+        candidates: list[ContainerCandidate] = []
         container_camera_items: list[ContainerStampedDetection] = []
         container_camera_poses: list[PoseStamped] = []
         if session.requested_detectors & CONTAINERS:
@@ -1097,9 +1145,6 @@ class SceneAnalyzer(Node):
                     session, bgr, camera_matrix, base_transform))
             if self.publish_debug_image:
                 self.publish_table_surface_debug_image(message, table_debug)
-        if session.requested_detectors & CONTAINERS and self.publish_debug_image:
-            self.publish_container_debug_image(
-                message, bgr, masks, candidates, camera_matrix, base_transform)
         if session.requested_detectors & APRILTAGS:
             self.camera_pose_publisher.publish(
                 self.pose_array(camera_frame, message, camera_poses))
@@ -1147,6 +1192,29 @@ class SceneAnalyzer(Node):
                 container_base_items,
                 session.frames_processed,
             )
+            completed_at = time.monotonic()
+            session.recent_frame_times.append(completed_at)
+            cutoff = completed_at - 1.0
+            session.recent_frame_times = [
+                stamp for stamp in session.recent_frame_times
+                if stamp >= cutoff
+            ]
+            session.latest_debug_frame = ContainerDebugFrame(
+                header=copy.deepcopy(message.header),
+                image=bgr.copy(),
+                camera_matrix=camera_matrix.copy(),
+                camera_to_base=copy.deepcopy(
+                    base_transform or session.last_base_transform),
+            )
+            fps = self._observation_fps(session)
+            if self.publish_debug_image:
+                if session.requested_detectors & APRILTAGS:
+                    self.publish_detection_debug_image(
+                        message, image, detections, session, fps)
+                if session.requested_detectors & CONTAINERS:
+                    self.publish_container_debug_image(
+                        message, bgr, masks, candidates, camera_matrix,
+                        base_transform, session, fps)
 
     def evaluate_white_table_grid(
         self,
@@ -1923,6 +1991,8 @@ class SceneAnalyzer(Node):
         candidates: list[ContainerCandidate],
         camera_matrix: np.ndarray,
         camera_to_base: TransformStamped | None,
+        session: Session,
+        fps: float,
     ) -> None:
         debug = bgr.copy()
         tint = np.zeros_like(debug)
@@ -1962,14 +2032,17 @@ class SceneAnalyzer(Node):
             cv2.putText(
                 debug, label, origin, cv2.FONT_HERSHEY_SIMPLEX,
                 0.38, line_color, 1, cv2.LINE_AA)
+        fps_text = f'{fps:.1f}' if len(session.recent_frame_times) > 1 else '--'
         summary = (
-            f'raw={len(candidates)} accepted={accepted} exterior-only MVP')
+            f'LIVE {fps_text}fps F{session.frames_processed} '
+            f'TF{session.frames_with_base_transform}/'
+            f'{session.frames_processed} R{len(candidates)} A{accepted}')
         cv2.rectangle(
-            debug, (0, 0), (min(debug.shape[1] - 1, 319), 25),
+            debug, (0, 0), (debug.shape[1] - 1, 25),
             (0, 0, 0), -1)
         cv2.putText(
             debug, summary, (5, 17), cv2.FONT_HERSHEY_SIMPLEX,
-            0.42, (255, 255, 255), 1, cv2.LINE_AA)
+            0.34, (255, 255, 255), 1, cv2.LINE_AA)
         self.latest_container_debug_frame = ContainerDebugFrame(
             header=copy.deepcopy(source.header),
             image=debug.copy(),
@@ -1989,6 +2062,202 @@ class SceneAnalyzer(Node):
         output.step = output.width * 3
         output.data = bgr.tobytes()
         return output
+
+    @staticmethod
+    def _draw_debug_text(
+        image: np.ndarray,
+        text: str,
+        origin: tuple[int, int],
+        color: tuple[int, int, int] = (255, 255, 255),
+        scale: float = 0.34,
+    ) -> None:
+        cv2.putText(
+            image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,
+            (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(
+            image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,
+            color, 1, cv2.LINE_AA)
+
+    @staticmethod
+    def _project_base_points(
+        points_local: np.ndarray,
+        pose: Pose,
+        frame: ContainerDebugFrame,
+    ) -> np.ndarray | None:
+        if frame.camera_to_base is None:
+            return None
+        try:
+            object_rotation = rotation_from_quaternion(pose.orientation)
+            camera_rotation = rotation_from_quaternion(
+                frame.camera_to_base.transform.rotation)
+        except ValueError:
+            return None
+        position = np.array([
+            pose.position.x, pose.position.y, pose.position.z,
+        ], dtype=np.float64)
+        origin = np.array([
+            frame.camera_to_base.transform.translation.x,
+            frame.camera_to_base.transform.translation.y,
+            frame.camera_to_base.transform.translation.z,
+        ], dtype=np.float64)
+        points_base = points_local @ object_rotation.T + position
+        points_camera = (points_base - origin) @ camera_rotation
+        depths = points_camera[:, 2]
+        if (
+            not np.all(np.isfinite(points_camera))
+            or np.any(depths <= 1e-6)
+        ):
+            return None
+        matrix = frame.camera_matrix
+        pixels = np.column_stack((
+            matrix[0, 0] * points_camera[:, 0] / depths + matrix[0, 2],
+            matrix[1, 1] * points_camera[:, 1] / depths + matrix[1, 2],
+        ))
+        return np.rint(pixels).astype(np.int32)
+
+    def _draw_final_apriltags(
+        self,
+        debug: np.ndarray,
+        frame: ContainerDebugFrame,
+        detections: list[AprilTagStampedDetection],
+    ) -> None:
+        half = self.tag_size_m / 2.0
+        tag_corners = np.array([
+            [-half, -half, 0.0], [half, -half, 0.0],
+            [half, half, 0.0], [-half, half, 0.0],
+        ])
+        axis_length = self.tag_size_m * 0.75
+        axes = np.array([
+            [0.0, 0.0, 0.0], [axis_length, 0.0, 0.0],
+            [0.0, axis_length, 0.0], [0.0, 0.0, axis_length],
+        ])
+        line_y = 42
+        for item in sorted(detections, key=lambda detection: detection.id):
+            corners = self._project_base_points(tag_corners, item.pose, frame)
+            projected_axes = self._project_base_points(axes, item.pose, frame)
+            if corners is not None:
+                cv2.polylines(
+                    debug, [corners.reshape(-1, 1, 2)], True,
+                    (0, 220, 0), 2, cv2.LINE_AA)
+                center = tuple(np.rint(corners.mean(axis=0)).astype(int))
+                self._draw_debug_text(
+                    debug, f'T{item.id}', center, (0, 255, 0), 0.48)
+            if projected_axes is not None:
+                center = tuple(projected_axes[0])
+                for endpoint, color in zip(
+                    projected_axes[1:],
+                    ((0, 0, 255), (0, 255, 0), (255, 0, 0)),
+                ):
+                    cv2.line(
+                        debug, center, tuple(endpoint), color,
+                        2, cv2.LINE_AA)
+            position = item.pose.position
+            self._draw_debug_text(
+                debug,
+                f'T{item.id} x={position.x:.3f} y={position.y:.3f} '
+                f'z={position.z:.3f}m err={item.pose_error:.2f}px',
+                (5, line_y),
+            )
+            line_y += 14
+            self._draw_debug_text(
+                debug,
+                f'  margin={item.decision_margin:.1f} h={item.hamming}',
+                (5, line_y),
+            )
+            line_y += 17
+
+    def _draw_final_containers(
+        self,
+        debug: np.ndarray,
+        frame: ContainerDebugFrame,
+        detections: list[ContainerStampedDetection],
+    ) -> None:
+        line_y = 42
+        for index, item in enumerate(detections, start=1):
+            half_depth = item.external_depth_m / 2.0
+            half_width = item.external_width_m / 2.0
+            corners_local = np.array([
+                [-half_depth, -half_width, 0.0],
+                [half_depth, -half_width, 0.0],
+                [half_depth, half_width, 0.0],
+                [-half_depth, half_width, 0.0],
+            ])
+            corners = self._project_base_points(
+                corners_local, item.pose, frame)
+            color = DEBUG_COLORS.get(int(item.color), (0, 220, 0))
+            if corners is not None:
+                cv2.polylines(
+                    debug, [corners.reshape(-1, 1, 2)], True,
+                    color, 2, cv2.LINE_AA)
+                center = tuple(np.rint(corners.mean(axis=0)).astype(int))
+                self._draw_debug_text(
+                    debug, f'C{index}', center, color, 0.48)
+            position = item.pose.position
+            yaw = math.degrees(self._container_yaw(item))
+            name = COLOR_NAMES.get(int(item.color), str(int(item.color)))
+            self._draw_debug_text(
+                debug,
+                f'C{index} {name} x={position.x:.3f} y={position.y:.3f} '
+                f'z={position.z:.3f}m yaw={yaw:.1f}deg',
+                (5, line_y),
+            )
+            line_y += 14
+            details = (
+                f'  n={item.observation_count} '
+                f'spread={item.position_spread_m * 1000.0:.0f}mm/'
+                f'{item.yaw_spread_deg:.1f}deg err={item.pose_error:.2f}px')
+            self._draw_debug_text(debug, details, (5, line_y))
+            line_y += 14
+            if item.partial:
+                self._draw_debug_text(
+                    debug,
+                    f'  PARTIAL overlap={item.partial_fit_overlap:.2f} '
+                    f'unc={item.position_uncertainty_m * 1000.0:.0f}mm/'
+                    f'{item.yaw_uncertainty_deg:.1f}deg',
+                    (5, line_y),
+                )
+                line_y += 14
+            line_y += 3
+
+    def publish_final_debug_images(
+        self, session: Session, result, status: str,
+    ) -> None:
+        """Publish retained summaries made from the exact action result."""
+        frame = session.latest_debug_frame
+        if frame is None:
+            return
+        fps = self._average_observation_fps(session)
+        common = (
+            f'{status} {fps:.1f}fps F{result.frames_processed} '
+            f'TF{result.frames_with_base_transform}/{result.frames_processed}')
+        if session.requested_detectors & APRILTAGS:
+            debug = frame.image.copy()
+            detections = list(result.best_apriltags_base)
+            cv2.rectangle(
+                debug, (0, 0), (debug.shape[1] - 1, 25), (0, 0, 0), -1)
+            self._draw_debug_text(
+                debug, f'{common} A{len(detections)}', (5, 17),
+                scale=0.34)
+            self._draw_final_apriltags(debug, frame, detections)
+            self.debug_image_publisher.publish(
+                self._bgr_image_message(frame.header, debug))
+        if session.requested_detectors & CONTAINERS:
+            debug = frame.image.copy()
+            detections = list(result.best_containers_base)
+            cv2.rectangle(
+                debug, (0, 0), (debug.shape[1] - 1, 25), (0, 0, 0), -1)
+            self._draw_debug_text(
+                debug, f'{common} A{len(detections)}', (5, 17),
+                scale=0.34)
+            self._draw_final_containers(debug, frame, detections)
+            self.latest_container_debug_frame = ContainerDebugFrame(
+                header=copy.deepcopy(frame.header),
+                image=debug.copy(),
+                camera_matrix=frame.camera_matrix.copy(),
+                camera_to_base=copy.deepcopy(frame.camera_to_base),
+            )
+            self.container_debug_image_publisher.publish(
+                self._bgr_image_message(frame.header, debug))
 
     def container_target_callback(self, target: PoseStamped) -> None:
         """Project the exact MoveIt TCP target over the cached camera frame."""
@@ -2101,7 +2370,8 @@ class SceneAnalyzer(Node):
         return cv2.cvtColor(rows[:, :width * channels].reshape(height, width, channels), code)
 
     def publish_detection_debug_image(
-            self, source: Image, mono: np.ndarray, detections) -> None:
+            self, source: Image, mono: np.ndarray, detections,
+            session: Session, fps: float) -> None:
         """Publish the detector input annotated with raw AprilTag candidates."""
         debug = cv2.cvtColor(mono, cv2.COLOR_GRAY2BGR)
         accepted = 0
@@ -2128,11 +2398,15 @@ class SceneAnalyzer(Node):
             cv2.putText(debug, label, text_origin, cv2.FONT_HERSHEY_SIMPLEX,
                         0.45, color, 1, cv2.LINE_AA)
 
-        summary = f'raw={len(detections)} accepted={accepted}'
-        cv2.rectangle(debug, (0, 0), (min(debug.shape[1] - 1, 245), 24),
+        fps_text = f'{fps:.1f}' if len(session.recent_frame_times) > 1 else '--'
+        summary = (
+            f'LIVE {fps_text}fps F{session.frames_processed} '
+            f'TF{session.frames_with_base_transform}/'
+            f'{session.frames_processed} R{len(detections)} A{accepted}')
+        cv2.rectangle(debug, (0, 0), (debug.shape[1] - 1, 24),
                       (0, 0, 0), -1)
         cv2.putText(debug, summary, (6, 17), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5, (255, 255, 255), 1, cv2.LINE_AA)
+                    0.34, (255, 255, 255), 1, cv2.LINE_AA)
 
         output = Image()
         output.header = source.header

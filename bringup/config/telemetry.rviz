@@ -368,9 +368,9 @@ Visualization Manager:
       Normalize Range: true
       Topic:
         Depth: 2
-        Durability Policy: Volatile
+        Durability Policy: Transient Local
         History Policy: Keep Last
-        Reliability Policy: Best Effort
+        Reliability Policy: Reliable
         Value: /apriltags/debug_image
       Value: false
     - Class: rviz_default_plugins/Image
@@ -382,9 +382,9 @@ Visualization Manager:
       Normalize Range: true
       Topic:
         Depth: 2
-        Durability Policy: Volatile
+        Durability Policy: Transient Local
         History Policy: Keep Last
-        Reliability Policy: Best Effort
+        Reliability Policy: Reliable
         Value: /containers/debug_image
       Value: false
     - Class: rviz_default_plugins/Image
@@ -396,9 +396,9 @@ Visualization Manager:
       Normalize Range: true
       Topic:
         Depth: 2
-        Durability Policy: Volatile
+        Durability Policy: Transient Local
         History Policy: Keep Last
-        Reliability Policy: Best Effort
+        Reliability Policy: Reliable
         Value: /table_surface/debug_image
       Value: false
     - Acceleration_Scaling_Factor: 0.1

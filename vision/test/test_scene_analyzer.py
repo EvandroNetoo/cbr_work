@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 import threading
+import time
 from types import ModuleType, SimpleNamespace
 import math
 
@@ -27,6 +28,7 @@ from vision.scene_analyzer import (  # noqa: E402
     _capture_request_succeeded,
     BLUE,
     ContainerCandidate,
+    ContainerDebugFrame,
     RED,
     SceneAnalyzer,
     Session,
@@ -636,7 +638,107 @@ def test_debug_images_are_algorithm_specific():
     source = (PACKAGE / 'vision' / 'scene_analyzer.py').read_text()
     assert "'apriltags/debug_image'" in source
     assert "'containers/debug_image'" in source
-    assert 'exterior-only MVP' in source
+    assert 'publish_final_debug_images' in source
+    assert 'TRANSIENT_LOCAL' in source
+
+
+def test_observation_fps_uses_recent_completed_frames():
+    session = Session(
+        goal_handle=SimpleNamespace(), duration=2.0,
+        requested_detectors=AnalyzeScene.Goal.CONTAINERS,
+    )
+    session.recent_frame_times = [10.0, 10.25, 10.5]
+
+    assert SceneAnalyzer._observation_fps(session) == pytest.approx(4.0)
+
+
+def test_final_debug_uses_only_action_result_detections():
+    analyzer = object.__new__(SceneAnalyzer)
+    analyzer.tag_size_m = 0.032
+    analyzer.latest_container_debug_frame = None
+    tag_outputs = []
+    container_outputs = []
+    analyzer.debug_image_publisher = SimpleNamespace(publish=tag_outputs.append)
+    analyzer.container_debug_image_publisher = SimpleNamespace(
+        publish=container_outputs.append)
+
+    image = np.zeros((240, 320, 3), dtype=np.uint8)
+    transform = TransformStamped()
+    transform.transform.rotation.w = 1.0
+    frame = ContainerDebugFrame(
+        header=Image().header,
+        image=image,
+        camera_matrix=np.array([
+            [400.0, 0.0, 160.0],
+            [0.0, 400.0, 120.0],
+            [0.0, 0.0, 1.0],
+        ]),
+        camera_to_base=transform,
+    )
+    session = Session(
+        goal_handle=SimpleNamespace(), duration=2.0,
+        requested_detectors=(
+            AnalyzeScene.Goal.APRILTAGS | AnalyzeScene.Goal.CONTAINERS),
+        started=time.monotonic() - 2.0,
+        frames_processed=20,
+        frames_with_base_transform=18,
+        latest_debug_frame=frame,
+    )
+    tag = _tag_item(7, 0.4, 80.0)
+    tag.pose.position.z = 0.5
+    tag.pose.orientation.w = 1.0
+    container = _container_item(RED, 0.0, z=0.5, frame='arm_base_link')
+    container.observation_count = 12
+    result = SimpleNamespace(
+        best_apriltags_base=[tag],
+        best_containers_base=[container],
+        frames_processed=20,
+        frames_with_base_transform=18,
+    )
+
+    analyzer.publish_final_debug_images(session, result, 'FINAL')
+
+    assert len(tag_outputs) == 1
+    assert len(container_outputs) == 1
+    assert tag_outputs[0].encoding == 'bgr8'
+    assert container_outputs[0].encoding == 'bgr8'
+    assert analyzer.latest_container_debug_frame is not None
+    assert np.count_nonzero(np.frombuffer(tag_outputs[0].data, np.uint8)) > 0
+    assert np.count_nonzero(
+        np.frombuffer(container_outputs[0].data, np.uint8)) > 0
+
+    empty_result = SimpleNamespace(
+        best_apriltags_base=[],
+        best_containers_base=[],
+        frames_processed=20,
+        frames_with_base_transform=18,
+    )
+    analyzer.publish_final_debug_images(session, empty_result, 'FINAL')
+    assert len(tag_outputs) == 2
+    assert len(container_outputs) == 2
+
+
+def test_session_is_frozen_before_final_debug_is_published():
+    analyzer = object.__new__(SceneAnalyzer)
+    analyzer.sessions_lock = threading.RLock()
+    analyzer.publish_debug_image = True
+    analyzer.get_logger = lambda: _Logger()
+    session = Session(
+        goal_handle=SimpleNamespace(), duration=2.0,
+        requested_detectors=AnalyzeScene.Goal.CONTAINERS,
+    )
+    analyzer.session = session
+    expected = SimpleNamespace()
+    analyzer._result = lambda current, message: expected
+    observed = []
+    analyzer.publish_final_debug_images = (
+        lambda current, result, status: observed.append(
+            (analyzer.session, current, result, status)))
+
+    result = analyzer._finish_session(session, 'done', 'FINAL')
+
+    assert result is expected
+    assert observed == [(None, session, expected, 'FINAL')]
 
 
 def test_best_apriltag_order_is_preserved():
