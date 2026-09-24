@@ -4,8 +4,11 @@
 `/vision/analyze_scene`. A goal selects AprilTags, containers, or both with the
 `requested_detectors` bit mask from `interfaces/action/AnalyzeScene`.
 
-Both algorithms consume the same rectified frame, calibration and timestamp.
-The node is the sole owner of camera capture and vision-light lifecycle.
+The algorithms consume the same rectified camera stream and calibration. Each
+detector has an independent worker and retains only its own newest pending
+frame, so a slow container or table analysis neither builds an old-frame queue
+nor blocks AprilTag observations. The node is the sole owner of camera capture
+and vision-light lifecycle.
 
 ```bash
 ros2 launch vision vision.launch.py
@@ -22,9 +25,10 @@ Containers only use `requested_detectors: 2`; both use `3`.
 White-table mapping uses `requested_detectors: 4`. Its goal contains only a
 base-frame XY region, the work-surface height and a grid resolution. The result
 is a row-major `TableSurfaceGrid` whose cells are free, blocked or unknown.
-Each metric cell is projected onto the camera image and classified from every
-pixel inside its quadrilateral, so perspective changes the pixel count without
-changing the cell size in metres.
+The planar region is rectified once per observation and all metric cells are
+classified in one vectorized operation. Sampling density follows the projected
+cell size (4 to 16 samples per axis), so perspective changes image coverage
+without changing the cell size in metres.
 Vision has no knowledge of the gripper; table placement applies its footprint,
 padding and yaw options to the returned grid.
 For partial containers at the image edge, pass the work-surface height in the
@@ -46,6 +50,13 @@ detections returned by the action, including an explicit zero-accepted result;
 per-frame rejected candidates remain visible only in the live debug stream.
 Container summaries include temporal support and spread, while AprilTag
 summaries include pose error, decision margin and Hamming distance.
+
+Processing budgets are independent: `apriltag_detection_rate_hz`,
+`container_detection_rate_hz`, and `table_surface_detection_rate_hz` set the
+maximum rate of each path. They are ceilings, not guaranteed throughput. Live
+debug rendering has its own `debug_image_rate_hz`; reducing it does not change
+detections or the final summary. `nthreads` controls pupil_apriltags and
+`opencv_threads` controls OpenCV native workers.
 
 After container perception finishes, manipulation publishes the exact TCP
 release pose on `/manipulation/container_release_target`. The vision node

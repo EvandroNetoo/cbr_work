@@ -171,7 +171,17 @@ class Session:
     last_feedback: float = 0.0
     last_base_transform: TransformStamped | None = None
     recent_frame_times: list[float] = field(default_factory=list)
+    recent_detector_times: dict[int, list[float]] = field(default_factory=dict)
+    last_detector_times: dict[int, float] = field(default_factory=dict)
+    detector_frame_counts: dict[int, int] = field(default_factory=dict)
+    detector_frames_with_base_transform: dict[int, int] = field(
+        default_factory=dict)
+    detector_first_frame_times: dict[int, float] = field(default_factory=dict)
+    detector_last_frame_times: dict[int, float] = field(default_factory=dict)
+    last_debug_publish_times: dict[int, float] = field(default_factory=dict)
     latest_debug_frame: 'ContainerDebugFrame | None' = None
+    latest_debug_frames: dict[int, 'ContainerDebugFrame'] = field(
+        default_factory=dict)
     table_search_x_min_m: float = 0.0
     table_search_y_min_m: float = 0.0
     table_grid_resolution_m: float = 0.0
@@ -239,6 +249,11 @@ class SceneAnalyzer(Node):
         self.declare_parameter('nthreads', 1)
         self.declare_parameter('quad_decimate', 1.0)
         self.declare_parameter('max_detection_rate_hz', 10.0)
+        self.declare_parameter('apriltag_detection_rate_hz', 0.0)
+        self.declare_parameter('container_detection_rate_hz', 0.0)
+        self.declare_parameter('table_surface_detection_rate_hz', 0.0)
+        self.declare_parameter('debug_image_rate_hz', 5.0)
+        self.declare_parameter('opencv_threads', 0)
         self.declare_parameter('min_decision_margin', 30.0)
         self.declare_parameter('max_hamming', 0)
         self.declare_parameter('publish_debug_image', True)
@@ -302,13 +317,37 @@ class SceneAnalyzer(Node):
         self.max_hamming = int(self.get_parameter('max_hamming').value)
         self.publish_debug_image = bool(
             self.get_parameter('publish_debug_image').value)
-        detection_rate = float(
+        fallback_detection_rate = float(
             self.get_parameter('max_detection_rate_hz').value)
-        if not math.isfinite(detection_rate) or detection_rate <= 0.0:
+        if (not math.isfinite(fallback_detection_rate)
+                or fallback_detection_rate <= 0.0):
             raise ValueError(
                 'max_detection_rate_hz must be positive and finite.')
-        self.detection_period = 1.0 / detection_rate
-        self.last_detection_time = float('-inf')
+        self.detector_periods = {}
+        for detector, parameter in (
+            (APRILTAGS, 'apriltag_detection_rate_hz'),
+            (CONTAINERS, 'container_detection_rate_hz'),
+            (TABLE_SURFACE, 'table_surface_detection_rate_hz'),
+        ):
+            rate = float(self.get_parameter(parameter).value)
+            if rate == 0.0:
+                rate = fallback_detection_rate
+            if not math.isfinite(rate) or rate <= 0.0:
+                raise ValueError(
+                    f'{parameter} must be nonnegative and finite; '
+                    'zero selects max_detection_rate_hz.')
+            self.detector_periods[detector] = 1.0 / rate
+        debug_rate = float(self.get_parameter('debug_image_rate_hz').value)
+        if not math.isfinite(debug_rate) or debug_rate < 0.0:
+            raise ValueError(
+                'debug_image_rate_hz must be nonnegative and finite.')
+        self.debug_image_period = (
+            1.0 / debug_rate if debug_rate > 0.0 else math.inf)
+        opencv_threads = int(self.get_parameter('opencv_threads').value)
+        if opencv_threads < 0:
+            raise ValueError('opencv_threads must be nonnegative.')
+        if opencv_threads:
+            cv2.setNumThreads(opencv_threads)
         self.feedback_period = 1.0 / max(0.1, float(self.get_parameter('feedback_rate_hz').value))
         self.manage_camera_capture = bool(
             self.get_parameter('manage_camera_capture').value)
@@ -323,6 +362,29 @@ class SceneAnalyzer(Node):
         self.tf_listener = None
         self.sessions_lock = threading.RLock()
         self.session: Session | None = None
+        # Keep capture responsive even when one inference takes hundreds of
+        # milliseconds. Each detector retains only its newest pending frame,
+        # bounding latency/memory without coupling detector throughput.
+        self.image_condition = threading.Condition()
+        self.pending_images: dict[int, Image | None] = {
+            APRILTAGS: None,
+            CONTAINERS: None,
+            TABLE_SURFACE: None,
+        }
+        self.image_worker_stopping = False
+        self.image_workers = [
+            threading.Thread(
+                target=self._image_worker_loop,
+                args=(detector,),
+                name=f'scene-analysis-{name}',
+                daemon=True,
+            )
+            for detector, name in (
+                (APRILTAGS, 'apriltags'),
+                (CONTAINERS, 'containers'),
+                (TABLE_SURFACE, 'table-surface'),
+            )
+        ]
         self.state = 'idle'
         # Entity creation/destruction must run in an executor callback.  Action
         # workers only request teardown through this guard condition, avoiding
@@ -403,6 +465,8 @@ class SceneAnalyzer(Node):
                                           goal_callback=self.goal_callback,
                                           cancel_callback=self.cancel_callback,
                                           handle_accepted_callback=self.handle_accepted_callback)
+        for worker in self.image_workers:
+            worker.start()
         self.get_logger().info(
             'Scene analyzer idle; waiting for /vision/analyze_scene goals.')
 
@@ -525,6 +589,13 @@ class SceneAnalyzer(Node):
         with self.sessions_lock:
             self.session = None
             self._destroy_inputs_locked()
+        with self.image_condition:
+            self.image_worker_stopping = True
+            for detector in self.pending_images:
+                self.pending_images[detector] = None
+            self.image_condition.notify_all()
+        for worker in self.image_workers:
+            worker.join(timeout=2.0)
         if self.warning_filter is not None:
             self.warning_filter.close()
             self.warning_filter = None
@@ -781,7 +852,9 @@ class SceneAnalyzer(Node):
         with self.sessions_lock:
             self.session = session
             self.state = 'analyzing'
-            self.last_detection_time = float('-inf')
+        with self.image_condition:
+            for detector in self.pending_images:
+                self.pending_images[detector] = None
         vision_led_enabled = False
         try:
             if not self._set_vision_led(True):
@@ -858,6 +931,17 @@ class SceneAnalyzer(Node):
                 # into a failed action.
                 self.get_logger().error(
                     f'Could not publish final debug image: {error}')
+        detector_names = (
+            (APRILTAGS, 'apriltags'),
+            (CONTAINERS, 'containers'),
+            (TABLE_SURFACE, 'table_surface'),
+        )
+        rates = [
+            f'{name}={self._average_detector_fps(session, detector):.1f}fps'
+            for detector, name in detector_names
+            if session.requested_detectors & detector
+        ]
+        self.get_logger().info('Analysis throughput: ' + ', '.join(rates))
         return result
 
     def _feedback(self, session: Session):
@@ -883,6 +967,33 @@ class SceneAnalyzer(Node):
             return 0.0
         elapsed = stamps[-1] - stamps[0]
         return (len(stamps) - 1) / elapsed if elapsed > 0.0 else 0.0
+
+    @staticmethod
+    def _detector_observation_fps(session: Session, detector: int) -> float:
+        stamps = session.recent_detector_times.get(detector, [])
+        if len(stamps) < 2:
+            return 0.0
+        elapsed = stamps[-1] - stamps[0]
+        return (len(stamps) - 1) / elapsed if elapsed > 0.0 else 0.0
+
+    @staticmethod
+    def _average_detector_fps(session: Session, detector: int) -> float:
+        count = session.detector_frame_counts.get(detector, 0)
+        first = session.detector_first_frame_times.get(detector)
+        last = session.detector_last_frame_times.get(detector)
+        if count < 2 or first is None or last is None or last <= first:
+            return 0.0
+        return (count - 1) / (last - first)
+
+    @classmethod
+    def _detector_summary(
+        cls, session: Session, detector: int, status: str,
+    ) -> str:
+        frames = session.detector_frame_counts.get(detector, 0)
+        transforms = session.detector_frames_with_base_transform.get(
+            detector, 0)
+        fps = cls._average_detector_fps(session, detector)
+        return f'{status} {fps:.1f}fps F{frames} TF{transforms}/{frames}'
 
     @staticmethod
     def _average_observation_fps(session: Session) -> float:
@@ -941,6 +1052,57 @@ class SceneAnalyzer(Node):
                     self.camera_info = message
 
     def image_callback(self, message: Image) -> None:
+        """Hand the latest frame to CV without blocking the ROS executor."""
+        # The fallback keeps direct unit use of an uninitialized instance
+        # synchronous; production nodes always own the worker.
+        if not hasattr(self, 'image_condition'):
+            self._process_image(message)
+            return
+        with self.sessions_lock:
+            session = self.session
+            calibrated = self.camera_info is not None
+        if session is None or not calibrated:
+            return
+        with self.image_condition:
+            for detector in self.pending_images:
+                if session.requested_detectors & detector:
+                    self.pending_images[detector] = message
+            self.image_condition.notify_all()
+
+    def _image_worker_loop(self, detector: int) -> None:
+        while True:
+            with self.image_condition:
+                self.image_condition.wait_for(
+                    lambda: (self.pending_images[detector] is not None
+                             or self.image_worker_stopping))
+                if self.image_worker_stopping:
+                    return
+                message = self.pending_images[detector]
+                self.pending_images[detector] = None
+            try:
+                self._process_image(message, detector)
+            except Exception as error:
+                # A malformed camera frame must not permanently kill vision.
+                self.get_logger().error(
+                    f'Unhandled image processing error: {error}',
+                    throttle_duration_sec=2.0)
+
+    def _due_detectors(self, session: Session, now: float) -> int:
+        due = 0
+        for detector, period in self.detector_periods.items():
+            if not session.requested_detectors & detector:
+                continue
+            if (detector & (CONTAINERS | TABLE_SURFACE)
+                    and now < session.containers_ready_at):
+                continue
+            last = session.last_detector_times.get(detector, float('-inf'))
+            if now - last >= period:
+                due |= detector
+        return due
+
+    def _process_image(
+        self, message: Image, assigned_detector: int | None = None,
+    ) -> None:
         with self.sessions_lock:
             session = self.session
             info = self.camera_info
@@ -948,12 +1110,35 @@ class SceneAnalyzer(Node):
         if session is None or info is None:
             return
         now = time.monotonic()
-        if now < session.containers_ready_at:
-            return
         with self.sessions_lock:
-            if now - self.last_detection_time < self.detection_period:
+            if self.session is not session:
                 return
-            self.last_detection_time = now
+            if hasattr(self, 'detector_periods'):
+                active_detectors = self._due_detectors(session, now)
+                if assigned_detector is not None:
+                    active_detectors &= assigned_detector
+            else:
+                # Compatibility for focused unit fixtures.
+                if now - self.last_detection_time < self.detection_period:
+                    return
+                self.last_detection_time = now
+                active_detectors = session.requested_detectors
+            if not active_detectors:
+                return
+            for detector in getattr(self, 'detector_periods', {}):
+                if active_detectors & detector:
+                    session.last_detector_times[detector] = now
+            debug_period = getattr(self, 'debug_image_period', 0.0)
+            debug_detectors = 0
+            if self.publish_debug_image:
+                for detector in getattr(
+                        self, 'detector_periods', {active_detectors: 0.0}):
+                    last = session.last_debug_publish_times.get(
+                        detector, float('-inf'))
+                    if (active_detectors & detector
+                            and now - last >= debug_period):
+                        debug_detectors |= detector
+                        session.last_debug_publish_times[detector] = now
         camera_frame = message.header.frame_id or info.header.frame_id
         if not camera_frame or info.p[0] <= 0.0 or info.p[5] <= 0.0:
             return
@@ -963,7 +1148,8 @@ class SceneAnalyzer(Node):
             self.get_logger().warning(
                 f'Could not convert image: {error}', throttle_duration_sec=2.0)
             return
-        image = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        image = (cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+                 if active_detectors & APRILTAGS else None)
         parameters = (
             float(info.p[0]), float(info.p[5]),
             float(info.p[2]), float(info.p[6]))
@@ -976,7 +1162,7 @@ class SceneAnalyzer(Node):
         camera_items: list[AprilTagStampedDetection] = []
         camera_poses: list[PoseStamped] = []
         transforms: list[TransformStamped] = []
-        if session.requested_detectors & APRILTAGS:
+        if active_detectors & APRILTAGS:
             detections = self.apriltag_detector.detect(
                 image, estimate_tag_pose=True,
                 camera_params=parameters, tag_size=self.tag_size_m)
@@ -1020,10 +1206,9 @@ class SceneAnalyzer(Node):
         candidates: list[ContainerCandidate] = []
         container_camera_items: list[ContainerStampedDetection] = []
         container_camera_poses: list[PoseStamped] = []
-        if session.requested_detectors & CONTAINERS:
-            masks = self.container_color_masks(bgr)
-            candidates = self.detect_container_candidates(
-                masks, bgr.shape[:2], camera_matrix)
+        if active_detectors & CONTAINERS:
+            masks, candidates = self._detect_containers_in_frame(
+                bgr, camera_matrix)
             for candidate in candidates:
                 if not candidate.accepted:
                     continue
@@ -1037,12 +1222,12 @@ class SceneAnalyzer(Node):
         container_base_items: list[ContainerStampedDetection] = []
         base_transform = None
         has_partial = (
-            session.requested_detectors & CONTAINERS
+            active_detectors & CONTAINERS
             and any(candidate.reason == 'border' for candidate in candidates)
         )
         if (
             camera_poses or container_camera_poses or has_partial
-            or session.requested_detectors & TABLE_SURFACE
+            or active_detectors & TABLE_SURFACE
         ) and tf_buffer is not None:
             try:
                 base_transform = tf_buffer.lookup_transform(
@@ -1051,7 +1236,7 @@ class SceneAnalyzer(Node):
             except TransformException:
                 if (
                     container_camera_poses or has_partial
-                    or session.requested_detectors & TABLE_SURFACE
+                    or active_detectors & TABLE_SURFACE
                 ):
                     try:
                         # The arm is stationary during scene analysis. A latest
@@ -1137,15 +1322,16 @@ class SceneAnalyzer(Node):
             session.table_grid_width * session.table_grid_height)
         table_confirmed = [False] * len(table_observed)
         if (
-            session.requested_detectors & TABLE_SURFACE
+            active_detectors & TABLE_SURFACE
             and base_transform is not None
         ):
             table_observed, table_confirmed, table_debug = (
                 self.evaluate_white_table_grid(
-                    session, bgr, camera_matrix, base_transform))
-            if self.publish_debug_image:
+                    session, bgr, camera_matrix, base_transform,
+                    render_debug=bool(debug_detectors & TABLE_SURFACE)))
+            if debug_detectors & TABLE_SURFACE:
                 self.publish_table_surface_debug_image(message, table_debug)
-        if session.requested_detectors & APRILTAGS:
+        if active_detectors & APRILTAGS:
             self.camera_pose_publisher.publish(
                 self.pose_array(camera_frame, message, camera_poses))
             self.camera_detection_publisher.publish(
@@ -1156,7 +1342,7 @@ class SceneAnalyzer(Node):
                 self.pose_array(self.base_frame, message, base_poses))
             self.detection_publisher.publish(
                 self.detection_array(self.base_frame, message, base_items))
-        if session.requested_detectors & CONTAINERS:
+        if active_detectors & CONTAINERS:
             self.container_camera_detection_publisher.publish(
                 self.container_detection_array(
                     camera_frame, message, container_camera_items))
@@ -1167,16 +1353,28 @@ class SceneAnalyzer(Node):
             if self.session is not session or session.goal_handle.is_cancel_requested:
                 return
             session.frames_processed += 1
+            for detector in getattr(self, 'detector_periods', {}):
+                if active_detectors & detector:
+                    session.detector_frame_counts[detector] = (
+                        session.detector_frame_counts.get(detector, 0) + 1)
+                    if base_transform is not None:
+                        session.detector_frames_with_base_transform[detector] = (
+                            session.detector_frames_with_base_transform.get(
+                                detector, 0) + 1)
             if base_transform is not None:
                 session.frames_with_base_transform += 1
-            session.latest_camera = [self.copy_stamped(x) for x in camera_items]
-            session.latest_base = [self.copy_stamped(x) for x in base_items]
-            session.latest_containers_camera = [
-                self.copy_container_stamped(item)
-                for item in container_camera_items]
-            session.latest_containers_base = [
-                self.copy_container_stamped(item)
-                for item in container_base_items]
+            if active_detectors & APRILTAGS:
+                session.latest_camera = [
+                    self.copy_stamped(x) for x in camera_items]
+                session.latest_base = [
+                    self.copy_stamped(x) for x in base_items]
+            if active_detectors & CONTAINERS:
+                session.latest_containers_camera = [
+                    self.copy_container_stamped(item)
+                    for item in container_camera_items]
+                session.latest_containers_base = [
+                    self.copy_container_stamped(item)
+                    for item in container_base_items]
             for index, observed in enumerate(table_observed):
                 if observed:
                     session.table_cell_observations[index] += 1
@@ -1186,12 +1384,13 @@ class SceneAnalyzer(Node):
                 self._update_best(session.best_camera, item)
             for item in base_items:
                 self._update_best(session.best_base, item)
-            self._update_container_tracks(
-                session.container_tracks,
-                container_camera_items,
-                container_base_items,
-                session.frames_processed,
-            )
+            if active_detectors & CONTAINERS:
+                self._update_container_tracks(
+                    session.container_tracks,
+                    container_camera_items,
+                    container_base_items,
+                    session.frames_processed,
+                )
             completed_at = time.monotonic()
             session.recent_frame_times.append(completed_at)
             cutoff = completed_at - 1.0
@@ -1199,22 +1398,38 @@ class SceneAnalyzer(Node):
                 stamp for stamp in session.recent_frame_times
                 if stamp >= cutoff
             ]
-            session.latest_debug_frame = ContainerDebugFrame(
+            for detector in getattr(self, 'detector_periods', {}):
+                if not active_detectors & detector:
+                    continue
+                stamps = session.recent_detector_times.setdefault(detector, [])
+                stamps.append(completed_at)
+                session.recent_detector_times[detector] = [
+                    stamp for stamp in stamps if stamp >= cutoff]
+                session.detector_first_frame_times.setdefault(
+                    detector, completed_at)
+                session.detector_last_frame_times[detector] = completed_at
+            debug_frame = ContainerDebugFrame(
                 header=copy.deepcopy(message.header),
                 image=bgr.copy(),
                 camera_matrix=camera_matrix.copy(),
                 camera_to_base=copy.deepcopy(
                     base_transform or session.last_base_transform),
             )
-            fps = self._observation_fps(session)
-            if self.publish_debug_image:
-                if session.requested_detectors & APRILTAGS:
+            session.latest_debug_frame = debug_frame
+            for detector in getattr(
+                    self, 'detector_periods', {active_detectors: 0.0}):
+                if active_detectors & detector:
+                    session.latest_debug_frames[detector] = debug_frame
+            if debug_detectors:
+                if debug_detectors & APRILTAGS:
                     self.publish_detection_debug_image(
-                        message, image, detections, session, fps)
-                if session.requested_detectors & CONTAINERS:
+                        message, image, detections, session,
+                        self._detector_observation_fps(session, APRILTAGS))
+                if debug_detectors & CONTAINERS:
                     self.publish_container_debug_image(
                         message, bgr, masks, candidates, camera_matrix,
-                        base_transform, session, fps)
+                        base_transform, session,
+                        self._detector_observation_fps(session, CONTAINERS))
 
     def evaluate_white_table_grid(
         self,
@@ -1222,7 +1437,8 @@ class SceneAnalyzer(Node):
         bgr: np.ndarray,
         camera_matrix: np.ndarray,
         camera_to_base: TransformStamped,
-    ) -> tuple[list[bool], list[bool], np.ndarray]:
+        render_debug: bool = True,
+    ) -> tuple[list[bool], list[bool], np.ndarray | None]:
         """Classify a base-frame grid without assuming any tool geometry."""
         hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
         saturation = hsv[:, :, 1]
@@ -1235,11 +1451,12 @@ class SceneAnalyzer(Node):
             ~unknown,
             saturation <= self.white_surface_max_saturation,
         ))
-        debug = bgr.copy()
-        debug[unknown] = (0, 180, 255)
-        debug[white] = (
-            0.35 * debug[white] + 0.65 * np.array([40, 210, 40])
-        ).astype(np.uint8)
+        debug = bgr.copy() if render_debug else None
+        if debug is not None:
+            debug[unknown] = (0, 180, 255)
+            debug[white] = (
+                0.35 * debug[white] + 0.65 * np.array([40, 210, 40])
+            ).astype(np.uint8)
 
         transform = camera_to_base.transform
         rotation = rotation_from_quaternion(transform.rotation)
@@ -1266,9 +1483,8 @@ class SceneAnalyzer(Node):
             + y_indices * session.table_grid_resolution_m,
         ))
         half_cell = session.table_grid_resolution_m / 2.0
-        # Project the four metric corners of every cell. The complete projected
-        # quadrilateral is rasterized below, so classification uses every image
-        # pixel covered by the 1 cm cell rather than a fixed sparse sample.
+        # Project the four metric corners of every cell. The plane is rectified
+        # below at a density derived from their projected pixel size.
         offsets = np.array([
             [-half_cell, -half_cell],
             [half_cell, -half_cell],
@@ -1300,43 +1516,58 @@ class SceneAnalyzer(Node):
         ))
         fully_visible = np.all(in_image, axis=1)
         projected_corners = np.stack((pixels_x, pixels_y), axis=2)
-        fixed_point_scale = 256
-        for index in np.flatnonzero(fully_visible):
-            corners = projected_corners[index]
-            x_start = max(0, int(math.floor(float(corners[:, 0].min()))))
-            x_end = min(width - 1, int(math.ceil(float(corners[:, 0].max()))))
-            y_start = max(0, int(math.floor(float(corners[:, 1].min()))))
-            y_end = min(height - 1, int(math.ceil(float(corners[:, 1].max()))))
-            polygon = corners - np.array([x_start, y_start])
-            polygon_fixed = np.rint(
-                polygon * fixed_point_scale).astype(np.int32)
-            pixel_mask = np.zeros(
-                (y_end - y_start + 1, x_end - x_start + 1),
-                dtype=np.uint8,
-            )
-            cv2.fillConvexPoly(
-                pixel_mask,
-                polygon_fixed,
-                1,
-                lineType=cv2.LINE_8,
-                shift=8,
-            )
-            selected = pixel_mask.astype(bool)
-            pixel_count = int(np.count_nonzero(selected))
-            if pixel_count == 0:
-                continue
-            cell_unknown = unknown[
-                y_start:y_end + 1, x_start:x_end + 1][selected]
-            unknown_fraction = (
-                float(np.count_nonzero(cell_unknown)) / pixel_count)
-            if unknown_fraction > self.white_surface_max_unknown_fraction:
-                continue
-            observed[index] = True
-            cell_white = white[
-                y_start:y_end + 1, x_start:x_end + 1][selected]
-            white_fraction = float(np.count_nonzero(cell_white)) / pixel_count
-            confirmed[index] = (
-                white_fraction >= self.white_surface_min_fraction)
+        # A planar work surface is a homography. Rectify the whole requested
+        # region once, then reduce all cells in NumPy. The former implementation
+        # allocated and filled one small OpenCV mask per cell (often >1800
+        # allocations/frame), which dominated runtime on the ARM computer.
+        grid_width = session.table_grid_width
+        grid_height = session.table_grid_height
+        outer_source = np.array([
+            projected_corners[0, 0],
+            projected_corners[grid_width - 1, 1],
+            projected_corners[-1, 2],
+            projected_corners[(grid_height - 1) * grid_width, 3],
+        ], dtype=np.float32)
+        edge_lengths = np.linalg.norm(
+            projected_corners
+            - np.roll(projected_corners, -1, axis=1), axis=2)
+        samples_per_cell = int(np.clip(
+            math.ceil(float(np.nanmax(edge_lengths))), 4, 16))
+        rectified_width = grid_width * samples_per_cell
+        rectified_height = grid_height * samples_per_cell
+        outer_target = np.array([
+            [0.0, 0.0],
+            [rectified_width - 1.0, 0.0],
+            [rectified_width - 1.0, rectified_height - 1.0],
+            [0.0, rectified_height - 1.0],
+        ], dtype=np.float32)
+        homography = cv2.getPerspectiveTransform(outer_source, outer_target)
+        warped_unknown = cv2.warpPerspective(
+            unknown.astype(np.uint8), homography,
+            (rectified_width, rectified_height),
+            flags=cv2.INTER_NEAREST,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=1,
+        )
+        warped_white = cv2.warpPerspective(
+            white.astype(np.uint8), homography,
+            (rectified_width, rectified_height),
+            flags=cv2.INTER_NEAREST,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
+        reduction_shape = (
+            grid_height, samples_per_cell,
+            grid_width, samples_per_cell)
+        unknown_fraction = warped_unknown.reshape(reduction_shape).mean(
+            axis=(1, 3)).reshape(-1)
+        white_fraction = warped_white.reshape(reduction_shape).mean(
+            axis=(1, 3)).reshape(-1)
+        observed = np.logical_and(
+            fully_visible,
+            unknown_fraction <= self.white_surface_max_unknown_fraction)
+        confirmed = np.logical_and(
+            observed, white_fraction >= self.white_surface_min_fraction)
         return observed.tolist(), confirmed.tolist(), debug
 
     def publish_table_surface_debug_image(
@@ -1455,6 +1686,14 @@ class SceneAnalyzer(Node):
             output[color] = cleaned
         return output
 
+    def _detect_containers_in_frame(
+        self, bgr: np.ndarray, camera_matrix: np.ndarray,
+    ) -> tuple[dict[int, np.ndarray], list[ContainerCandidate]]:
+        masks = self.container_color_masks(bgr)
+        candidates = self.detect_container_candidates(
+            masks, bgr.shape[:2], camera_matrix)
+        return masks, candidates
+
     def detect_container_candidates(
         self,
         masks: dict[int, np.ndarray],
@@ -1468,7 +1707,11 @@ class SceneAnalyzer(Node):
                 mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             for contour in contours:
                 area = float(cv2.contourArea(contour))
-                corners, rectangularity = self._container_geometry(contour)
+                rectangle = cv2.minAreaRect(contour)
+                rectangle_area = float(rectangle[1][0] * rectangle[1][1])
+                rectangularity = (
+                    area / rectangle_area if rectangle_area > 0.0 else 0.0)
+                corners = cv2.boxPoints(rectangle).astype(np.float64)
                 candidate = ContainerCandidate(
                     color=color, contour=contour, corners=corners,
                     area=area, rectangularity=rectangularity)
@@ -1480,11 +1723,18 @@ class SceneAnalyzer(Node):
                     candidate.reason = 'small'
                 elif area > image_area * self.max_contour_fraction:
                     candidate.reason = 'large'
-                elif at_border:
-                    candidate.reason = 'border'
-                elif rectangularity < self.min_rectangularity:
-                    candidate.reason = 'shape'
                 else:
+                    corners, rectangularity = self._container_geometry(contour)
+                    candidate.corners = corners
+                    candidate.rectangularity = rectangularity
+                    if at_border:
+                        candidate.reason = 'border'
+                        candidates.append(candidate)
+                        continue
+                    if rectangularity < self.min_rectangularity:
+                        candidate.reason = 'shape'
+                        candidates.append(candidate)
+                        continue
                     pose, error = self.estimate_container_pose(
                         corners, camera_matrix)
                     candidate.pose = pose
@@ -1520,6 +1770,12 @@ class SceneAnalyzer(Node):
             contour, self.polygon_epsilon_fraction * perimeter, True)
         if len(approximation) == 4 and cv2.isContourConvex(approximation):
             best_corners = approximation.reshape(4, 2).astype(np.float64)
+
+        # A clean rectangular bin needs neither distance transform nor the
+        # five erosion/support fits below. Keep the expensive path for shapes
+        # that may contain an attached same-colour object.
+        if best_rectangularity >= 0.94:
+            return best_corners, best_rectangularity
 
         maximum_fraction = self.container_geometry_erosion_fraction
         short_side = min(map(float, rectangle[1]))
@@ -2032,11 +2288,14 @@ class SceneAnalyzer(Node):
             cv2.putText(
                 debug, label, origin, cv2.FONT_HERSHEY_SIMPLEX,
                 0.38, line_color, 1, cv2.LINE_AA)
-        fps_text = f'{fps:.1f}' if len(session.recent_frame_times) > 1 else '--'
+        detector_times = session.recent_detector_times.get(CONTAINERS, [])
+        fps_text = f'{fps:.1f}' if len(detector_times) > 1 else '--'
+        frames = session.detector_frame_counts.get(CONTAINERS, 0)
+        transforms = session.detector_frames_with_base_transform.get(
+            CONTAINERS, 0)
         summary = (
-            f'LIVE {fps_text}fps F{session.frames_processed} '
-            f'TF{session.frames_with_base_transform}/'
-            f'{session.frames_processed} R{len(candidates)} A{accepted}')
+            f'LIVE {fps_text}fps F{frames} '
+            f'TF{transforms}/{frames} R{len(candidates)} A{accepted}')
         cv2.rectangle(
             debug, (0, 0), (debug.shape[1] - 1, 25),
             (0, 0, 0), -1)
@@ -2223,31 +2482,34 @@ class SceneAnalyzer(Node):
         self, session: Session, result, status: str,
     ) -> None:
         """Publish retained summaries made from the exact action result."""
-        frame = session.latest_debug_frame
-        if frame is None:
-            return
-        fps = self._average_observation_fps(session)
-        common = (
-            f'{status} {fps:.1f}fps F{result.frames_processed} '
-            f'TF{result.frames_with_base_transform}/{result.frames_processed}')
         if session.requested_detectors & APRILTAGS:
+            frame = session.latest_debug_frames.get(
+                APRILTAGS, session.latest_debug_frame)
+            if frame is None:
+                return
             debug = frame.image.copy()
             detections = list(result.best_apriltags_base)
+            summary = self._detector_summary(session, APRILTAGS, status)
             cv2.rectangle(
                 debug, (0, 0), (debug.shape[1] - 1, 25), (0, 0, 0), -1)
             self._draw_debug_text(
-                debug, f'{common} A{len(detections)}', (5, 17),
+                debug, f'{summary} A{len(detections)}', (5, 17),
                 scale=0.34)
             self._draw_final_apriltags(debug, frame, detections)
             self.debug_image_publisher.publish(
                 self._bgr_image_message(frame.header, debug))
         if session.requested_detectors & CONTAINERS:
+            frame = session.latest_debug_frames.get(
+                CONTAINERS, session.latest_debug_frame)
+            if frame is None:
+                return
             debug = frame.image.copy()
             detections = list(result.best_containers_base)
+            summary = self._detector_summary(session, CONTAINERS, status)
             cv2.rectangle(
                 debug, (0, 0), (debug.shape[1] - 1, 25), (0, 0, 0), -1)
             self._draw_debug_text(
-                debug, f'{common} A{len(detections)}', (5, 17),
+                debug, f'{summary} A{len(detections)}', (5, 17),
                 scale=0.34)
             self._draw_final_containers(debug, frame, detections)
             self.latest_container_debug_frame = ContainerDebugFrame(
@@ -2257,6 +2519,28 @@ class SceneAnalyzer(Node):
                 camera_to_base=copy.deepcopy(frame.camera_to_base),
             )
             self.container_debug_image_publisher.publish(
+                self._bgr_image_message(frame.header, debug))
+        if session.requested_detectors & TABLE_SURFACE:
+            frame = session.latest_debug_frames.get(
+                TABLE_SURFACE, session.latest_debug_frame)
+            if frame is None:
+                return
+            debug = frame.image.copy()
+            if frame.camera_to_base is not None:
+                _observed, _confirmed, rendered = self.evaluate_white_table_grid(
+                    session, frame.image, frame.camera_matrix,
+                    frame.camera_to_base, render_debug=True)
+                if rendered is not None:
+                    debug = rendered
+            cells = list(result.table_surface_grid.cells)
+            free = sum(cell == TableSurfaceGrid.FREE for cell in cells)
+            summary = self._detector_summary(session, TABLE_SURFACE, status)
+            cv2.rectangle(
+                debug, (0, 0), (debug.shape[1] - 1, 25), (0, 0, 0), -1)
+            self._draw_debug_text(
+                debug, f'{summary} FREE{free}/{len(cells)}', (5, 17),
+                scale=0.34)
+            self.table_surface_debug_image_publisher.publish(
                 self._bgr_image_message(frame.header, debug))
 
     def container_target_callback(self, target: PoseStamped) -> None:
@@ -2398,11 +2682,14 @@ class SceneAnalyzer(Node):
             cv2.putText(debug, label, text_origin, cv2.FONT_HERSHEY_SIMPLEX,
                         0.45, color, 1, cv2.LINE_AA)
 
-        fps_text = f'{fps:.1f}' if len(session.recent_frame_times) > 1 else '--'
+        detector_times = session.recent_detector_times.get(APRILTAGS, [])
+        fps_text = f'{fps:.1f}' if len(detector_times) > 1 else '--'
+        frames = session.detector_frame_counts.get(APRILTAGS, 0)
+        transforms = session.detector_frames_with_base_transform.get(
+            APRILTAGS, 0)
         summary = (
-            f'LIVE {fps_text}fps F{session.frames_processed} '
-            f'TF{session.frames_with_base_transform}/'
-            f'{session.frames_processed} R{len(detections)} A{accepted}')
+            f'LIVE {fps_text}fps F{frames} '
+            f'TF{transforms}/{frames} R{len(detections)} A{accepted}')
         cv2.rectangle(debug, (0, 0), (debug.shape[1] - 1, 24),
                       (0, 0, 0), -1)
         cv2.putText(debug, summary, (6, 17), cv2.FONT_HERSHEY_SIMPLEX,

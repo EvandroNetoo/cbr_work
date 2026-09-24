@@ -1,9 +1,9 @@
+import math
 from pathlib import Path
 import sys
 import threading
 import time
 from types import ModuleType, SimpleNamespace
-import math
 
 import cv2
 from geometry_msgs.msg import Pose, TransformStamped
@@ -24,6 +24,7 @@ except ModuleNotFoundError:
     pupil_apriltags.Detector = object
     sys.modules['pupil_apriltags'] = pupil_apriltags
 
+from vision.partial_container import fit_partial_container
 from vision.scene_analyzer import (  # noqa: E402
     _capture_request_succeeded,
     BLUE,
@@ -33,7 +34,6 @@ from vision.scene_analyzer import (  # noqa: E402
     SceneAnalyzer,
     Session,
 )
-from vision.partial_container import fit_partial_container
 import yaml
 
 
@@ -303,10 +303,85 @@ def test_profile_combines_apriltag_and_measured_bin3_parameters():
     assert parameters['internal_depth_m'] == 0.140
     assert parameters['manage_camera_capture'] is True
     assert parameters['manage_vision_led'] is True
-    assert parameters['min_contour_area_px'] == 4000.0
+    assert parameters['min_contour_area_px'] == 6500.0
     assert parameters['container_border_margin_px'] == 6
-    assert parameters['container_warmup_sec'] == 0.5
-    assert parameters['min_container_observations'] == 3
+    assert parameters['container_warmup_sec'] == 2.0
+    assert parameters['min_container_observations'] == 2
+    assert parameters['nthreads'] == 3
+    assert parameters['opencv_threads'] == 2
+    assert parameters['apriltag_detection_rate_hz'] == 15.0
+    assert parameters['container_detection_rate_hz'] == 12.0
+    assert parameters['table_surface_detection_rate_hz'] == 8.0
+
+
+def test_detector_rates_are_independent_and_tags_do_not_wait_for_warmup():
+    analyzer = object.__new__(SceneAnalyzer)
+    analyzer.detector_periods = {
+        AnalyzeScene.Goal.APRILTAGS: 0.05,
+        AnalyzeScene.Goal.CONTAINERS: 0.10,
+        AnalyzeScene.Goal.TABLE_SURFACE: 0.20,
+    }
+    session = Session(
+        goal_handle=SimpleNamespace(is_cancel_requested=False),
+        duration=1.0,
+        requested_detectors=(
+            AnalyzeScene.Goal.APRILTAGS
+            | AnalyzeScene.Goal.CONTAINERS
+            | AnalyzeScene.Goal.TABLE_SURFACE),
+    )
+    session.containers_ready_at = 10.0
+
+    assert analyzer._due_detectors(session, 9.0) == AnalyzeScene.Goal.APRILTAGS
+
+    session.last_detector_times[AnalyzeScene.Goal.APRILTAGS] = 9.98
+    due = analyzer._due_detectors(session, 10.0)
+    assert not due & AnalyzeScene.Goal.APRILTAGS
+    assert due & AnalyzeScene.Goal.CONTAINERS
+    assert due & AnalyzeScene.Goal.TABLE_SURFACE
+
+
+def test_apriltag_worker_does_not_wait_for_slow_container_worker():
+    analyzer = object.__new__(SceneAnalyzer)
+    analyzer.image_condition = threading.Condition()
+    analyzer.pending_images = {
+        AnalyzeScene.Goal.APRILTAGS: None,
+        AnalyzeScene.Goal.CONTAINERS: None,
+    }
+    analyzer.image_worker_stopping = False
+    container_started = threading.Event()
+    release_container = threading.Event()
+    apriltag_finished = threading.Event()
+
+    def process(_message, detector):
+        if detector == AnalyzeScene.Goal.CONTAINERS:
+            container_started.set()
+            release_container.wait(timeout=1.0)
+        else:
+            apriltag_finished.set()
+
+    analyzer._process_image = process
+    workers = [
+        threading.Thread(target=analyzer._image_worker_loop, args=(detector,))
+        for detector in analyzer.pending_images
+    ]
+    for worker in workers:
+        worker.start()
+    try:
+        with analyzer.image_condition:
+            for detector in analyzer.pending_images:
+                analyzer.pending_images[detector] = Image()
+            analyzer.image_condition.notify_all()
+
+        assert container_started.wait(timeout=0.5)
+        assert apriltag_finished.wait(timeout=0.5)
+        assert not release_container.is_set()
+    finally:
+        release_container.set()
+        with analyzer.image_condition:
+            analyzer.image_worker_stopping = True
+            analyzer.image_condition.notify_all()
+        for worker in workers:
+            worker.join(timeout=1.0)
 
 
 def test_color_masks_separate_red_and_blue_regions():
@@ -648,8 +723,43 @@ def test_observation_fps_uses_recent_completed_frames():
         requested_detectors=AnalyzeScene.Goal.CONTAINERS,
     )
     session.recent_frame_times = [10.0, 10.25, 10.5]
+    session.recent_detector_times[AnalyzeScene.Goal.CONTAINERS] = [
+        10.0, 10.2, 10.4]
 
     assert SceneAnalyzer._observation_fps(session) == pytest.approx(4.0)
+    assert SceneAnalyzer._detector_observation_fps(
+        session, AnalyzeScene.Goal.CONTAINERS) == pytest.approx(5.0)
+
+
+def test_final_summaries_use_each_detector_own_fps_frames_and_tf():
+    session = Session(
+        goal_handle=SimpleNamespace(), duration=2.0,
+        requested_detectors=(
+            AnalyzeScene.Goal.APRILTAGS | AnalyzeScene.Goal.CONTAINERS),
+    )
+    session.detector_frame_counts = {
+        AnalyzeScene.Goal.APRILTAGS: 12,
+        AnalyzeScene.Goal.CONTAINERS: 3,
+    }
+    session.detector_frames_with_base_transform = {
+        AnalyzeScene.Goal.APRILTAGS: 10,
+        AnalyzeScene.Goal.CONTAINERS: 2,
+    }
+    session.detector_first_frame_times = {
+        AnalyzeScene.Goal.APRILTAGS: 10.0,
+        AnalyzeScene.Goal.CONTAINERS: 10.0,
+    }
+    session.detector_last_frame_times = {
+        AnalyzeScene.Goal.APRILTAGS: 11.0,
+        AnalyzeScene.Goal.CONTAINERS: 11.0,
+    }
+
+    assert SceneAnalyzer._detector_summary(
+        session, AnalyzeScene.Goal.APRILTAGS, 'FINAL'
+    ) == 'FINAL 11.0fps F12 TF10/12'
+    assert SceneAnalyzer._detector_summary(
+        session, AnalyzeScene.Goal.CONTAINERS, 'FINAL'
+    ) == 'FINAL 2.0fps F3 TF2/3'
 
 
 def test_final_debug_uses_only_action_result_detections():
@@ -890,3 +1000,39 @@ def test_white_surface_result_requires_repeated_confirmation():
     session.table_cell_confirmations = [1]
     result = analyzer._result(session, 'ok')
     assert list(result.table_surface_grid.cells) == [TableSurfaceGrid.BLOCKED]
+
+
+def test_table_surface_gets_its_own_final_debug_summary():
+    analyzer = _white_surface_analyzer()
+    outputs = []
+    analyzer.table_surface_debug_image_publisher = SimpleNamespace(
+        publish=outputs.append)
+    session = _white_surface_session()
+    session.detector_frame_counts[AnalyzeScene.Goal.TABLE_SURFACE] = 5
+    session.detector_frames_with_base_transform[
+        AnalyzeScene.Goal.TABLE_SURFACE] = 4
+    session.detector_first_frame_times[
+        AnalyzeScene.Goal.TABLE_SURFACE] = 10.0
+    session.detector_last_frame_times[
+        AnalyzeScene.Goal.TABLE_SURFACE] = 11.0
+    image = np.full((100, 100, 3), 220, dtype=np.uint8)
+    frame = ContainerDebugFrame(
+        header=Image().header,
+        image=image,
+        camera_matrix=np.array([
+            [100.0, 0.0, 50.0],
+            [0.0, 100.0, 50.0],
+            [0.0, 0.0, 1.0],
+        ]),
+        camera_to_base=_downward_camera_transform(),
+    )
+    session.latest_debug_frames[AnalyzeScene.Goal.TABLE_SURFACE] = frame
+    grid = TableSurfaceGrid()
+    grid.cells = [TableSurfaceGrid.FREE]
+    result = SimpleNamespace(table_surface_grid=grid)
+
+    analyzer.publish_final_debug_images(session, result, 'FINAL')
+
+    assert len(outputs) == 1
+    assert outputs[0].encoding == 'bgr8'
+    assert np.count_nonzero(np.frombuffer(outputs[0].data, np.uint8)) > 0

@@ -7,16 +7,27 @@ scene_analyzer:
     tag_frame_prefix: apriltag
     family: tag36h11
     tag_size_m: 0.032
-    nthreads: 1
+    # pupil_apriltags releases the GIL and scales well across the four ARM
+    # cores. Leave one core available for ROS, TF and the OpenCV path.
+    nthreads: 3
+    opencv_threads: 2
     quad_decimate: 1.0
     # A câmera pode entregar 30 FPS, mas a manipulação não precisa detectar
     # tags em todos eles. Frames intermediários são descartados antes de
     # conversão OpenCV e pupil_apriltags.
-    max_detection_rate_hz: 10.0
+    max_detection_rate_hz: 15.0
+    # Independent budgets prevent the expensive table map from forcing tags
+    # and containers down to the same throughput in combined goals.
+    apriltag_detection_rate_hz: 15.0
+    container_detection_rate_hz: 12.0
+    table_surface_detection_rate_hz: 8.0
     min_decision_margin: 30.0
     max_hamming: 0
     # Publica a entrada mono do detector com candidatos e métricas desenhados.
     publish_debug_image: true
+    # Drawing and serializing three full-size debug streams every frame is
+    # expensive and is not part of detection. Final summaries are unaffected.
+    debug_image_rate_hz: 3.0
     feedback_rate_hz: 5.0
     suppress_native_pose_warning: true
 
