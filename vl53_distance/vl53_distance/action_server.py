@@ -34,7 +34,7 @@ from .lateral_safety import (
     PlanarTransform,
 )
 from .pid import PIDConfig, PIDController
-from .sensor_pair import DistanceSample, SensorPairConfig, VL53SensorPair
+from .sensor_pair import DistanceSample, SensorPairConfig, VL53SensorPair, GazeboSensorPair
 
 
 def duration_seconds(duration) -> float:
@@ -154,9 +154,19 @@ class VL53DistanceAction(Node):
         )
         # Hardware, odometria e watchdog permanecem inativos enquanto nao ha
         # goal. Isso evita inicializar o I2C e acordar o executor em standby.
+        source = str(self.get_parameter('sensor.source').value)
+        if source not in ('i2c', 'gazebo'):
+            raise ValueError('sensor.source deve ser i2c ou gazebo.')
         self._owns_sensor_pair = sensor_pair is None
         self._sensor_pair = sensor_pair
         self._sensor_pair_factory = lambda: VL53SensorPair(self._sensor_config)
+        if source == 'gazebo' and sensor_pair is None:
+            self._sensor_pair = GazeboSensorPair(
+                self,
+                left_topic=str(self.get_parameter('sensor.left.topic').value),
+                right_topic=str(self.get_parameter('sensor.right.topic').value),
+            )
+            self._owns_sensor_pair = False
         self._command_frame = str(self.get_parameter('command_frame').value)
         self._odom_topic = str(self.get_parameter('odom_topic').value)
         self._scan_topic = str(self.get_parameter('scan_topic').value)
@@ -216,6 +226,9 @@ class VL53DistanceAction(Node):
             'odom_topic': '/odom',
             'scan_topic': '/scan_front',
             'command_frame': 'base_footprint',
+            'sensor.source': 'i2c',
+            'sensor.left.topic': '/vl53/left/scan',
+            'sensor.right.topic': '/vl53/right/scan',
             'sensor.i2c_bus': 1,
             'sensor.mux_address': 0x70,
             'sensor.right.channel': 0,

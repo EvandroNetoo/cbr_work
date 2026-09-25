@@ -1,0 +1,90 @@
+schema_version: 1
+frame_id: map
+
+# Padrão usado por todas as áreas; um bloco alignment local pode sobrescrever
+# somente os campos que forem diferentes.
+alignment_defaults:
+  distance_mm: 40
+  tolerance_mm: 5
+  timeout_s: 10.0
+
+# Distância segura da superfície antes de entregar novamente o movimento ao
+# Nav2. Cada área pode sobrescrever estes campos em um bloco `departure`.
+departure_defaults:
+  distance_mm: 250
+  tolerance_mm: 25
+  timeout_s: 10.0
+  # Coordenada lateral absoluta do centro registrado ao chegar à mesa.
+  lateral_position_mm: 0
+  # Proteções usadas no retorno lateral executado junto com o recuo.
+  # Para desativar a proteção no recuo, defina ambos como zero.
+  max_alignment_error_mm: 0
+  alignment_recovery_distance_mm: 0
+  minimum_lateral_clearance_mm: 10
+
+# Se uma coleta estiver fora do alcance, centraliza novamente a AprilTag no
+# referencial do braço e repete a detecção. O eixo x corrige o percurso ao
+# longo da parede; o eixo y corrige a distância perpendicular à parede.
+pickup_recovery:
+  enabled: true
+  minimum_wall_distance_mm: 25
+  maximum_wall_distance_mm: 250
+  # Limites laterais absolutos relativos ao alinhamento inicial (posição 0).
+  minimum_lateral_position_mm: -900
+  maximum_lateral_position_mm: 900
+  preferred_tag_x_m: 0.0
+  preferred_tag_y_m: -0.22
+  wall_tolerance_mm: 5
+  travel_tolerance_mm: 10
+  timeout_s: 15.0
+  max_reposition_attempts: 1
+  # Coordenadas laterais absolutas relativas ao alinhamento inicial da área.
+  # A próxima posição ainda não observada é escolhida pela menor distância.
+  search_positions_mm: [0, 325, -325]
+
+# Preencher com poses medidas no mapa antes da primeira execução.
+start:
+  x_m: 2.5
+  y_m: 2.0
+  yaw_rad: 0.0
+
+finish:
+  x_m: 4.162
+  y_m: 6.000
+  yaw_rad: 1.570
+
+service_areas:
+  ws_1:
+    x_m: 4.40
+    y_m: 1.807
+    yaw_rad: -1.570
+    height_cm: 5
+    type: WS
+    # departure:
+    #   distance_mm: 250
+    #   tolerance_mm: 25
+    #   timeout_s: 10.0
+    #   lateral_position_mm: 0
+    #   max_alignment_error_mm: 100
+    #   alignment_recovery_distance_mm: 100
+
+  ws_2:
+    x_m: 1.436
+    y_m: 5.16
+    yaw_rad: -1.570
+    height_cm: 16.2
+    type: WS
+
+  ws_3:
+    x_m: 1.436
+    y_m: 3.84
+    yaw_rad: 1.570
+    height_cm: 16.2
+    type: WS
+
+  ws_4:
+    x_m: 1.77
+    y_m: 3.10
+    yaw_rad: 0.0
+    height_cm: 11
+    type: WS

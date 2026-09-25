@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="base">
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" xmlns:gz="http://gazebosim.org/schema" name="base">
   <!-- Validated physical dimensions in metres; masses are in kilograms. -->
   <!-- Wheels and their measured centre-to-centre spacing. -->
   <xacro:property name="wheel_radius" value="0.034"/>
@@ -206,6 +206,25 @@
   <xacro:mecanum_wheel prefix="rear_left" x="${-wheelbase / 2.0}" y="${track_width / 2.0}"/>
   <xacro:mecanum_wheel prefix="rear_right" x="${-wheelbase / 2.0}" y="${-track_width / 2.0}"/>
 
+  <!-- Anisotropic 45 degree contact models the free rollers of each
+       mecanum wheel while ros2_control still drives the real four wheel joints. -->
+  <xacro:macro name="mecanum_contact" params="wheel direction_x direction_y">
+    <gazebo reference="${wheel}_wheel_link">
+      <collision>
+        <surface><friction><ode>
+          <mu>1.5</mu><mu2>0.02</mu2>
+          <fdir1 gz:expressed_in="base_footprint">${direction_x} ${direction_y} 0</fdir1>
+        </ode></friction></surface>
+      </collision>
+    </gazebo>
+  </xacro:macro>
+  <xacro:if value="$(arg use_gz_ros2_control)">
+    <xacro:mecanum_contact wheel="front_left" direction_x="1" direction_y="-1"/>
+    <xacro:mecanum_contact wheel="front_right" direction_x="1" direction_y="1"/>
+    <xacro:mecanum_contact wheel="rear_left" direction_x="1" direction_y="1"/>
+    <xacro:mecanum_contact wheel="rear_right" direction_x="1" direction_y="-1"/>
+  </xacro:if>
+
   <link name="imu_link">
     <visual>
       <geometry><box size="${imu_length} ${imu_width} ${imu_height}"/></geometry>
@@ -277,14 +296,16 @@
 
   <ros2_control name="CBRMecanumSystem" type="system">
     <hardware>
-      <plugin>base_hardware_interface/MariolaSystem</plugin>
-      <param name="state_topic">/base_hardware/raw_joint_states</param>
-      <param name="command_topic">/base_hardware/command_velocities</param>
-      <param name="max_wheel_velocity_rad_s">11.0</param>
-      <!-- At 30 Hz, 0.50 s tolerates a short scheduling stall on the SBC.
-           Command freshness is guarded separately by the 0.30 s watchdog in
-           base_hardware, so this does not prolong a stale wheel command. -->
-      <param name="state_timeout_sec">1.50</param>
+      <xacro:if value="$(arg use_gz_ros2_control)">
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </xacro:if>
+      <xacro:unless value="$(arg use_gz_ros2_control)">
+        <plugin>base_hardware_interface/MariolaSystem</plugin>
+        <param name="state_topic">/base_hardware/raw_joint_states</param>
+        <param name="command_topic">/base_hardware/command_velocities</param>
+        <param name="max_wheel_velocity_rad_s">11.0</param>
+        <param name="state_timeout_sec">1.50</param>
+      </xacro:unless>
     </hardware>
     <xacro:macro name="wheel_control" params="name">
       <joint name="${name}_wheel_joint">

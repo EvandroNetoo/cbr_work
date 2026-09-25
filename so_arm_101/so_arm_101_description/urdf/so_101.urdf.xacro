@@ -164,7 +164,13 @@
     <collision>
       <origin xyz="-0.007062 0.120627 -0.152066" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://so_arm_101_description/meshes/collision/link5_1.stl" scale="1 1 1"/>
+        <!-- This collision STL is stored in millimeters; the visual STL is in meters. -->
+        <xacro:if value="$(arg use_gz_ros2_control)">
+          <mesh filename="package://so_arm_101_description/meshes/collision/link5_1.stl" scale="0.001 0.001 0.001"/>
+        </xacro:if>
+        <xacro:unless value="$(arg use_gz_ros2_control)">
+          <mesh filename="package://so_arm_101_description/meshes/collision/link5_1.stl" scale="1 1 1"/>
+        </xacro:unless>
       </geometry>
     </collision>
   </link>
@@ -219,7 +225,12 @@
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <xacro:if value="$(arg use_gz_ros2_control)">
+        <origin xyz="0 0 0" rpy="1.57079632679 1.57079632679 0"/>
+      </xacro:if>
+      <xacro:unless value="$(arg use_gz_ros2_control)">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+      </xacro:unless>
       <geometry>
         <mesh filename="package://so_arm_101_description/meshes/visual/pinca.stl" scale="1 1 1"/>
       </geometry>
@@ -240,7 +251,12 @@
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <xacro:if value="$(arg use_gz_ros2_control)">
+        <origin xyz="0 0 0" rpy="1.57079632679 -1.57079632679 0"/>
+      </xacro:if>
+      <xacro:unless value="$(arg use_gz_ros2_control)">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+      </xacro:unless>
       <geometry>
         <mesh filename="package://so_arm_101_description/meshes/visual/pinca.stl" scale="1 1 1"/>
       </geometry>

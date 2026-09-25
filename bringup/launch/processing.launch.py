@@ -16,7 +16,7 @@ from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
@@ -94,6 +94,8 @@ def _shutdown(reason):
 
 def _launch_setup(context):
     selected = _selected_components(context)
+    use_sim_time = LaunchConfiguration('use_sim_time')
+    simulation = use_sim_time.perform(context).lower() == 'true'
     moveit_enabled = 'moveit' in selected
     moveit_config = None
     move_group_entities = []
@@ -104,7 +106,7 @@ def _launch_setup(context):
             get_combined_moveit_config,
         )
 
-        moveit_config = get_combined_moveit_config()
+        moveit_config = get_combined_moveit_config(simulation=simulation)
         move_group_entities = generate_move_group_launch(moveit_config).entities
 
     actions = []
@@ -117,12 +119,12 @@ def _launch_setup(context):
                     'robot.urdf.xacro']),
             ]), value_type=str)
             rsp_parameters = [
-                {'robot_description': robot_description, 'use_sim_time': False},
+                {'robot_description': robot_description, 'use_sim_time': use_sim_time},
             ]
         else:
             rsp_parameters = [
                 moveit_config.robot_description,
-                {'use_sim_time': False},
+                {'use_sim_time': use_sim_time},
             ]
         actions.append(Node(
             package='robot_state_publisher', executable='robot_state_publisher',
@@ -133,7 +135,8 @@ def _launch_setup(context):
             package='robot_localization', executable='ekf_node',
             name='ekf_filter_node', output='screen',
             parameters=[PathJoinSubstitution([
-                FindPackageShare('imu'), 'config', 'ekf.yaml'])],
+                FindPackageShare('imu'), 'config', 'ekf.yaml']),
+                        {'use_sim_time': use_sim_time}],
             remappings=[('odometry/filtered', '/odom')])
         actions.extend([
             ekf,
@@ -160,12 +163,19 @@ def _launch_setup(context):
                 'image_topic': LaunchConfiguration('image_topic'),
                 'camera_info_topic': LaunchConfiguration('camera_info_topic'),
                 'base_frame': LaunchConfiguration('base_frame'),
+                'use_sim_time': use_sim_time,
+                'simulation': 'true' if simulation else 'false',
+                'config_file': (str(Path(get_package_share_directory(
+                    'cbr_simulation')) / 'config/vision.yaml') if simulation
+                    else str(Path(get_package_share_directory('vision'))
+                             / 'config/vision.yaml')),
             }.items()))
 
     if 'localization' in selected:
         map_file = _resolve_map_file(LaunchConfiguration('map').perform(context))
         localization_params = PathJoinSubstitution([
-            FindPackageShare('bringup'), 'config', 'amcl_localization.yaml'])
+            FindPackageShare('cbr_simulation' if simulation else 'bringup'),
+            'config', 'amcl_localization.yaml'])
         actions.append(
             # Scope the include because it declares generic names such as
             # params_file. Without this, AMCL's YAML can leak into siblings.
@@ -177,7 +187,7 @@ def _launch_setup(context):
                     launch_arguments={
                         'map': map_file,
                         'params_file': localization_params,
-                        'use_sim_time': 'false',
+                        'use_sim_time': use_sim_time,
                         'autostart': 'true',
                         # nav2_bringup evaluates this in a PythonExpression.
                         'use_composition': 'False',
@@ -197,7 +207,7 @@ def _launch_setup(context):
                     'navigation.launch.py'])),
                 launch_arguments={
                     'params_file': navigation_params,
-                    'use_sim_time': 'false',
+                    'use_sim_time': use_sim_time,
                     'autostart': 'true',
                     'log_level': 'info',
                 }.items()),
@@ -213,7 +223,10 @@ def _launch_setup(context):
             if event.returncode != 0:
                 return _shutdown(
                     'Controllers do braço não ficaram ativos para o MoveIt.')
-            return move_group_entities
+            return [GroupAction(actions=[
+                SetParameter(name='use_sim_time', value=use_sim_time),
+                *move_group_entities,
+            ])]
 
         actions.extend([
             controller_ready,
@@ -232,9 +245,16 @@ def _launch_setup(context):
         actions.append(IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([
                 FindPackageShare('mission_manager'), 'launch',
-                'mission_manager.launch.py']))))
+                'mission_manager.launch.py'])),
+            launch_arguments={'arena_file': str(Path(
+                get_package_share_directory(
+                    'cbr_simulation' if simulation else 'mission_manager'))
+                / 'config/arena.yaml')}.items()))
 
-    return actions
+    return [GroupAction(actions=[
+        SetParameter(name='use_sim_time', value=use_sim_time),
+        *actions,
+    ])]
 
 
 def generate_launch_description():
@@ -252,6 +272,8 @@ def generate_launch_description():
             'map', default_value='arena',
             description='Nome de um mapa instalado, sem caminho ou extensão.'),
         DeclareLaunchArgument('camera_framerate', default_value='15.0'),
+        DeclareLaunchArgument('use_sim_time', default_value='false',
+                              choices=['true', 'false']),
         DeclareLaunchArgument('image_topic', default_value='/camera/image_rect'),
         DeclareLaunchArgument(
             'camera_info_topic', default_value='/camera/camera_info'),

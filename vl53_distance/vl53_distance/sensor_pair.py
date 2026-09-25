@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 import statistics
+import math
+import threading
+import time
 
 from .vl53 import SMBus, VL53L0X
 
@@ -160,3 +163,67 @@ class VL53SensorPair:
                     first_error = first_error or error
         if first_error is not None:
             raise first_error
+
+
+class GazeboSensorPair:
+    """Read two independent simulated range sensors through ROS LaserScan."""
+
+    def __init__(self, node, *, left_topic='/vl53/left/scan',
+                 right_topic='/vl53/right/scan', max_age_sec=0.3,
+                 median_window=3):
+        from sensor_msgs.msg import LaserScan
+        from rclpy.qos import qos_profile_sensor_data
+
+        self._node = node
+        self._lock = threading.RLock()
+        self._latest = {}
+        self._history = {
+            'left': deque(maxlen=median_window),
+            'right': deque(maxlen=median_window),
+        }
+        self._max_age_sec = float(max_age_sec)
+        self._subscriptions = [
+            node.create_subscription(
+                LaserScan, topic,
+                lambda message, side=side: self._on_scan(side, message),
+                qos_profile_sensor_data,
+            ) for side, topic in (
+                ('left', left_topic), ('right', right_topic))
+        ]
+
+    def _on_scan(self, side, message):
+        if not message.ranges:
+            return
+        distance = float(message.ranges[len(message.ranges) // 2])
+        if not math.isfinite(distance) or not (0.02 <= distance <= 2.0):
+            return
+        with self._lock:
+            self._latest[side] = (int(round(distance * 1000)), time.monotonic())
+
+    def reset_filter(self):
+        with self._lock:
+            for history in self._history.values():
+                history.clear()
+
+    def read(self):
+        now = time.monotonic()
+        with self._lock:
+            if set(self._latest) != {'left', 'right'}:
+                raise RuntimeError('Aguardando os dois sensores VL53 simulados.')
+            if any(now - stamp > self._max_age_sec
+                   for _, stamp in self._latest.values()):
+                raise RuntimeError('Leitura VL53 simulada obsoleta.')
+            for side in ('left', 'right'):
+                self._history[side].append(self._latest[side][0])
+            left = int(statistics.median(self._history['left']))
+            right = int(statistics.median(self._history['right']))
+            return DistanceSample(
+                raw_left_mm=self._latest['left'][0],
+                raw_right_mm=self._latest['right'][0],
+                left_mm=left, right_mm=right,
+            )
+
+    def close(self):
+        for subscription in self._subscriptions:
+            self._node.destroy_subscription(subscription)
+        self._subscriptions.clear()

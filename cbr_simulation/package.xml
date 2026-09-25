@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>cbr_simulation</name>
+  <version>0.1.0</version>
+  <description>Gazebo Sim world and ROS 2 integration for the CBR robot.</description>
+  <maintainer email="todo@todo.com">author</maintainer>
+  <license>GPL-3.0-only</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>bringup</exec_depend>
+  <exec_depend>robot_description</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>gz_ros2_control</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>vl53_distance</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <test_depend>python3-pytest</test_depend>
+  <export>
+    <build_type>ament_python</build_type>
+    <gazebo_ros gazebo_model_path="${prefix}/../"/>
+  </export>
+</package>

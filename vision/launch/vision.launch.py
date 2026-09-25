@@ -6,8 +6,9 @@ import sys
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -42,9 +43,12 @@ def generate_launch_description() -> LaunchDescription:
     config = PathJoinSubstitution([
         FindPackageShare('vision'), 'config', 'vision.yaml'])
     return LaunchDescription([
+        DeclareLaunchArgument('config_file', default_value=config),
         DeclareLaunchArgument('image_topic', default_value='/camera/image_rect'),
         DeclareLaunchArgument('camera_info_topic', default_value='/camera/camera_info'),
         DeclareLaunchArgument('base_frame', default_value='base_link'),
+        DeclareLaunchArgument('use_sim_time', default_value='false'),
+        DeclareLaunchArgument('simulation', default_value='false'),
         DeclareLaunchArgument(
             'python_executable',
             default_value=_default_python_executable(),
@@ -55,10 +59,17 @@ def generate_launch_description() -> LaunchDescription:
             name='scene_analyzer',
             output='screen',
             prefix=LaunchConfiguration('python_executable'),
-            parameters=[config, {
+            parameters=[LaunchConfiguration('config_file'), {
                 'image_topic': LaunchConfiguration('image_topic'),
                 'camera_info_topic': LaunchConfiguration('camera_info_topic'),
                 'base_frame': LaunchConfiguration('base_frame'),
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
+                'manage_camera_capture': ParameterValue(
+                    PythonExpression(["'", LaunchConfiguration('simulation'),
+                                      "' == 'false'"]), value_type=bool),
+                'manage_vision_led': ParameterValue(
+                    PythonExpression(["'", LaunchConfiguration('simulation'),
+                                      "' == 'false'"]), value_type=bool),
             }],
         ),
     ])

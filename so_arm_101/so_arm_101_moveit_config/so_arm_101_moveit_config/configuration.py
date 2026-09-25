@@ -26,16 +26,23 @@ def get_moveit_config():
     )
 
 
-def get_combined_moveit_config():
+def get_combined_moveit_config(*, simulation=False):
     """Use the same arm planning setup with the composed mobile robot URDF."""
     description = (
         get_package_share_directory('robot_description')
         + '/urdf/robot.urdf.xacro'
     )
+    mappings = ({
+        'use_gz_ros2_control': 'true',
+        'use_real_ros2_control': 'false',
+        'hardware_plugin': 'gz_ros2_control/GazeboSimSystem',
+        'controllers_file': (get_package_share_directory('cbr_simulation')
+                             + '/config/controllers.yaml'),
+    } if simulation else {})
     return (
         MoveItConfigsBuilder(
             'robot', package_name='so_arm_101_moveit_config')
-        .robot_description(file_path=description)
+        .robot_description(file_path=description, mappings=mappings)
         .robot_description_semantic(
             file_path='config/so_arm_101.srdf',
             mappings={

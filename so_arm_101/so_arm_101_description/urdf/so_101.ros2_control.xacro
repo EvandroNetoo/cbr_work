@@ -42,6 +42,13 @@
       <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
       <state_interface name="velocity"/>
     </joint>
+    <xacro:if value="$(arg use_gz_ros2_control)">
+      <!-- Gazebo requires a state-only interface to drive the passive mimic. -->
+      <joint name="left_clamp">
+        <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+        <state_interface name="velocity"/>
+      </joint>
+    </xacro:if>
   </ros2_control>
 
   <xacro:if value="$(arg use_gz_ros2_control)">
