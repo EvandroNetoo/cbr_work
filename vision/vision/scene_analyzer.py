@@ -17,7 +17,6 @@ from interfaces.msg import (
     AprilTagDetection,
     AprilTagDetectionArray,
     AprilTagStampedDetection,
-    ContainerDetection,
     ContainerDetectionArray,
     ContainerStampedDetection,
     TableSurfaceGrid,
@@ -42,21 +41,16 @@ from std_srvs.srv import SetBool
 from tf2_geometry_msgs import do_transform_pose_stamped
 from tf2_ros import Buffer, TransformBroadcaster, TransformException, TransformListener
 
-from .partial_container import fit_partial_container, rotation_from_quaternion
+from .constants import APRILTAGS, CONTAINERS_HSV, TABLE_SURFACE
+from .container_pipeline import ContainerPipelineMixin
+from .debug_images import ContainerDebugFrame, DebugImagesMixin
+from .geometry import rotation_from_quaternion
+from .image_encoding import ImageEncodingMixin
+from .table_surface import TableSurfaceMixin
 from .hsv_container import (
     area_thresholds_for_height, detect_blobs, pixel_on_base_plane,
     PixelObservation, PixelTrack, update_tracks,
 )
-
-
-APRILTAGS = AnalyzeScene.Goal.APRILTAGS
-CONTAINERS = AnalyzeScene.Goal.CONTAINERS
-TABLE_SURFACE = AnalyzeScene.Goal.TABLE_SURFACE
-CONTAINERS_HSV = AnalyzeScene.Goal.CONTAINERS_HSV
-RED = ContainerStampedDetection.RED
-BLUE = ContainerStampedDetection.BLUE
-COLOR_NAMES = {RED: 'red', BLUE: 'blue'}
-DEBUG_COLORS = {RED: (30, 30, 255), BLUE: (255, 80, 20)}
 
 
 def quaternion_from_rotation(matrix: np.ndarray) -> tuple[float, float, float, float]:
@@ -169,7 +163,6 @@ class Session:
     best_base: dict[int, AprilTagStampedDetection] = field(default_factory=dict)
     latest_camera: list[AprilTagStampedDetection] = field(default_factory=list)
     latest_base: list[AprilTagStampedDetection] = field(default_factory=list)
-    container_tracks: list['ContainerTrack'] = field(default_factory=list)
     hsv_container_tracks: list[PixelTrack] = field(default_factory=list)
     latest_containers_camera: list[ContainerStampedDetection] = field(default_factory=list)
     latest_containers_base: list[ContainerStampedDetection] = field(default_factory=list)
@@ -197,51 +190,9 @@ class Session:
     table_cell_confirmations: list[int] = field(default_factory=list)
 
 
-@dataclass
-class ContainerCandidate:
-    color: int
-    contour: np.ndarray
-    corners: np.ndarray
-    area: float
-    rectangularity: float
-    accepted: bool = False
-    reason: str = ''
-    pose: Pose | None = None
-    pose_error: float = math.inf
-    partial: bool = False
-    position_uncertainty_m: float = 0.0
-    yaw_uncertainty_deg: float = 0.0
-    partial_fit_overlap: float = 1.0
-
-
-@dataclass
-class ContainerObservation:
-    """One same-frame camera detection and its optional base transform."""
-
-    frame_index: int
-    camera: ContainerStampedDetection
-    base: ContainerStampedDetection | None = None
-
-
-@dataclass
-class ContainerTrack:
-    """Temporal observations believed to belong to one physical container."""
-
-    color: int
-    observations: list[ContainerObservation] = field(default_factory=list)
-
-
-@dataclass
-class ContainerDebugFrame:
-    """Annotated observation plus the calibration valid for that frame."""
-
-    header: object
-    image: np.ndarray
-    camera_matrix: np.ndarray
-    camera_to_base: TransformStamped | None
-
-
-class SceneAnalyzer(Node):
+class SceneAnalyzer(
+        ContainerPipelineMixin, TableSurfaceMixin, DebugImagesMixin,
+        ImageEncodingMixin, Node):
     def __init__(self) -> None:
         super().__init__('scene_analyzer')
         self.declare_parameter('image_topic', '/camera/image_rect')
@@ -257,7 +208,6 @@ class SceneAnalyzer(Node):
         self.declare_parameter('quad_decimate', 1.0)
         self.declare_parameter('max_detection_rate_hz', 10.0)
         self.declare_parameter('apriltag_detection_rate_hz', 0.0)
-        self.declare_parameter('container_detection_rate_hz', 0.0)
         self.declare_parameter('hsv_container_detection_rate_hz', 0.0)
         self.declare_parameter('table_surface_detection_rate_hz', 0.0)
         self.declare_parameter('debug_image_rate_hz', 5.0)
@@ -278,11 +228,6 @@ class SceneAnalyzer(Node):
             'vision_led_service', '/base_hardware/set_vision_led')
         self.declare_parameter('vision_led_timeout_sec', 5.0)
         self.declare_parameter('external_height_m', 0.073)
-        self.declare_parameter('external_width_m', 0.102)
-        self.declare_parameter('external_depth_m', 0.173)
-        self.declare_parameter('internal_height_m', 0.057)
-        self.declare_parameter('internal_width_m', 0.090)
-        self.declare_parameter('internal_depth_m', 0.140)
         self.declare_parameter('min_saturation', 80)
         self.declare_parameter('min_value', 45)
         self.declare_parameter('red_hue_low_1', 0)
@@ -292,20 +237,9 @@ class SceneAnalyzer(Node):
         self.declare_parameter('blue_hue_low', 92)
         self.declare_parameter('blue_hue_high', 138)
         self.declare_parameter('morphology_kernel_px', 5)
-        self.declare_parameter('min_contour_area_px', 350.0)
-        self.declare_parameter('min_partial_contour_area_px', 800.0)
         self.declare_parameter('container_border_margin_px', 6)
         self.declare_parameter('max_contour_area_fraction', 0.85)
-        self.declare_parameter('min_rectangularity', 0.55)
-        self.declare_parameter('polygon_epsilon_fraction', 0.035)
-        self.declare_parameter('container_geometry_erosion_fraction', 0.34)
-        self.declare_parameter('max_container_pose_error_px', 12.0)
         self.declare_parameter('container_warmup_sec', 0.5)
-        self.declare_parameter('container_association_distance_m', 0.07)
-        self.declare_parameter('container_final_merge_distance_m', 0.07)
-        self.declare_parameter('min_container_observations', 3)
-        self.declare_parameter('max_container_position_deviation_m', 0.04)
-        self.declare_parameter('max_container_yaw_deviation_deg', 20.0)
         self.declare_parameter('hsv_container_min_area_le_7_5cm_px', 4000)
         self.declare_parameter('hsv_container_min_area_le_12_5cm_px', 6500)
         self.declare_parameter('hsv_container_min_area_gt_12_5cm_px', 9000)
@@ -343,7 +277,6 @@ class SceneAnalyzer(Node):
         self.detector_periods = {}
         for detector, parameter in (
             (APRILTAGS, 'apriltag_detection_rate_hz'),
-            (CONTAINERS, 'container_detection_rate_hz'),
             (CONTAINERS_HSV, 'hsv_container_detection_rate_hz'),
             (TABLE_SURFACE, 'table_surface_detection_rate_hz'),
         ):
@@ -386,7 +319,6 @@ class SceneAnalyzer(Node):
         self.image_condition = threading.Condition()
         self.pending_images: dict[int, Image | None] = {
             APRILTAGS: None,
-            CONTAINERS: None,
             CONTAINERS_HSV: None,
             TABLE_SURFACE: None,
         }
@@ -400,7 +332,6 @@ class SceneAnalyzer(Node):
             )
             for detector, name in (
                 (APRILTAGS, 'apriltags'),
-                (CONTAINERS, 'containers'),
                 (CONTAINERS_HSV, 'containers-hsv'),
                 (TABLE_SURFACE, 'table-surface'),
             )
@@ -416,24 +347,7 @@ class SceneAnalyzer(Node):
             nthreads=int(self.get_parameter('nthreads').value),
             quad_decimate=float(self.get_parameter('quad_decimate').value),
             refine_edges=1)
-        self._configure_container_detector()
-        self.hsv_min_areas = tuple(int(self.get_parameter(name).value) for name in (
-            'hsv_container_min_area_le_7_5cm_px',
-            'hsv_container_min_area_le_12_5cm_px',
-            'hsv_container_min_area_gt_12_5cm_px'))
-        self.hsv_min_partial_areas = tuple(int(self.get_parameter(name).value) for name in (
-            'hsv_container_min_partial_area_le_5cm_px',
-            'hsv_container_min_partial_area_le_10cm_px',
-            'hsv_container_min_partial_area_gt_10cm_px'))
-        self.hsv_min_frames = int(self.get_parameter(
-            'hsv_container_min_confirmed_frames').value)
-        self.hsv_center_tolerance = float(self.get_parameter(
-            'hsv_container_center_tolerance_px').value)
-        if (min(*self.hsv_min_areas, *self.hsv_min_partial_areas,
-                self.hsv_min_frames) <= 0 or
-                not math.isfinite(self.hsv_center_tolerance) or
-                self.hsv_center_tolerance <= 0):
-            raise ValueError('Invalid HSV container area/frame/center parameters')
+        self._configure_hsv_container_detector()
         self._configure_white_surface_detector()
         self.tf_broadcaster = TransformBroadcaster(self)
         output_qos = QoSProfile(
@@ -507,83 +421,6 @@ class SceneAnalyzer(Node):
         self.get_logger().info(
             'Scene analyzer idle; waiting for /vision/analyze_scene goals.')
 
-    def _configure_container_detector(self) -> None:
-        """Validate and cache the known Bin 3 geometry and HSV profile."""
-        def positive(name: str) -> float:
-            value = float(self.get_parameter(name).value)
-            if not math.isfinite(value) or value <= 0.0:
-                raise ValueError(f'{name} must be positive and finite')
-            return value
-
-        def bounded(name: str, maximum: int) -> int:
-            value = int(self.get_parameter(name).value)
-            if not 0 <= value <= maximum:
-                raise ValueError(f'{name} must be in [0, {maximum}]')
-            return value
-
-        self.external_width = positive('external_width_m')
-        self.external_depth = positive('external_depth_m')
-        self.external_height = positive('external_height_m')
-        positive('internal_height_m')
-        positive('internal_width_m')
-        positive('internal_depth_m')
-        self.min_saturation = bounded('min_saturation', 255)
-        self.min_value = bounded('min_value', 255)
-        self.red_ranges = (
-            (bounded('red_hue_low_1', 179), bounded('red_hue_high_1', 179)),
-            (bounded('red_hue_low_2', 179), bounded('red_hue_high_2', 179)),
-        )
-        self.blue_range = (
-            bounded('blue_hue_low', 179), bounded('blue_hue_high', 179))
-        kernel_size = int(self.get_parameter('morphology_kernel_px').value)
-        if kernel_size <= 0:
-            raise ValueError('morphology_kernel_px must be positive')
-        if kernel_size % 2 == 0:
-            kernel_size += 1
-        self.morphology_kernel = cv2.getStructuringElement(
-            cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-        self.min_contour_area = positive('min_contour_area_px')
-        self.min_partial_contour_area = positive(
-            'min_partial_contour_area_px')
-        self.container_border_margin_px = int(
-            self.get_parameter('container_border_margin_px').value)
-        self.max_contour_fraction = float(
-            self.get_parameter('max_contour_area_fraction').value)
-        self.min_rectangularity = float(
-            self.get_parameter('min_rectangularity').value)
-        self.polygon_epsilon_fraction = positive('polygon_epsilon_fraction')
-        self.container_geometry_erosion_fraction = float(
-            self.get_parameter('container_geometry_erosion_fraction').value)
-        self.max_container_pose_error = positive(
-            'max_container_pose_error_px')
-        self.container_warmup = float(
-            self.get_parameter('container_warmup_sec').value)
-        self.container_association_distance = positive(
-            'container_association_distance_m')
-        self.container_final_merge_distance = positive(
-            'container_final_merge_distance_m')
-        self.min_container_observations = int(
-            self.get_parameter('min_container_observations').value)
-        self.max_container_position_deviation = positive(
-            'max_container_position_deviation_m')
-        self.max_container_yaw_deviation = math.radians(positive(
-            'max_container_yaw_deviation_deg'))
-        if not 0.0 < self.max_contour_fraction <= 1.0:
-            raise ValueError('max_contour_area_fraction must be in (0, 1]')
-        if not 0.0 < self.min_rectangularity <= 1.0:
-            raise ValueError('min_rectangularity must be in (0, 1]')
-        if not 0.0 <= self.container_geometry_erosion_fraction <= 0.4:
-            raise ValueError(
-                'container_geometry_erosion_fraction must be in [0, 0.4]')
-        if self.container_border_margin_px < 0:
-            raise ValueError('container_border_margin_px must be nonnegative')
-        if not math.isfinite(self.container_warmup) or self.container_warmup < 0.0:
-            raise ValueError('container_warmup_sec must be finite and nonnegative')
-        if self.min_container_observations <= 0:
-            raise ValueError('min_container_observations must be positive')
-        if self.max_container_yaw_deviation > math.pi / 2.0:
-            raise ValueError(
-                'max_container_yaw_deviation_deg must not exceed 90 degrees')
 
     def _configure_white_surface_detector(self) -> None:
         """Validate the conservative white-table classification thresholds."""
@@ -647,9 +484,8 @@ class SceneAnalyzer(Node):
             self.get_logger().warning('Rejecting non-finite work surface height.')
             return GoalResponse.REJECT
         requested = int(goal_request.requested_detectors)
-        known = APRILTAGS | CONTAINERS | TABLE_SURFACE | CONTAINERS_HSV
-        if (requested == 0 or requested & ~known or
-                requested & CONTAINERS and requested & CONTAINERS_HSV):
+        known = APRILTAGS | TABLE_SURFACE | CONTAINERS_HSV
+        if requested == 0 or requested & ~known:
             self.get_logger().warning(
                 f'Rejecting scene goal with invalid detector mask: {requested}.')
             return GoalResponse.REJECT
@@ -909,7 +745,7 @@ class SceneAnalyzer(Node):
             now = time.monotonic()
             session.containers_ready_at = (
                 now + self.container_warmup
-                if session.requested_detectors & (CONTAINERS | CONTAINERS_HSV | TABLE_SURFACE)
+                if session.requested_detectors & (CONTAINERS_HSV | TABLE_SURFACE)
                 else now
             )
             # The requested analysis duration starts after exposure/white-balance
@@ -971,7 +807,6 @@ class SceneAnalyzer(Node):
                     f'Could not publish final debug image: {error}')
         detector_names = (
             (APRILTAGS, 'apriltags'),
-            (CONTAINERS, 'containers'),
             (CONTAINERS_HSV, 'containers_hsv'),
             (TABLE_SURFACE, 'table_surface'),
         )
@@ -1045,9 +880,6 @@ class SceneAnalyzer(Node):
         with self.sessions_lock:
             apriltags_camera = list(session.best_camera.values())
             apriltags_base = list(session.best_base.values())
-            tracks = [ContainerTrack(
-                color=track.color, observations=list(track.observations))
-                for track in session.container_tracks]
             hsv_tracks = [PixelTrack(
                 color=track.color, observations=list(track.observations))
                 for track in session.hsv_container_tracks]
@@ -1058,9 +890,7 @@ class SceneAnalyzer(Node):
         result = AnalyzeScene.Result()
         result.best_apriltags_camera = apriltags_camera
         result.best_apriltags_base = apriltags_base
-        camera, base = (self._confirmed_hsv_container_results(hsv_tracks)
-                        if session.requested_detectors & CONTAINERS_HSV
-                        else self._confirmed_container_results(tracks))
+        camera, base = self._confirmed_hsv_container_results(hsv_tracks)
         result.best_containers_camera = camera
         result.best_containers_base = base
         grid = TableSurfaceGrid()
@@ -1136,7 +966,7 @@ class SceneAnalyzer(Node):
         for detector, period in self.detector_periods.items():
             if not session.requested_detectors & detector:
                 continue
-            if (detector & (CONTAINERS | CONTAINERS_HSV | TABLE_SURFACE)
+            if (detector & (CONTAINERS_HSV | TABLE_SURFACE)
                     and now < session.containers_ready_at):
                 continue
             last = session.last_detector_times.get(detector, float('-inf'))
@@ -1247,20 +1077,7 @@ class SceneAnalyzer(Node):
                 transforms.append(transform)
 
         masks: dict[int, np.ndarray] = {}
-        candidates: list[ContainerCandidate] = []
         container_camera_items: list[ContainerStampedDetection] = []
-        container_camera_poses: list[PoseStamped] = []
-        if active_detectors & CONTAINERS:
-            masks, candidates = self._detect_containers_in_frame(
-                bgr, camera_matrix)
-            for candidate in candidates:
-                if not candidate.accepted:
-                    continue
-                item = self.container_to_stamped(candidate, message.header)
-                container_camera_items.append(item)
-                container_camera_poses.append(PoseStamped(
-                    header=item.header, pose=item.pose))
-
         hsv_blobs = []
         if active_detectors & CONTAINERS_HSV:
             minimum_full, minimum_partial = area_thresholds_for_height(
@@ -1275,28 +1092,17 @@ class SceneAnalyzer(Node):
         base_poses: list[PoseStamped] = []
         container_base_items: list[ContainerStampedDetection] = []
         base_transform = None
-        has_partial = (
-            active_detectors & CONTAINERS
-            and any(candidate.reason == 'border' for candidate in candidates)
-        )
-        if (
-            camera_poses or container_camera_poses or has_partial
-            or active_detectors & (TABLE_SURFACE | CONTAINERS_HSV)
-        ) and tf_buffer is not None:
+        needs_base = bool(camera_poses or active_detectors &
+                          (TABLE_SURFACE | CONTAINERS_HSV))
+        if needs_base and tf_buffer is not None:
             try:
                 base_transform = tf_buffer.lookup_transform(
                     self.base_frame, camera_frame, message.header.stamp,
                     timeout=Duration())
             except TransformException:
-                if (
-                    container_camera_poses or has_partial
-                    or active_detectors & (TABLE_SURFACE | CONTAINERS_HSV)
-                ):
+                if active_detectors & (TABLE_SURFACE | CONTAINERS_HSV):
                     try:
-                        # The arm is stationary during scene analysis. A latest
-                        # transform is preferable to dropping a container or
-                        # table frame because its exact image timestamp arrived
-                        # before the corresponding TF sample.
+                        # The arm remains stationary during one analysis goal.
                         base_transform = tf_buffer.lookup_transform(
                             self.base_frame, camera_frame, Time(),
                             timeout=Duration())
@@ -1304,74 +1110,12 @@ class SceneAnalyzer(Node):
                         base_transform = session.last_base_transform
             if base_transform is not None:
                 session.last_base_transform = copy.deepcopy(base_transform)
-        if has_partial and base_transform is None:
-            for candidate in candidates:
-                if candidate.reason == 'border':
-                    candidate.reason = 'partial_waiting_tf'
-        if base_transform is not None:
-            for item, pose_camera in zip(camera_items, camera_poses):
-                pose_base = do_transform_pose_stamped(pose_camera, base_transform)
-                base_items.append(self.to_stamped_detection_from_item(
-                    item, pose_base.pose, self.base_frame))
-                base_poses.append(pose_base)
-            for item, pose_camera in zip(
-                    container_camera_items, container_camera_poses):
-                pose_base = do_transform_pose_stamped(
-                    pose_camera, base_transform)
-                container_base_items.append(self.copy_container_stamped(
-                    item, pose_base.pose, self.base_frame))
-            if has_partial:
-                for candidate in candidates:
-                    if candidate.reason != 'border':
-                        continue
-                    fit = fit_partial_container(
-                        candidate.contour, bgr.shape[:2], camera_matrix,
-                        base_transform, session.work_surface_height_m +
-                        self.external_height,
-                        self.external_depth, self.external_width,
-                    )
-                    if fit is None:
-                        candidate.reason = 'partial_unresolved'
-                        continue
-                    pose_base = Pose()
-                    pose_base.position.x = fit.x
-                    pose_base.position.y = fit.y
-                    pose_base.position.z = (
-                        session.work_surface_height_m + self.external_height)
-                    pose_base.orientation.z = math.sin(fit.yaw / 2.0)
-                    pose_base.orientation.w = math.cos(fit.yaw / 2.0)
-                    transform = base_transform.transform
-                    rotation = rotation_from_quaternion(transform.rotation)
-                    origin = np.array([
-                        transform.translation.x, transform.translation.y,
-                        transform.translation.z,
-                    ])
-                    camera_position = rotation.T @ (
-                        np.array([fit.x, fit.y, pose_base.position.z]) - origin)
-                    camera_rotation = rotation.T @ np.array([
-                        [math.cos(fit.yaw), -math.sin(fit.yaw), 0.0],
-                        [math.sin(fit.yaw), math.cos(fit.yaw), 0.0],
-                        [0.0, 0.0, 1.0],
-                    ])
-                    pose_camera = Pose()
-                    (pose_camera.position.x, pose_camera.position.y,
-                     pose_camera.position.z) = map(float, camera_position)
-                    (pose_camera.orientation.x, pose_camera.orientation.y,
-                     pose_camera.orientation.z, pose_camera.orientation.w) = (
-                        quaternion_from_rotation(camera_rotation))
-                    candidate.pose = pose_camera
-                    candidate.pose_error = fit.edge_error_px
-                    candidate.partial = True
-                    candidate.position_uncertainty_m = fit.position_uncertainty_m
-                    candidate.yaw_uncertainty_deg = fit.yaw_uncertainty_deg
-                    candidate.partial_fit_overlap = fit.overlap
-                    candidate.accepted = True
-                    candidate.reason = f'partial iou={fit.overlap:.2f}'
-                    camera_item = self.container_to_stamped(
-                        candidate, message.header)
-                    container_camera_items.append(camera_item)
-                    container_base_items.append(self.copy_container_stamped(
-                        camera_item, pose_base, self.base_frame))
+                for item, pose_camera in zip(camera_items, camera_poses):
+                    pose_base = do_transform_pose_stamped(
+                        pose_camera, base_transform)
+                    base_items.append(self.to_stamped_detection_from_item(
+                        item, pose_base.pose, self.base_frame))
+                    base_poses.append(pose_base)
         hsv_observations = []
         if active_detectors & CONTAINERS_HSV and base_transform is not None:
             floor_z = 0.0
@@ -1439,7 +1183,7 @@ class SceneAnalyzer(Node):
                 self.pose_array(self.base_frame, message, base_poses))
             self.detection_publisher.publish(
                 self.detection_array(self.base_frame, message, base_items))
-        if active_detectors & (CONTAINERS | CONTAINERS_HSV):
+        if active_detectors & CONTAINERS_HSV:
             self.container_camera_detection_publisher.publish(
                 self.container_detection_array(
                     camera_frame, message, container_camera_items))
@@ -1465,7 +1209,7 @@ class SceneAnalyzer(Node):
                     self.copy_stamped(x) for x in camera_items]
                 session.latest_base = [
                     self.copy_stamped(x) for x in base_items]
-            if active_detectors & (CONTAINERS | CONTAINERS_HSV):
+            if active_detectors & CONTAINERS_HSV:
                 session.latest_containers_camera = [
                     self.copy_container_stamped(item)
                     for item in container_camera_items]
@@ -1481,13 +1225,6 @@ class SceneAnalyzer(Node):
                 self._update_best(session.best_camera, item)
             for item in base_items:
                 self._update_best(session.best_base, item)
-            if active_detectors & CONTAINERS:
-                self._update_container_tracks(
-                    session.container_tracks,
-                    container_camera_items,
-                    container_base_items,
-                    session.frames_processed,
-                )
             if active_detectors & CONTAINERS_HSV:
                 update_tracks(session.hsv_container_tracks, hsv_observations,
                               self.hsv_center_tolerance)
@@ -1514,6 +1251,9 @@ class SceneAnalyzer(Node):
                 camera_matrix=camera_matrix.copy(),
                 camera_to_base=copy.deepcopy(
                     base_transform or session.last_base_transform),
+                container_masks=(
+                    {color: mask.copy() for color, mask in masks.items()}
+                    if active_detectors & CONTAINERS_HSV else None),
             )
             session.latest_debug_frame = debug_frame
             for detector in getattr(
@@ -1525,159 +1265,9 @@ class SceneAnalyzer(Node):
                     self.publish_detection_debug_image(
                         message, image, detections, session,
                         self._detector_observation_fps(session, APRILTAGS))
-                if debug_detectors & CONTAINERS:
-                    self.publish_container_debug_image(
-                        message, bgr, masks, candidates, camera_matrix,
-                        base_transform, session,
-                        self._detector_observation_fps(session, CONTAINERS))
                 if debug_detectors & CONTAINERS_HSV:
                     self.publish_hsv_container_debug_image(
-                        message, bgr, hsv_blobs, session)
-
-    def evaluate_white_table_grid(
-        self,
-        session: Session,
-        bgr: np.ndarray,
-        camera_matrix: np.ndarray,
-        camera_to_base: TransformStamped,
-        render_debug: bool = True,
-    ) -> tuple[list[bool], list[bool], np.ndarray | None]:
-        """Classify a base-frame grid without assuming any tool geometry."""
-        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-        saturation = hsv[:, :, 1]
-        value = hsv[:, :, 2]
-        unknown = np.logical_or(
-            value < self.white_surface_min_value,
-            value > self.white_surface_max_value,
-        )
-        white = np.logical_and.reduce((
-            ~unknown,
-            saturation <= self.white_surface_max_saturation,
-        ))
-        debug = bgr.copy() if render_debug else None
-        if debug is not None:
-            debug[unknown] = (0, 180, 255)
-            debug[white] = (
-                0.35 * debug[white] + 0.65 * np.array([40, 210, 40])
-            ).astype(np.uint8)
-
-        transform = camera_to_base.transform
-        rotation = rotation_from_quaternion(transform.rotation)
-        origin = np.array([
-            transform.translation.x,
-            transform.translation.y,
-            transform.translation.z,
-        ], dtype=np.float64)
-        height, width = bgr.shape[:2]
-        cell_count = session.table_grid_width * session.table_grid_height
-        observed = np.zeros(cell_count, dtype=bool)
-        confirmed = np.zeros(cell_count, dtype=bool)
-        if cell_count == 0:
-            return observed.tolist(), confirmed.tolist(), debug
-
-        x_indices = np.tile(
-            np.arange(session.table_grid_width), session.table_grid_height)
-        y_indices = np.repeat(
-            np.arange(session.table_grid_height), session.table_grid_width)
-        centers = np.column_stack((
-            session.table_search_x_min_m
-            + x_indices * session.table_grid_resolution_m,
-            session.table_search_y_min_m
-            + y_indices * session.table_grid_resolution_m,
-        ))
-        half_cell = session.table_grid_resolution_m / 2.0
-        # Project the four metric corners of every cell. The plane is rectified
-        # below at a density derived from their projected pixel size.
-        offsets = np.array([
-            [-half_cell, -half_cell],
-            [half_cell, -half_cell],
-            [half_cell, half_cell],
-            [-half_cell, half_cell],
-        ], dtype=np.float64)
-        corner_xy = centers[:, None, :] + offsets[None, :, :]
-        samples_base = np.concatenate((
-            corner_xy,
-            np.full((*corner_xy.shape[:2], 1), session.work_surface_height_m),
-        ), axis=2)
-        samples_camera = (samples_base - origin) @ rotation
-        depths = samples_camera[:, :, 2]
-        finite = np.all(np.isfinite(samples_camera), axis=2)
-        in_front = np.logical_and(finite, depths > 1e-6)
-        safe_depths = np.where(in_front, depths, 1.0)
-        pixels_x = (
-            camera_matrix[0, 0] * samples_camera[:, :, 0] / safe_depths
-            + camera_matrix[0, 2])
-        pixels_y = (
-            camera_matrix[1, 1] * samples_camera[:, :, 1] / safe_depths
-            + camera_matrix[1, 2])
-        in_image = np.logical_and.reduce((
-            in_front,
-            pixels_x >= 0.0,
-            pixels_x <= width - 1,
-            pixels_y >= 0.0,
-            pixels_y <= height - 1,
-        ))
-        fully_visible = np.all(in_image, axis=1)
-        projected_corners = np.stack((pixels_x, pixels_y), axis=2)
-        # A planar work surface is a homography. Rectify the whole requested
-        # region once, then reduce all cells in NumPy. The former implementation
-        # allocated and filled one small OpenCV mask per cell (often >1800
-        # allocations/frame), which dominated runtime on the ARM computer.
-        grid_width = session.table_grid_width
-        grid_height = session.table_grid_height
-        outer_source = np.array([
-            projected_corners[0, 0],
-            projected_corners[grid_width - 1, 1],
-            projected_corners[-1, 2],
-            projected_corners[(grid_height - 1) * grid_width, 3],
-        ], dtype=np.float32)
-        edge_lengths = np.linalg.norm(
-            projected_corners
-            - np.roll(projected_corners, -1, axis=1), axis=2)
-        samples_per_cell = int(np.clip(
-            math.ceil(float(np.nanmax(edge_lengths))), 4, 16))
-        rectified_width = grid_width * samples_per_cell
-        rectified_height = grid_height * samples_per_cell
-        outer_target = np.array([
-            [0.0, 0.0],
-            [rectified_width - 1.0, 0.0],
-            [rectified_width - 1.0, rectified_height - 1.0],
-            [0.0, rectified_height - 1.0],
-        ], dtype=np.float32)
-        homography = cv2.getPerspectiveTransform(outer_source, outer_target)
-        warped_unknown = cv2.warpPerspective(
-            unknown.astype(np.uint8), homography,
-            (rectified_width, rectified_height),
-            flags=cv2.INTER_NEAREST,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=1,
-        )
-        warped_white = cv2.warpPerspective(
-            white.astype(np.uint8), homography,
-            (rectified_width, rectified_height),
-            flags=cv2.INTER_NEAREST,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=0,
-        )
-        reduction_shape = (
-            grid_height, samples_per_cell,
-            grid_width, samples_per_cell)
-        unknown_fraction = warped_unknown.reshape(reduction_shape).mean(
-            axis=(1, 3)).reshape(-1)
-        white_fraction = warped_white.reshape(reduction_shape).mean(
-            axis=(1, 3)).reshape(-1)
-        observed = np.logical_and(
-            fully_visible,
-            unknown_fraction <= self.white_surface_max_unknown_fraction)
-        confirmed = np.logical_and(
-            observed, white_fraction >= self.white_surface_min_fraction)
-        return observed.tolist(), confirmed.tolist(), debug
-
-    def publish_table_surface_debug_image(
-        self, message: Image, debug: np.ndarray,
-    ) -> None:
-        output = self._bgr_image_message(message.header, debug)
-        self.table_surface_debug_image_publisher.publish(output)
+                        message, bgr, masks, hsv_blobs, session)
 
     @staticmethod
     def to_pose(translation: np.ndarray, rotation: np.ndarray) -> Pose:
@@ -1768,1139 +1358,6 @@ class SceneAnalyzer(Node):
                                           pose=item.pose)
             output.detections.append(detection)
         return output
-
-    def container_color_masks(self, bgr: np.ndarray) -> dict[int, np.ndarray]:
-        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-        red = np.zeros(hsv.shape[:2], dtype=np.uint8)
-        for low, high in self.red_ranges:
-            red = cv2.bitwise_or(red, cv2.inRange(
-                hsv, (low, self.min_saturation, self.min_value),
-                (high, 255, 255)))
-        blue = cv2.inRange(
-            hsv,
-            (self.blue_range[0], self.min_saturation, self.min_value),
-            (self.blue_range[1], 255, 255))
-        output = {}
-        for color, mask in ((RED, red), (BLUE, blue)):
-            cleaned = cv2.morphologyEx(
-                mask, cv2.MORPH_OPEN, self.morphology_kernel)
-            cleaned = cv2.morphologyEx(
-                cleaned, cv2.MORPH_CLOSE, self.morphology_kernel)
-            output[color] = cleaned
-        return output
-
-    def _detect_containers_in_frame(
-        self, bgr: np.ndarray, camera_matrix: np.ndarray,
-    ) -> tuple[dict[int, np.ndarray], list[ContainerCandidate]]:
-        masks = self.container_color_masks(bgr)
-        candidates = self.detect_container_candidates(
-            masks, bgr.shape[:2], camera_matrix)
-        return masks, candidates
-
-    def detect_container_candidates(
-        self,
-        masks: dict[int, np.ndarray],
-        image_shape: tuple[int, int],
-        camera_matrix: np.ndarray,
-    ) -> list[ContainerCandidate]:
-        image_area = float(image_shape[0] * image_shape[1])
-        candidates = []
-        for color, mask in masks.items():
-            contours, _ = cv2.findContours(
-                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            for contour in contours:
-                area = float(cv2.contourArea(contour))
-                rectangle = cv2.minAreaRect(contour)
-                rectangle_area = float(rectangle[1][0] * rectangle[1][1])
-                rectangularity = (
-                    area / rectangle_area if rectangle_area > 0.0 else 0.0)
-                corners = cv2.boxPoints(rectangle).astype(np.float64)
-                candidate = ContainerCandidate(
-                    color=color, contour=contour, corners=corners,
-                    area=area, rectangularity=rectangularity)
-                at_border = self._container_touches_border(
-                    contour.reshape(-1, 2), image_shape)
-                minimum_area = (self.min_partial_contour_area if at_border
-                                else self.min_contour_area)
-                if area < minimum_area:
-                    candidate.reason = 'small'
-                elif area > image_area * self.max_contour_fraction:
-                    candidate.reason = 'large'
-                else:
-                    corners, rectangularity = self._container_geometry(contour)
-                    candidate.corners = corners
-                    candidate.rectangularity = rectangularity
-                    if at_border:
-                        candidate.reason = 'border'
-                        candidates.append(candidate)
-                        continue
-                    if rectangularity < self.min_rectangularity:
-                        candidate.reason = 'shape'
-                        candidates.append(candidate)
-                        continue
-                    pose, error = self.estimate_container_pose(
-                        corners, camera_matrix)
-                    candidate.pose = pose
-                    candidate.pose_error = error
-                    if pose is None or error > self.max_container_pose_error:
-                        candidate.reason = 'pose'
-                    else:
-                        candidate.accepted = True
-                        candidate.reason = 'ok'
-                candidates.append(candidate)
-        return candidates
-
-    def _container_geometry(
-        self, contour: np.ndarray,
-    ) -> tuple[np.ndarray, float]:
-        """Fit the main rectangle while ignoring smaller attached protrusions.
-
-        A same-colour cube touching a bin becomes part of the same connected
-        component.  Relative morphological erosions isolate the main body;
-        the candidate retaining the most rectangular core supplies the pose
-        corners.  The unmodified contour remains the source of area and image
-        border decisions.
-        """
-        rectangle = cv2.minAreaRect(contour)
-        rectangle_area = float(rectangle[1][0] * rectangle[1][1])
-        area = float(cv2.contourArea(contour))
-        best_corners = cv2.boxPoints(rectangle).astype(np.float64)
-        best_rectangularity = (
-            area / rectangle_area if rectangle_area > 0.0 else 0.0)
-
-        perimeter = float(cv2.arcLength(contour, True))
-        approximation = cv2.approxPolyDP(
-            contour, self.polygon_epsilon_fraction * perimeter, True)
-        if len(approximation) == 4 and cv2.isContourConvex(approximation):
-            best_corners = approximation.reshape(4, 2).astype(np.float64)
-
-        # A clean rectangular bin needs neither distance transform nor the
-        # five erosion/support fits below. Keep the expensive path for shapes
-        # that may contain an attached same-colour object.
-        if best_rectangularity >= 0.94:
-            return best_corners, best_rectangularity
-
-        maximum_fraction = self.container_geometry_erosion_fraction
-        short_side = min(map(float, rectangle[1]))
-        if maximum_fraction <= 0.0 or short_side < 8.0 or area <= 0.0:
-            return best_corners, best_rectangularity
-
-        x, y, width, height = cv2.boundingRect(contour)
-        maximum_radius = max(1, int(round(short_side * maximum_fraction)))
-        padding = maximum_radius + 2
-        component = np.zeros(
-            (height + 2 * padding, width + 2 * padding), dtype=np.uint8)
-        shifted = contour.astype(np.int32).copy()
-        shifted[:, 0, 0] += padding - x
-        shifted[:, 0, 1] += padding - y
-        cv2.drawContours(component, [shifted], -1, 255, cv2.FILLED)
-
-        # Several scales avoid requiring the cube size to be known. Erosion
-        # removes an appendage once the radius is wider than its narrow span;
-        # dense support in the original component restores the bin boundary.
-        fractions = np.linspace(0.04, maximum_fraction, 5)
-        distance = cv2.distanceTransform(component, cv2.DIST_L2, 5)
-        for fraction in fractions:
-            radius = max(1, int(round(short_side * float(fraction))))
-            eroded = np.where(distance > radius, 255, 0).astype(np.uint8)
-            cores, _ = cv2.findContours(
-                eroded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            if not cores:
-                continue
-            core = max(cores, key=cv2.contourArea)
-            core_area = float(cv2.contourArea(core))
-            if core_area / area < 0.10:
-                continue
-            eroded_rectangle = cv2.minAreaRect(core)
-            core_rectangle = self._supported_container_rectangle(
-                component, eroded_rectangle[2])
-            core_rectangle_area = float(
-                core_rectangle[1][0] * core_rectangle[1][1])
-            if core_rectangle_area <= 0.0:
-                continue
-            local_corners = cv2.boxPoints(core_rectangle)
-            rectangle_mask = np.zeros_like(component)
-            cv2.fillConvexPoly(
-                rectangle_mask, np.rint(local_corners).astype(np.int32), 255)
-            rectangle_pixels = int(np.count_nonzero(rectangle_mask))
-            if rectangle_pixels == 0:
-                continue
-            occupied_pixels = int(np.count_nonzero(
-                cv2.bitwise_and(component, rectangle_mask)))
-            fitted_rectangularity = min(
-                1.0, occupied_pixels / rectangle_pixels)
-            fitted_area_fraction = core_rectangle_area / area
-            if fitted_area_fraction < 0.65:
-                continue
-            # Measure the fitted box against the original component. This does
-            # not penalize the rounded corners introduced by morphology.
-            score = fitted_rectangularity + 0.05 * min(
-                1.0, fitted_area_fraction)
-            best_score = best_rectangularity + 0.05
-            if score <= best_score:
-                continue
-            core_corners = local_corners.astype(np.float64)
-            core_corners[:, 0] += x - padding
-            core_corners[:, 1] += y - padding
-            best_corners = core_corners
-            best_rectangularity = fitted_rectangularity
-
-        return best_corners, best_rectangularity
-
-    @staticmethod
-    def _supported_container_rectangle(
-        component: np.ndarray, angle_deg: float,
-    ) -> tuple[tuple[float, float], tuple[float, float], float]:
-        """Bound the dense rectangular support and exclude thin appendages."""
-        rows, columns = np.nonzero(component)
-        angle = math.radians(angle_deg)
-        axis_u = np.array([math.cos(angle), math.sin(angle)])
-        axis_v = np.array([-axis_u[1], axis_u[0]])
-        points = np.column_stack((columns, rows)).astype(np.float64)
-
-        def supported_bounds(values: np.ndarray) -> tuple[float, float]:
-            low = math.floor(float(values.min()))
-            high = math.ceil(float(values.max())) + 1
-            edges = np.arange(low, high + 1, dtype=np.float64)
-            counts, _ = np.histogram(values, bins=edges)
-            positive = counts[counts > 0]
-            reference = float(np.percentile(positive, 90))
-            supported = counts >= 0.55 * reference
-            indices = np.flatnonzero(supported)
-            runs = np.split(indices, np.where(np.diff(indices) > 1)[0] + 1)
-            run = max((item for item in runs if len(item)), key=len)
-            centers = (edges[:-1] + edges[1:]) / 2.0
-            return float(centers[run[0]]), float(centers[run[-1]])
-
-        minimum_u, maximum_u = supported_bounds(points @ axis_u)
-        minimum_v, maximum_v = supported_bounds(points @ axis_v)
-        center = (
-            (minimum_u + maximum_u) / 2.0 * axis_u
-            + (minimum_v + maximum_v) / 2.0 * axis_v
-        )
-        return (
-            (float(center[0]), float(center[1])),
-            (maximum_u - minimum_u, maximum_v - minimum_v),
-            angle_deg,
-        )
-
-    def _container_touches_border(
-        self, corners: np.ndarray, shape: tuple[int, int],
-    ) -> bool:
-        height, width = shape
-        margin = float(self.container_border_margin_px)
-        return bool(
-            np.any(corners[:, 0] <= margin)
-            or np.any(corners[:, 1] <= margin)
-            or np.any(corners[:, 0] >= width - 1.0 - margin)
-            or np.any(corners[:, 1] >= height - 1.0 - margin))
-
-    def estimate_container_pose(
-        self, corners: np.ndarray, camera_matrix: np.ndarray,
-    ) -> tuple[Pose | None, float]:
-        center = corners.mean(axis=0)
-        angles = np.arctan2(
-            corners[:, 1] - center[1], corners[:, 0] - center[0])
-        cyclic = corners[np.argsort(angles)].astype(np.float64)
-        depth = self.external_depth
-        width = self.external_width
-        object_points = np.array([
-            [-depth / 2.0, -width / 2.0, 0.0],
-            [depth / 2.0, -width / 2.0, 0.0],
-            [depth / 2.0, width / 2.0, 0.0],
-            [-depth / 2.0, width / 2.0, 0.0],
-        ], dtype=np.float64)
-        best = None
-        distortion = np.zeros((4, 1), dtype=np.float64)
-        for winding in (cyclic, cyclic[::-1]):
-            for offset in range(4):
-                image_points = np.roll(winding, offset, axis=0)
-                success, rotation_vector, translation = cv2.solvePnP(
-                    object_points, image_points, camera_matrix, distortion,
-                    flags=cv2.SOLVEPNP_IPPE)
-                if not success or float(translation[2, 0]) <= 0.0:
-                    continue
-                projected, _ = cv2.projectPoints(
-                    object_points, rotation_vector, translation,
-                    camera_matrix, distortion)
-                residual = projected.reshape(4, 2) - image_points
-                error = float(np.sqrt(np.mean(np.sum(
-                    residual * residual, axis=1))))
-                if math.isfinite(error) and (
-                    best is None or error < best[0]
-                ):
-                    best = (error, rotation_vector, translation)
-        if best is None:
-            return None, math.inf
-        rotation, _ = cv2.Rodrigues(best[1])
-        translation = best[2].reshape(3)
-        pose = Pose()
-        pose.position.x, pose.position.y, pose.position.z = map(
-            float, translation)
-        (
-            pose.orientation.x,
-            pose.orientation.y,
-            pose.orientation.z,
-            pose.orientation.w,
-        ) = quaternion_from_rotation(rotation)
-        return pose, best[0]
-
-    def hsv_blob_to_stamped(self, blob, header, pose, frame):
-        item = ContainerStampedDetection()
-        item.header = copy.deepcopy(header)
-        item.header.frame_id = frame
-        item.color = blob.color
-        item.contour_area_px = float(blob.area)
-        item.rectangularity = 0.0  # No rectangle is fitted by this detector.
-        item.pose_error = 0.0  # No PnP or reprojection error is available.
-        item.external_width_m = self.external_width
-        item.external_depth_m = self.external_depth
-        item.external_height_m = self.external_height
-        item.observation_count = 1
-        item.partial = blob.partial
-        # A clipped mask's centroid is biased. Return it for observation, but
-        # forbid its use as a release target without a complete observation.
-        item.position_uncertainty_m = 1.0 if blob.partial else 0.0
-        item.partial_fit_overlap = 0.0 if blob.partial else 1.0
-        item.pose = pose
-        return item
-
-    def container_to_stamped(
-        self, candidate: ContainerCandidate, header,
-    ) -> ContainerStampedDetection:
-        item = ContainerStampedDetection()
-        item.header = header
-        item.color = candidate.color
-        item.contour_area_px = candidate.area
-        item.rectangularity = candidate.rectangularity
-        item.pose_error = candidate.pose_error
-        item.external_width_m = self.external_width
-        item.external_depth_m = self.external_depth
-        item.external_height_m = self.external_height
-        item.observation_count = 1
-        item.position_spread_m = 0.0
-        item.yaw_spread_deg = 0.0
-        item.partial = candidate.partial
-        item.position_uncertainty_m = candidate.position_uncertainty_m
-        item.yaw_uncertainty_deg = candidate.yaw_uncertainty_deg
-        item.partial_fit_overlap = candidate.partial_fit_overlap
-        item.pose = candidate.pose
-        return item
-
-    @staticmethod
-    def copy_container_stamped(
-        item: ContainerStampedDetection,
-        pose: Pose | None = None,
-        frame: str | None = None,
-    ) -> ContainerStampedDetection:
-        result = ContainerStampedDetection()
-        result.header = copy.deepcopy(item.header)
-        if frame is not None:
-            result.header.frame_id = frame
-        result.color = item.color
-        result.contour_area_px = item.contour_area_px
-        result.rectangularity = item.rectangularity
-        result.pose_error = item.pose_error
-        result.external_width_m = item.external_width_m
-        result.external_depth_m = item.external_depth_m
-        result.external_height_m = item.external_height_m
-        result.observation_count = item.observation_count
-        result.position_spread_m = item.position_spread_m
-        result.yaw_spread_deg = item.yaw_spread_deg
-        result.partial = item.partial
-        result.position_uncertainty_m = item.position_uncertainty_m
-        result.yaw_uncertainty_deg = item.yaw_uncertainty_deg
-        result.partial_fit_overlap = item.partial_fit_overlap
-        result.pose = item.pose if pose is None else pose
-        return result
-
-    @staticmethod
-    def container_detection_array(frame, image, items):
-        output = ContainerDetectionArray()
-        output.header.frame_id = frame
-        output.header.stamp = image.header.stamp
-        for item in items:
-            detection = ContainerDetection()
-            detection.color = item.color
-            detection.contour_area_px = item.contour_area_px
-            detection.rectangularity = item.rectangularity
-            detection.pose_error = item.pose_error
-            detection.external_width_m = item.external_width_m
-            detection.external_depth_m = item.external_depth_m
-            detection.external_height_m = item.external_height_m
-            detection.observation_count = item.observation_count
-            detection.position_spread_m = item.position_spread_m
-            detection.yaw_spread_deg = item.yaw_spread_deg
-            detection.partial = item.partial
-            detection.position_uncertainty_m = item.position_uncertainty_m
-            detection.yaw_uncertainty_deg = item.yaw_uncertainty_deg
-            detection.partial_fit_overlap = item.partial_fit_overlap
-            detection.pose = item.pose
-            output.detections.append(detection)
-        return output
-
-    @staticmethod
-    def _container_position(item: ContainerStampedDetection) -> np.ndarray:
-        return np.array([
-            item.pose.position.x,
-            item.pose.position.y,
-            item.pose.position.z,
-        ], dtype=np.float64)
-
-    @classmethod
-    def _track_center(cls, track: ContainerTrack) -> np.ndarray:
-        positions = np.array([
-            cls._container_position(observation.camera)
-            for observation in track.observations
-        ])
-        return np.median(positions, axis=0)
-
-    def _update_container_tracks(
-        self,
-        tracks: list[ContainerTrack],
-        camera_items: list[ContainerStampedDetection],
-        base_items: list[ContainerStampedDetection],
-        frame_index: int,
-    ) -> None:
-        """Associate a frame one-to-one, preventing duplicate hits per track."""
-        base_for_item = base_items if len(base_items) == len(camera_items) else [
-            None for _ in camera_items]
-        pairs = []
-        for track_index, track in enumerate(tracks):
-            center = self._track_center(track)
-            for item_index, item in enumerate(camera_items):
-                if track.color != item.color:
-                    continue
-                distance = float(np.linalg.norm(
-                    center - self._container_position(item)))
-                if distance <= self.container_association_distance:
-                    pairs.append((distance, track_index, item_index))
-
-        assigned_tracks = set()
-        assigned_items = set()
-        for _distance, track_index, item_index in sorted(pairs):
-            if track_index in assigned_tracks or item_index in assigned_items:
-                continue
-            tracks[track_index].observations.append(ContainerObservation(
-                frame_index,
-                self.copy_container_stamped(camera_items[item_index]),
-                self.copy_container_stamped(base_for_item[item_index])
-                if base_for_item[item_index] is not None else None,
-            ))
-            assigned_tracks.add(track_index)
-            assigned_items.add(item_index)
-
-        for item_index, item in enumerate(camera_items):
-            if item_index in assigned_items:
-                continue
-            tracks.append(ContainerTrack(
-                color=int(item.color),
-                observations=[ContainerObservation(
-                    frame_index,
-                    self.copy_container_stamped(item),
-                    self.copy_container_stamped(base_for_item[item_index])
-                    if base_for_item[item_index] is not None else None,
-                )],
-            ))
-
-    def _merged_container_tracks(
-        self, tracks: list[ContainerTrack],
-    ) -> list[ContainerTrack]:
-        """Globally merge same-color tracks that converged after early noise."""
-        merged = [ContainerTrack(
-            color=track.color, observations=list(track.observations))
-            for track in tracks]
-        changed = True
-        while changed:
-            changed = False
-            for left_index in range(len(merged)):
-                left = merged[left_index]
-                for right_index in range(left_index + 1, len(merged)):
-                    right = merged[right_index]
-                    if left.color != right.color:
-                        continue
-                    # Two detections in the same frame cannot be the same
-                    # physical contour. Keep simultaneously visible bins apart.
-                    if ({item.frame_index for item in left.observations}
-                            & {item.frame_index for item in right.observations}):
-                        continue
-                    # Compare robust centers, not the closest pair of samples:
-                    # single-link clustering could bridge two separate bins.
-                    distance = float(np.linalg.norm(
-                        self._track_center(left) - self._track_center(right)))
-                    if distance > self.container_final_merge_distance:
-                        continue
-                    left.observations.extend(right.observations)
-                    del merged[right_index]
-                    changed = True
-                    break
-                if changed:
-                    break
-        return merged
-
-    @staticmethod
-    def _container_yaw(item: ContainerStampedDetection) -> float:
-        orientation = item.pose.orientation
-        return math.atan2(
-            2.0 * (orientation.w * orientation.z
-                   + orientation.x * orientation.y),
-            1.0 - 2.0 * (orientation.y * orientation.y
-                         + orientation.z * orientation.z),
-        )
-
-    @staticmethod
-    def _axial_yaw_distance(left: float, right: float) -> float:
-        """Rectangle yaw distance, where directions 180 degrees apart agree."""
-        return abs((left - right + math.pi / 2.0) % math.pi - math.pi / 2.0)
-
-    def _stable_container_items(
-        self,
-        items: list[ContainerStampedDetection],
-        *,
-        stabilize_yaw: bool,
-    ) -> list[ContainerStampedDetection]:
-        if len(items) < self.min_container_observations:
-            return []
-        positions = np.array([self._container_position(item) for item in items])
-        center = np.median(positions, axis=0)
-        items = [
-            item for item, distance in zip(
-                items, np.linalg.norm(positions - center, axis=1))
-            if distance <= self.max_container_position_deviation
-        ]
-        if len(items) < self.min_container_observations or not stabilize_yaw:
-            return items if len(items) >= self.min_container_observations else []
-
-        yaws = [self._container_yaw(item) for item in items]
-        groups = [
-            [
-                item for item, candidate_yaw in zip(items, yaws)
-                if self._axial_yaw_distance(anchor, candidate_yaw)
-                <= self.max_container_yaw_deviation
-            ]
-            for anchor in yaws
-        ]
-        best = max(
-            groups,
-            key=lambda group: (
-                len(group),
-                -float(np.median([item.pose_error for item in group])),
-            ),
-        )
-        return best if len(best) >= self.min_container_observations else []
-
-    def _summarize_container_items(
-        self,
-        items: list[ContainerStampedDetection],
-        *,
-        normalize_yaw: bool,
-    ) -> ContainerStampedDetection | None:
-        # Prefer complete observations whenever they form a stable track.
-        complete = [item for item in items if not item.partial]
-        selected = self._stable_container_items(
-            complete, stabilize_yaw=normalize_yaw)
-        items = selected or self._stable_container_items(
-            items, stabilize_yaw=normalize_yaw)
-        if not items:
-            return None
-        positions = np.array([self._container_position(item) for item in items])
-        center = np.median(positions, axis=0)
-        representative = min(items, key=lambda item: (
-            item.pose_error, -item.rectangularity, -item.contour_area_px))
-        result = self.copy_container_stamped(representative)
-        result.pose = copy.deepcopy(representative.pose)
-        result.pose.position.x, result.pose.position.y, result.pose.position.z = (
-            map(float, center))
-        result.contour_area_px = float(np.median([
-            item.contour_area_px for item in items]))
-        result.rectangularity = float(np.median([
-            item.rectangularity for item in items]))
-        result.pose_error = float(np.median([
-            item.pose_error for item in items]))
-        result.observation_count = len(items)
-        result.position_spread_m = float(max(
-            np.linalg.norm(positions - center, axis=1), default=0.0))
-        result.partial = any(item.partial for item in items)
-        result.position_uncertainty_m = float(max(
-            item.position_uncertainty_m for item in items))
-        result.yaw_uncertainty_deg = float(max(
-            item.yaw_uncertainty_deg for item in items))
-        result.partial_fit_overlap = float(min(
-            item.partial_fit_overlap for item in items))
-        result.yaw_spread_deg = 0.0
-        if normalize_yaw:
-            yaws = [self._container_yaw(item) for item in items]
-            yaw = 0.5 * math.atan2(
-                sum(math.sin(2.0 * value) for value in yaws),
-                sum(math.cos(2.0 * value) for value in yaws),
-            )
-            result.pose.orientation.x = 0.0
-            result.pose.orientation.y = 0.0
-            result.pose.orientation.z = math.sin(yaw / 2.0)
-            result.pose.orientation.w = math.cos(yaw / 2.0)
-            result.yaw_spread_deg = math.degrees(max(
-                self._axial_yaw_distance(yaw, value) for value in yaws))
-        return result
-
-    def _confirmed_hsv_container_results(self, tracks):
-        camera_results, base_results = [], []
-        for track in tracks:
-            observations = track.observations
-            complete = [item for item in observations if not item.blob.partial]
-            selected = complete if len(complete) >= self.hsv_min_frames else observations
-            if len(selected) < self.hsv_min_frames:
-                continue
-            centers = np.array([item.blob.center for item in selected])
-            center = np.median(centers, axis=0)
-            selected = [item for item, distance in zip(
-                selected, np.linalg.norm(centers - center, axis=1))
-                if distance <= self.hsv_center_tolerance]
-            if len(selected) < self.hsv_min_frames:
-                continue
-            for field_name, output in (('camera', camera_results),
-                                       ('base', base_results)):
-                representative = max(selected, key=lambda item: item.blob.area)
-                result = self.copy_container_stamped(
-                    getattr(representative, field_name))
-                positions = np.array([
-                    self._container_position(getattr(item, field_name))
-                    for item in selected])
-                position = np.median(positions, axis=0)
-                (result.pose.position.x, result.pose.position.y,
-                 result.pose.position.z) = map(float, position)
-                result.observation_count = len(selected)
-                result.contour_area_px = float(np.median([
-                    item.blob.area for item in selected]))
-                result.position_spread_m = float(max(
-                    np.linalg.norm(positions - position, axis=1), default=0.0))
-                result.partial = any(item.blob.partial for item in selected)
-                result.position_uncertainty_m = 1.0 if result.partial else 0.0
-                result.partial_fit_overlap = 0.0 if result.partial else 1.0
-                output.append(result)
-        return camera_results, base_results
-
-    def _confirmed_container_results(
-        self, tracks: list[ContainerTrack],
-    ) -> tuple[list[ContainerStampedDetection], list[ContainerStampedDetection]]:
-        camera_results = []
-        base_results = []
-        for track in self._merged_container_tracks(tracks):
-            camera = self._summarize_container_items(
-                [item.camera for item in track.observations],
-                normalize_yaw=False,
-            )
-            base = self._summarize_container_items(
-                [item.base for item in track.observations if item.base is not None],
-                normalize_yaw=True,
-            )
-            if camera is not None:
-                camera_results.append(camera)
-            if base is not None:
-                base_results.append(base)
-        return camera_results, base_results
-
-    def publish_hsv_container_debug_image(self, source, bgr, blobs, session):
-        debug = bgr.copy()
-        for blob in blobs:
-            center = tuple(round(value) for value in blob.center)
-            color = DEBUG_COLORS[blob.color]
-            cv2.circle(debug, center, 6, color, 2)
-            cv2.putText(debug,
-                        f'{COLOR_NAMES[blob.color]} {blob.area}px' +
-                        (' partial' if blob.partial else ''),
-                        (center[0] + 8, center[1]),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
-        summary = self._detector_summary(session, CONTAINERS_HSV, 'LIVE')
-        cv2.rectangle(debug, (0, 0), (debug.shape[1] - 1, 25),
-                      (0, 0, 0), -1)
-        self._draw_debug_text(debug, f'{summary} B{len(blobs)}', (5, 17),
-                              scale=0.34)
-        self.latest_container_debug_frame = ContainerDebugFrame(
-            header=copy.deepcopy(source.header), image=debug.copy(),
-            camera_matrix=np.array(session.latest_debug_frame.camera_matrix),
-            camera_to_base=copy.deepcopy(
-                session.latest_debug_frame.camera_to_base))
-        self.container_debug_image_publisher.publish(
-            self._bgr_image_message(source.header, debug))
-
-    def publish_container_debug_image(
-        self,
-        source: Image,
-        bgr: np.ndarray,
-        masks: dict[int, np.ndarray],
-        candidates: list[ContainerCandidate],
-        camera_matrix: np.ndarray,
-        camera_to_base: TransformStamped | None,
-        session: Session,
-        fps: float,
-    ) -> None:
-        debug = bgr.copy()
-        tint = np.zeros_like(debug)
-        for color, mask in masks.items():
-            tint[mask > 0] = DEBUG_COLORS[color]
-        debug = cv2.addWeighted(debug, 0.78, tint, 0.22, 0.0)
-        accepted = 0
-        for candidate in candidates:
-            accepted += int(candidate.accepted)
-            line_color = (
-                (0, 220, 0) if candidate.accepted else (0, 165, 255))
-            cv2.drawContours(
-                debug, [candidate.contour.astype(np.int32)], -1,
-                DEBUG_COLORS[candidate.color], 1)
-            corners = np.rint(candidate.corners).astype(np.int32)
-            cv2.polylines(
-                debug, [corners.reshape(-1, 1, 2)], True,
-                line_color, 2, cv2.LINE_AA)
-            for point in corners:
-                cv2.circle(
-                    debug, tuple(point), 3, line_color, -1, cv2.LINE_AA)
-            center = tuple(np.rint(
-                candidate.corners.mean(axis=0)).astype(int))
-            cv2.drawMarker(
-                debug, center, line_color, cv2.MARKER_CROSS,
-                12, 2, cv2.LINE_AA)
-            error = (
-                f'{candidate.pose_error:.1f}px'
-                if math.isfinite(candidate.pose_error) else '-')
-            label = (
-                f'{COLOR_NAMES[candidate.color]} {candidate.reason} '
-                f'A={candidate.area:.0f} R={candidate.rectangularity:.2f} '
-                f'E={error}')
-            origin = (
-                max(0, int(corners[:, 0].min())),
-                max(38, int(corners[:, 1].min()) - 5))
-            cv2.putText(
-                debug, label, origin, cv2.FONT_HERSHEY_SIMPLEX,
-                0.38, line_color, 1, cv2.LINE_AA)
-        detector_times = session.recent_detector_times.get(CONTAINERS, [])
-        fps_text = f'{fps:.1f}' if len(detector_times) > 1 else '--'
-        frames = session.detector_frame_counts.get(CONTAINERS, 0)
-        transforms = session.detector_frames_with_base_transform.get(
-            CONTAINERS, 0)
-        summary = (
-            f'LIVE {fps_text}fps F{frames} '
-            f'TF{transforms}/{frames} R{len(candidates)} A{accepted}')
-        cv2.rectangle(
-            debug, (0, 0), (debug.shape[1] - 1, 25),
-            (0, 0, 0), -1)
-        cv2.putText(
-            debug, summary, (5, 17), cv2.FONT_HERSHEY_SIMPLEX,
-            0.34, (255, 255, 255), 1, cv2.LINE_AA)
-        self.latest_container_debug_frame = ContainerDebugFrame(
-            header=copy.deepcopy(source.header),
-            image=debug.copy(),
-            camera_matrix=camera_matrix.copy(),
-            camera_to_base=copy.deepcopy(camera_to_base),
-        )
-        self.container_debug_image_publisher.publish(
-            self._bgr_image_message(source.header, debug))
-
-    @staticmethod
-    def _bgr_image_message(header, bgr: np.ndarray) -> Image:
-        output = Image()
-        output.header = header
-        output.height, output.width = bgr.shape[:2]
-        output.encoding = 'bgr8'
-        output.is_bigendian = False
-        output.step = output.width * 3
-        output.data = bgr.tobytes()
-        return output
-
-    @staticmethod
-    def _draw_debug_text(
-        image: np.ndarray,
-        text: str,
-        origin: tuple[int, int],
-        color: tuple[int, int, int] = (255, 255, 255),
-        scale: float = 0.34,
-    ) -> None:
-        cv2.putText(
-            image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,
-            (0, 0, 0), 3, cv2.LINE_AA)
-        cv2.putText(
-            image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,
-            color, 1, cv2.LINE_AA)
-
-    @staticmethod
-    def _project_base_points(
-        points_local: np.ndarray,
-        pose: Pose,
-        frame: ContainerDebugFrame,
-    ) -> np.ndarray | None:
-        if frame.camera_to_base is None:
-            return None
-        try:
-            object_rotation = rotation_from_quaternion(pose.orientation)
-            camera_rotation = rotation_from_quaternion(
-                frame.camera_to_base.transform.rotation)
-        except ValueError:
-            return None
-        position = np.array([
-            pose.position.x, pose.position.y, pose.position.z,
-        ], dtype=np.float64)
-        origin = np.array([
-            frame.camera_to_base.transform.translation.x,
-            frame.camera_to_base.transform.translation.y,
-            frame.camera_to_base.transform.translation.z,
-        ], dtype=np.float64)
-        points_base = points_local @ object_rotation.T + position
-        points_camera = (points_base - origin) @ camera_rotation
-        depths = points_camera[:, 2]
-        if (
-            not np.all(np.isfinite(points_camera))
-            or np.any(depths <= 1e-6)
-        ):
-            return None
-        matrix = frame.camera_matrix
-        pixels = np.column_stack((
-            matrix[0, 0] * points_camera[:, 0] / depths + matrix[0, 2],
-            matrix[1, 1] * points_camera[:, 1] / depths + matrix[1, 2],
-        ))
-        return np.rint(pixels).astype(np.int32)
-
-    def _draw_final_apriltags(
-        self,
-        debug: np.ndarray,
-        frame: ContainerDebugFrame,
-        detections: list[AprilTagStampedDetection],
-    ) -> None:
-        half = self.tag_size_m / 2.0
-        tag_corners = np.array([
-            [-half, -half, 0.0], [half, -half, 0.0],
-            [half, half, 0.0], [-half, half, 0.0],
-        ])
-        axis_length = self.tag_size_m * 0.75
-        axes = np.array([
-            [0.0, 0.0, 0.0], [axis_length, 0.0, 0.0],
-            [0.0, axis_length, 0.0], [0.0, 0.0, axis_length],
-        ])
-        line_y = 42
-        for item in sorted(detections, key=lambda detection: detection.id):
-            corners = self._project_base_points(tag_corners, item.pose, frame)
-            projected_axes = self._project_base_points(axes, item.pose, frame)
-            if corners is not None:
-                cv2.polylines(
-                    debug, [corners.reshape(-1, 1, 2)], True,
-                    (0, 220, 0), 2, cv2.LINE_AA)
-                center = tuple(np.rint(corners.mean(axis=0)).astype(int))
-                self._draw_debug_text(
-                    debug, f'T{item.id}', center, (0, 255, 0), 0.48)
-            if projected_axes is not None:
-                center = tuple(projected_axes[0])
-                for endpoint, color in zip(
-                    projected_axes[1:],
-                    ((0, 0, 255), (0, 255, 0), (255, 0, 0)),
-                ):
-                    cv2.line(
-                        debug, center, tuple(endpoint), color,
-                        2, cv2.LINE_AA)
-            position = item.pose.position
-            self._draw_debug_text(
-                debug,
-                f'T{item.id} x={position.x:.3f} y={position.y:.3f} '
-                f'z={position.z:.3f}m err={item.pose_error:.2f}px',
-                (5, line_y),
-            )
-            line_y += 14
-            self._draw_debug_text(
-                debug,
-                f'  margin={item.decision_margin:.1f} h={item.hamming}',
-                (5, line_y),
-            )
-            line_y += 17
-
-    def _draw_final_containers(
-        self,
-        debug: np.ndarray,
-        frame: ContainerDebugFrame,
-        detections: list[ContainerStampedDetection],
-    ) -> None:
-        line_y = 42
-        for index, item in enumerate(detections, start=1):
-            half_depth = item.external_depth_m / 2.0
-            half_width = item.external_width_m / 2.0
-            corners_local = np.array([
-                [-half_depth, -half_width, 0.0],
-                [half_depth, -half_width, 0.0],
-                [half_depth, half_width, 0.0],
-                [-half_depth, half_width, 0.0],
-            ])
-            corners = self._project_base_points(
-                corners_local, item.pose, frame)
-            color = DEBUG_COLORS.get(int(item.color), (0, 220, 0))
-            if corners is not None:
-                cv2.polylines(
-                    debug, [corners.reshape(-1, 1, 2)], True,
-                    color, 2, cv2.LINE_AA)
-                center = tuple(np.rint(corners.mean(axis=0)).astype(int))
-                self._draw_debug_text(
-                    debug, f'C{index}', center, color, 0.48)
-            position = item.pose.position
-            yaw = math.degrees(self._container_yaw(item))
-            name = COLOR_NAMES.get(int(item.color), str(int(item.color)))
-            self._draw_debug_text(
-                debug,
-                f'C{index} {name} x={position.x:.3f} y={position.y:.3f} '
-                f'z={position.z:.3f}m yaw={yaw:.1f}deg',
-                (5, line_y),
-            )
-            line_y += 14
-            details = (
-                f'  n={item.observation_count} '
-                f'spread={item.position_spread_m * 1000.0:.0f}mm/'
-                f'{item.yaw_spread_deg:.1f}deg err={item.pose_error:.2f}px')
-            self._draw_debug_text(debug, details, (5, line_y))
-            line_y += 14
-            if item.partial:
-                self._draw_debug_text(
-                    debug,
-                    f'  PARTIAL overlap={item.partial_fit_overlap:.2f} '
-                    f'unc={item.position_uncertainty_m * 1000.0:.0f}mm/'
-                    f'{item.yaw_uncertainty_deg:.1f}deg',
-                    (5, line_y),
-                )
-                line_y += 14
-            line_y += 3
-
-    def publish_final_debug_images(
-        self, session: Session, result, status: str,
-    ) -> None:
-        """Publish retained summaries made from the exact action result."""
-        if session.requested_detectors & APRILTAGS:
-            frame = session.latest_debug_frames.get(
-                APRILTAGS, session.latest_debug_frame)
-            if frame is None:
-                return
-            debug = frame.image.copy()
-            detections = list(result.best_apriltags_base)
-            summary = self._detector_summary(session, APRILTAGS, status)
-            cv2.rectangle(
-                debug, (0, 0), (debug.shape[1] - 1, 25), (0, 0, 0), -1)
-            self._draw_debug_text(
-                debug, f'{summary} A{len(detections)}', (5, 17),
-                scale=0.34)
-            self._draw_final_apriltags(debug, frame, detections)
-            self.debug_image_publisher.publish(
-                self._bgr_image_message(frame.header, debug))
-        if session.requested_detectors & (CONTAINERS | CONTAINERS_HSV):
-            selected_detector = (CONTAINERS_HSV if session.requested_detectors & CONTAINERS_HSV
-                                 else CONTAINERS)
-            frame = session.latest_debug_frames.get(
-                selected_detector, session.latest_debug_frame)
-            if frame is None:
-                return
-            debug = frame.image.copy()
-            detections = list(result.best_containers_base)
-            summary = self._detector_summary(session, selected_detector, status)
-            cv2.rectangle(
-                debug, (0, 0), (debug.shape[1] - 1, 25), (0, 0, 0), -1)
-            self._draw_debug_text(
-                debug, f'{summary} A{len(detections)}', (5, 17),
-                scale=0.34)
-            if selected_detector == CONTAINERS_HSV:
-                for track in session.hsv_container_tracks:
-                    if len(track.observations) < self.hsv_min_frames:
-                        continue
-                    center = tuple(round(float(value)) for value in track.center)
-                    cv2.drawMarker(debug, center, DEBUG_COLORS[track.color],
-                                   cv2.MARKER_CROSS, 18, 2)
-                    self._draw_debug_text(
-                        debug,
-                        f'{COLOR_NAMES[track.color]} n={len(track.observations)}',
-                        (center[0] + 8, center[1] - 8), scale=0.38)
-            else:
-                self._draw_final_containers(debug, frame, detections)
-            self.latest_container_debug_frame = ContainerDebugFrame(
-                header=copy.deepcopy(frame.header),
-                image=debug.copy(),
-                camera_matrix=frame.camera_matrix.copy(),
-                camera_to_base=copy.deepcopy(frame.camera_to_base),
-            )
-            self.container_debug_image_publisher.publish(
-                self._bgr_image_message(frame.header, debug))
-        if session.requested_detectors & TABLE_SURFACE:
-            frame = session.latest_debug_frames.get(
-                TABLE_SURFACE, session.latest_debug_frame)
-            if frame is None:
-                return
-            debug = frame.image.copy()
-            if frame.camera_to_base is not None:
-                _observed, _confirmed, rendered = self.evaluate_white_table_grid(
-                    session, frame.image, frame.camera_matrix,
-                    frame.camera_to_base, render_debug=True)
-                if rendered is not None:
-                    debug = rendered
-            cells = list(result.table_surface_grid.cells)
-            free = sum(cell == TableSurfaceGrid.FREE for cell in cells)
-            summary = self._detector_summary(session, TABLE_SURFACE, status)
-            cv2.rectangle(
-                debug, (0, 0), (debug.shape[1] - 1, 25), (0, 0, 0), -1)
-            self._draw_debug_text(
-                debug, f'{summary} FREE{free}/{len(cells)}', (5, 17),
-                scale=0.34)
-            self.table_surface_debug_image_publisher.publish(
-                self._bgr_image_message(frame.header, debug))
-
-    def container_target_callback(self, target: PoseStamped) -> None:
-        """Project the exact MoveIt TCP target over the cached camera frame."""
-        cached = self.latest_container_debug_frame
-        if cached is None or cached.camera_to_base is None:
-            self.get_logger().warning(
-                'Alvo do contêiner recebido sem frame/TF de visão armazenado.',
-                throttle_duration_sec=2.0)
-            return
-        if target.header.frame_id != self.base_frame:
-            self.get_logger().warning(
-                'Alvo do contêiner fora do referencial base: '
-                f'{target.header.frame_id!r}.',
-                throttle_duration_sec=2.0)
-            return
-
-        transform = cached.camera_to_base.transform
-        rotation = rotation_from_quaternion(transform.rotation)
-        origin = np.array([
-            transform.translation.x,
-            transform.translation.y,
-            transform.translation.z,
-        ], dtype=np.float64)
-        point_base = np.array([
-            target.pose.position.x,
-            target.pose.position.y,
-            target.pose.position.z,
-        ], dtype=np.float64)
-        if not np.all(np.isfinite(point_base)):
-            self.get_logger().warning('Alvo do contêiner contém posição inválida.')
-            return
-        point_camera = rotation.T @ (point_base - origin)
-        if not np.all(np.isfinite(point_camera)) or point_camera[2] <= 1e-6:
-            self.get_logger().warning(
-                'Alvo do contêiner está atrás da câmera no frame armazenado.')
-            return
-
-        matrix = cached.camera_matrix
-        pixel = np.array([
-            matrix[0, 0] * point_camera[0] / point_camera[2] + matrix[0, 2],
-            matrix[1, 1] * point_camera[1] / point_camera[2] + matrix[1, 2],
-        ])
-        if not np.all(np.isfinite(pixel)):
-            return
-        x, y = map(int, np.rint(pixel))
-        height, width = cached.image.shape[:2]
-        if not (0 <= x < width and 0 <= y < height):
-            self.get_logger().warning(
-                f'Alvo MoveIt projetado fora da imagem: ({x}, {y}).')
-            return
-
-        debug = cached.image.copy()
-        color = (255, 0, 255)
-        cv2.circle(debug, (x, y), 4, color, -1, cv2.LINE_AA)
-        cv2.drawMarker(
-            debug, (x, y), color, cv2.MARKER_DIAMOND,
-            20, 3, cv2.LINE_AA)
-        label_origin = (min(x + 8, max(0, width - 112)), max(16, y - 8))
-        cv2.putText(
-            debug, 'MoveIt TCP target', label_origin,
-            cv2.FONT_HERSHEY_SIMPLEX, 0.38, color, 1, cv2.LINE_AA)
-        self.container_debug_image_publisher.publish(
-            self._bgr_image_message(cached.header, debug))
-
-    @staticmethod
-    def image_to_bgr8(message: Image) -> np.ndarray:
-        height = int(message.height)
-        width = int(message.width)
-        step = int(message.step)
-        if height <= 0 or width <= 0 or step <= 0:
-            raise ValueError('image dimensions and step must be positive')
-        buffer = np.frombuffer(message.data, dtype=np.uint8)
-        if buffer.size < height * step:
-            raise ValueError('image data is shorter than its declared step')
-        rows = buffer[:height * step].reshape(height, step)
-        encoding = message.encoding.lower()
-        if encoding in {'mono8', '8uc1'}:
-            mono = rows[:, :width].reshape(height, width)
-            return cv2.cvtColor(mono, cv2.COLOR_GRAY2BGR)
-        conversions = {
-            'bgr8': (3, None),
-            'rgb8': (3, cv2.COLOR_RGB2BGR),
-            'bgra8': (4, cv2.COLOR_BGRA2BGR),
-            'rgba8': (4, cv2.COLOR_RGBA2BGR),
-        }
-        if encoding not in conversions:
-            raise ValueError(f'unsupported encoding: {message.encoding}')
-        channels, conversion = conversions[encoding]
-        image = rows[:, :width * channels].reshape(height, width, channels)
-        return (
-            image.copy() if conversion is None
-            else cv2.cvtColor(image, conversion))
-
-    @staticmethod
-    def image_to_mono8(message: Image) -> np.ndarray:
-        height, width, step = int(message.height), int(message.width), int(message.step)
-        if height <= 0 or width <= 0 or step <= 0:
-            raise ValueError('image dimensions and step must be positive')
-        buffer = np.frombuffer(message.data, dtype=np.uint8)
-        if buffer.size < height * step:
-            raise ValueError('image data is shorter than its declared step')
-        rows = buffer[:height * step].reshape(height, step)
-        encoding = message.encoding.lower()
-        if encoding in {'mono8', '8uc1'}:
-            return rows[:, :width].copy()
-        channels_and_code = {'rgb8': (3, 7), 'bgr8': (3, 6), 'rgba8': (4, 11), 'bgra8': (4, 10)}
-        if encoding not in channels_and_code:
-            raise ValueError(f'unsupported encoding: {message.encoding}')
-        channels, code = channels_and_code[encoding]
-        return cv2.cvtColor(rows[:, :width * channels].reshape(height, width, channels), code)
-
-    def publish_detection_debug_image(
-            self, source: Image, mono: np.ndarray, detections,
-            session: Session, fps: float) -> None:
-        """Publish the detector input annotated with raw AprilTag candidates."""
-        debug = cv2.cvtColor(mono, cv2.COLOR_GRAY2BGR)
-        accepted = 0
-        for detection in detections:
-            is_accepted = (
-                detection.hamming <= self.max_hamming
-                and detection.decision_margin >= self.min_decision_margin
-            )
-            accepted += int(is_accepted)
-            color = (0, 200, 0) if is_accepted else (0, 0, 255)
-            corners = np.rint(np.asarray(detection.corners)).astype(np.int32)
-            cv2.polylines(debug, [corners.reshape(-1, 1, 2)], True,
-                          color, 2, cv2.LINE_AA)
-            center = tuple(map(
-                int, np.rint(np.asarray(detection.center)).reshape(2)))
-            cv2.circle(debug, center, 3, color, -1, cv2.LINE_AA)
-            label = (
-                f'id={int(detection.tag_id)} '
-                f'm={float(detection.decision_margin):.1f} '
-                f'h={int(detection.hamming)}'
-            )
-            text_origin = (max(0, int(corners[:, 0].min())),
-                           max(16, int(corners[:, 1].min()) - 5))
-            cv2.putText(debug, label, text_origin, cv2.FONT_HERSHEY_SIMPLEX,
-                        0.45, color, 1, cv2.LINE_AA)
-
-        detector_times = session.recent_detector_times.get(APRILTAGS, [])
-        fps_text = f'{fps:.1f}' if len(detector_times) > 1 else '--'
-        frames = session.detector_frame_counts.get(APRILTAGS, 0)
-        transforms = session.detector_frames_with_base_transform.get(
-            APRILTAGS, 0)
-        summary = (
-            f'LIVE {fps_text}fps F{frames} '
-            f'TF{transforms}/{frames} R{len(detections)} A{accepted}')
-        cv2.rectangle(debug, (0, 0), (debug.shape[1] - 1, 24),
-                      (0, 0, 0), -1)
-        cv2.putText(debug, summary, (6, 17), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.34, (255, 255, 255), 1, cv2.LINE_AA)
-
-        output = Image()
-        output.header = source.header
-        output.height, output.width = debug.shape[:2]
-        output.encoding = 'bgr8'
-        output.is_bigendian = False
-        output.step = output.width * 3
-        output.data = debug.tobytes()
-        self.debug_image_publisher.publish(output)
 
 
 def main(args: Iterable[str] | None = None) -> None:

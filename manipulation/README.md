@@ -41,9 +41,9 @@ na mesma sessão visual.
 
 As análises retornam um `SceneObservation` comum com todas as AprilTags e
 containers observados. A seleção é configurada por operação em
-`vision_detectors.*`: por padrão `pick`, `stack` e `place_in_container`
-analisam AprilTags e containers juntos, enquanto `place_on_table` solicita
-somente a superfície branca. Assim, depósitos em mesas sem tags ou containers
+`vision_detectors.*`: por padrão `pick` e `stack` analisam AprilTags e
+contêineres HSV juntos, `place_in_container` analisa o contêiner HSV e
+`place_on_table` solicita somente a superfície branca. Assim, depósitos em mesas sem tags ou containers
 não dependem desses detectores, e novas combinações não exigem mudar as actions.
 
 Quando `pickup.tabletop.reachability_filter_enabled` está habilitado, a coleta

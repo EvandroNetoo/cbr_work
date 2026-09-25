@@ -30,7 +30,7 @@ def test_actions_cover_pick_cargo_and_semantic_placements():
     stamped_container = (
         SOURCE_ROOT / 'interfaces' / 'msg' / 'ContainerStampedDetection.msg'
     ).read_text()
-    assert 'float64 external_height_m' in stamped_container
+    assert 'float64 mask_area_px' in stamped_container
 
     stack = (actions / 'StackObject.action').read_text()
     assert 'int32 support_tag_id' in stack
@@ -68,7 +68,7 @@ def test_detector_policy_requires_each_operations_primary_detector():
     assert ManipulationServer._parse_detector_names(
         'place_on_table', ['table_surface']) == SceneObservation.TABLE_SURFACE
     with pytest.raises(ConfigurationError, match='necessário'):
-        ManipulationServer._parse_detector_names('pick', ['containers'])
+        ManipulationServer._parse_detector_names('pick', ['containers_hsv'])
 
     pick = (actions / 'PickObject.action').read_text()
     assert 'uint8 RECOVERY_OUT_OF_REACH=1' in pick
@@ -158,3 +158,9 @@ def test_launch_installs_profiles_from_package_share():
     assert "FindPackageShare('manipulation')" in source
     assert "'profiles_file': profiles" in source
     assert "'cargo_slots_file': cargo" in source
+
+
+def test_installed_interfaces_match_manipulation_startup_contract():
+    from manipulation.node import _interfaces_are_compatible
+
+    assert _interfaces_are_compatible()

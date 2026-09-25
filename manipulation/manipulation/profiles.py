@@ -80,8 +80,6 @@ class PlacementProfile:
     search_y_min_m: float | None = None
     search_y_max_m: float | None = None
     search_step_m: float = 0.01
-    partial_target_min_overlap: float = 0.35
-    partial_target_max_uncertainty_m: float = 0.03
     link3_to_link4_max_deg: float = -10.0
 
 
@@ -258,8 +256,6 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 'reach_min_radius_m', 'reach_max_radius_m',
                 'search_x_min_m', 'search_x_max_m',
                 'search_y_min_m', 'search_y_max_m', 'search_step_m',
-                'partial_target_min_overlap',
-                'partial_target_max_uncertainty_m',
                 'link3_to_link4_max_deg',
             },
             f'placements.{name}',
@@ -381,25 +377,11 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 f'placements.{name}.search_step_m',
                 positive=True,
             ),
-            partial_target_min_overlap=_number(
-                raw.get('partial_target_min_overlap', 0.35),
-                f'placements.{name}.partial_target_min_overlap',
-                positive=True,
-            ),
-            partial_target_max_uncertainty_m=_number(
-                raw.get('partial_target_max_uncertainty_m', 0.03),
-                f'placements.{name}.partial_target_max_uncertainty_m',
-                positive=True,
-            ),
             link3_to_link4_max_deg=_number(
                 raw.get('link3_to_link4_max_deg', -10.0),
                 f'placements.{name}.link3_to_link4_max_deg',
             ),
         )
-        if profile.partial_target_min_overlap > 1.0:
-            raise ConfigurationError(
-                f'placements.{name}.partial_target_min_overlap deve ser '
-                'menor ou igual a 1.')
         if (
             not -180.0 < profile.link3_to_link4_max_deg < 180.0
         ):

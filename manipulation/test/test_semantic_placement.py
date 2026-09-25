@@ -259,7 +259,7 @@ def test_table_deposit_always_uses_one_combined_scene_request():
     duration, request = calls[0]
     assert duration == 2.0
     assert request['analisar_apriltags'] is False
-    assert request['analisar_containers'] is False
+    assert request['analisar_containers_hsv'] is False
     assert request['analisar_mesa_branca'] is True
     assert request['altura_mesa_m'] == pytest.approx(0.125)
     assert request['resolucao_grade_m'] == pytest.approx(0.01)
@@ -672,9 +672,6 @@ def _container_detection(color, x=0.02, y=-0.22, z=0.16):
     detection.pose.position.y = y
     detection.pose.position.z = z
     detection.pose.orientation.w = 1.0
-    detection.external_width_m = 0.102
-    detection.external_depth_m = 0.173
-    detection.external_height_m = 0.073
     return detection
 
 
@@ -719,7 +716,6 @@ def test_hsv_container_release_uses_detected_top_and_offset(
     color, height_cm, external_height_m,
 ):
     selected = _container_detection(color)
-    selected.external_height_m = external_height_m
     selected.pose.position.z = height_cm / 100.0 + external_height_m - 0.097
     selected.pose.orientation.w = 0.0
     other = _container_detection(
@@ -753,11 +749,9 @@ def test_hsv_container_release_uses_detected_top_and_offset(
 def test_partial_container_can_be_selected_as_deposit_target():
     target = _container_detection(PlaceInContainer.Goal.RED, x=0.04)
     target.partial = True
-    target.position_uncertainty_m = 0.025
-    target.partial_fit_overlap = 0.8
     server = _container_operation_server([target])
     server._vision_detector_masks = {
-        'place_in_container': SceneObservation.CONTAINERS}
+        'place_in_container': SceneObservation.CONTAINERS_HSV}
     feedback = []
     server._feedback = lambda *args: feedback.append(args[-1])
     server._release_in_container = lambda *args: ('ok', 4, args[1])
@@ -766,28 +760,9 @@ def test_partial_container_can_be_selected_as_deposit_target():
         _container_goal(PlaceInContainer.Goal.RED))
 
     assert pose.pose.position.x == pytest.approx(0.04)
-    assert any('parcialmente visível' in message for message in feedback)
+    assert any('centro da parte visível' in message for message in feedback)
 
 
-@pytest.mark.parametrize('uncertainty, overlap', [
-    (0.08, 0.9), (0.01, 0.2),
-])
-def test_ambiguous_partial_container_is_not_used_as_drop_center(
-    uncertainty, overlap,
-):
-    target = _container_detection(PlaceInContainer.Goal.RED)
-    target.partial = True
-    target.position_uncertainty_m = uncertainty
-    target.partial_fit_overlap = overlap
-    server = _container_operation_server([target])
-    server._vision_detector_masks = {
-        'place_in_container': SceneObservation.CONTAINERS}
-    server._release_in_container = lambda *args: pytest.fail(
-        'pose parcial muito ambígua não deve mover o braço')
-
-    with pytest.raises(PerceptionUnavailable, match='excede os limites'):
-        server._execute_place_in_container(
-            _container_goal(PlaceInContainer.Goal.RED))
 
 
 def test_missing_container_does_not_start_release():
@@ -824,26 +799,20 @@ def test_nearest_same_color_container_is_selected():
     assert pose.pose.position.y == pytest.approx(nearest.pose.position.y)
 
 
-@pytest.mark.parametrize('invalid_field', [
-    'x', 'y', 'height', 'width', 'depth',
-])
+@pytest.mark.parametrize('invalid_field', ['x', 'y', 'z'])
 def test_container_invalid_geometry_does_not_start_release(invalid_field):
     detection = _container_detection(PlaceInContainer.Goal.BLUE)
     if invalid_field == 'x':
         detection.pose.position.x = float('nan')
     elif invalid_field == 'y':
         detection.pose.position.y = float('inf')
-    elif invalid_field == 'height':
-        detection.external_height_m = 0.0
-    elif invalid_field == 'width':
-        detection.external_width_m = 0.0
     else:
-        detection.external_depth_m = float('nan')
+        detection.pose.position.z = float('nan')
     server = _container_operation_server([detection])
     released = []
     server._release_in_container = lambda *args: released.append(args)
 
-    with pytest.raises(PerceptionUnavailable, match='posição ou dimensões'):
+    with pytest.raises(PerceptionUnavailable, match='posição inválida'):
         server._execute_place_in_container(
             _container_goal(PlaceInContainer.Goal.BLUE)
         )
@@ -854,7 +823,7 @@ def test_hsv_container_release_uses_top_height_in_arm_base_frame():
     detection = _container_detection(PlaceInContainer.Goal.BLUE)
     detection.pose.position.z = 0.076  # floor-to-arm offset already applied
     release = ManipulationServer._container_release_pose(
-        detection, 10.0, (0.0, 0.0, 0.015), use_detected_top=True)
+        detection, (0.0, 0.0, 0.015))
     assert release.pose.position.z == pytest.approx(0.091)
 
 
@@ -863,8 +832,6 @@ def test_hsv_partial_container_deposits_at_visible_center():
                                   x=0.19085, y=-0.23576, z=0.026)
     target.partial = True
     target.observation_count = 34
-    target.position_uncertainty_m = 1.0
-    target.partial_fit_overlap = 0.0
     server = _container_operation_server([target])
     feedback = []
     releases = []

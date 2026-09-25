@@ -1,5 +1,4 @@
 uint8 APRILTAGS=1
-uint8 CONTAINERS=2
 uint8 TABLE_SURFACE=4
 uint8 CONTAINERS_HSV=8
 
@@ -7,9 +6,8 @@ uint8 CONTAINERS_HSV=8
 uint8 requested_detectors
 # Zero duration means continuous processing until cancellation.
 builtin_interfaces/Duration duration
-# Work-surface height: in the base frame for CONTAINERS (legacy), relative
-# to the floor_frame parameter for CONTAINERS_HSV. The latter uses TF to
-# express the known top plane in the requested base frame.
+# Work-surface height relative to floor_frame. HSV detection uses TF to
+# express the known container top plane in base_frame.
 float64 work_surface_height_m
 # Rectangular base-frame region sampled independently of any gripper geometry.
 float64 table_search_x_min_m

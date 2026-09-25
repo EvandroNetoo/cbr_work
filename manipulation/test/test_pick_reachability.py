@@ -47,7 +47,7 @@ def test_pick_rejects_out_of_reach_tag_before_target_motion_or_retry():
     def analyze(_duration, **kwargs):
         detection_calls.append(True)
         assert kwargs['analisar_apriltags'] is True
-        assert kwargs['analisar_containers'] is True
+        assert kwargs['analisar_containers_hsv'] is True
         assert kwargs['analisar_mesa_branca'] is False
         return [_detection(1), _detection(3)], []
 
@@ -155,7 +155,7 @@ def test_common_scene_observation_is_returned_by_semantic_action():
     observation = SceneObservation()
     observation.completed = True
     observation.requested_detectors = (
-        SceneObservation.APRILTAGS | SceneObservation.CONTAINERS
+        SceneObservation.APRILTAGS | SceneObservation.CONTAINERS_HSV
     )
     observation.apriltags = [_detection(7)]
     observation.containers = [ContainerStampedDetection()]

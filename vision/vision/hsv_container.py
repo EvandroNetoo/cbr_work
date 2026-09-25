@@ -6,6 +6,8 @@ import math
 import cv2
 import numpy as np
 
+from .geometry import rotation_from_quaternion
+
 
 @dataclass(frozen=True)
 class Blob:
@@ -51,21 +53,10 @@ def pixel_on_base_plane(center, camera_matrix, camera_to_base, plane_z):
     ray = np.array([(u - camera_matrix[0, 2]) / fx,
                     (v - camera_matrix[1, 2]) / fy, 1.0])
     transform = camera_to_base.transform
-    quaternion = transform.rotation
-    values = np.array([quaternion.x, quaternion.y, quaternion.z,
-                       quaternion.w], dtype=float)
-    norm = float(np.linalg.norm(values))
-    if not math.isfinite(norm) or norm < 1e-9:
+    try:
+        rotation = rotation_from_quaternion(transform.rotation)
+    except ValueError:
         return None
-    x, y, z, w = values / norm
-    rotation = np.array([
-        [1 - 2*(y*y + z*z), 2*(x*y - z*w),
-         2*(x*z + y*w)],
-        [2*(x*y + z*w), 1 - 2*(x*x + z*z),
-         2*(y*z - x*w)],
-        [2*(x*z - y*w), 2*(y*z + x*w),
-         1 - 2*(x*x + y*y)],
-    ], dtype=float)
     origin = np.array([transform.translation.x, transform.translation.y,
                        transform.translation.z], dtype=float)
     direction = rotation @ ray

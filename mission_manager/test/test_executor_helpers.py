@@ -100,9 +100,8 @@ def _container_detection(color, *, partial=False, observations=3, error=2.0):
     detection.color = color
     detection.partial = partial
     detection.observation_count = observations
-    detection.pose_error = error
+    detection.mask_area_px = 9000.0 - error * 100.0
     detection.position_spread_m = 0.01
-    detection.position_uncertainty_m = 0.01 if partial else 0.0
     detection.pose.orientation.w = 1.0
     return detection
 
@@ -580,7 +579,7 @@ def test_scene_observation_keeps_best_container_memory_by_area_and_color():
     result = PickObject.Result()
     result.scene_observation.completed = True
     result.scene_observation.requested_detectors = (
-        SceneObservation.APRILTAGS | SceneObservation.CONTAINERS
+        SceneObservation.APRILTAGS | SceneObservation.CONTAINERS_HSV
     )
     result.scene_observation.containers = [
         _container_detection(1, observations=4, error=1.0)
@@ -656,7 +655,7 @@ def test_container_absence_skips_repeated_analysis_at_same_position():
     observed = PickObject.Result()
     observed.scene_observation.completed = True
     observed.scene_observation.requested_detectors = (
-        SceneObservation.APRILTAGS | SceneObservation.CONTAINERS
+        SceneObservation.APRILTAGS | SceneObservation.CONTAINERS_HSV
     )
     observed.scene_observation.containers = [
         _container_detection(PlaceInContainer.Goal.BLUE)

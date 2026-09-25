@@ -21,7 +21,6 @@ scene_analyzer:
     # Independent budgets prevent the expensive table map from forcing tags
     # and containers down to the same throughput in combined goals.
     apriltag_detection_rate_hz: 15.0
-    container_detection_rate_hz: 12.0
     hsv_container_detection_rate_hz: 12.0
     table_surface_detection_rate_hz: 8.0
     min_decision_margin: 30.0
@@ -49,14 +48,8 @@ scene_analyzer:
     vision_led_service: /base_hardware/set_vision_led
     vision_led_timeout_sec: 5.0
 
-    # Bin 3 geometry. The first placement-safe version fits the external
-    # silhouette; internal dimensions are retained for the later opening model.
+    # Known container height above the work surface.
     external_height_m: 0.073
-    external_width_m: 0.102
-    external_depth_m: 0.173
-    internal_height_m: 0.057
-    internal_width_m: 0.090
-    internal_depth_m: 0.140
 
     # Initial HSV thresholds; calibrate with the real camera and vision LED.
     min_saturation: 80
@@ -68,31 +61,12 @@ scene_analyzer:
     blue_hue_low: 70
     blue_hue_high: 138
     morphology_kernel_px: 5
-    min_contour_area_px: 6500.0
-    min_partial_contour_area_px: 2500.0
     # Stabilizes edge classification against mask jitter between frames.
     container_border_margin_px: 6
     max_contour_area_fraction: 0.85
-    min_rectangularity: 0.55
-    polygon_epsilon_fraction: 0.035
-    # Remove saliencias menores (por exemplo, cubos da mesma cor encostados)
-    # antes de ajustar os cantos do retangulo externo conhecido.
-    container_geometry_erosion_fraction: 0.34
-    max_container_pose_error_px: 12.0
-
     # Aguarda exposição/balanço de branco se estabilizarem após ligar câmera e LED.
     # A janela solicitada pela action começa somente depois deste intervalo.
     container_warmup_sec: 2.0
-    # Associação temporal e fusão final. Dois Bin 3 físicos não podem ter seus
-    # centros a menos que a largura externa (10,2 cm) sem se sobreporem.
-    container_association_distance_m: 0.07
-    container_final_merge_distance_m: 0.07
-    # Uma observação isolada nunca é devolvida como container confirmado.
-    min_container_observations: 2
-    max_container_position_deviation_m: 0.06
-    # Yaw é comparado módulo 180 graus pela simetria do retângulo externo.
-    max_container_yaw_deviation_deg: 20.0
-
     # HSV centroid detector. Pixel areas use the original rectified image.
     # These are initial values to tune against recorded frames at each height.
     hsv_container_min_area_le_7_5cm_px: 4000

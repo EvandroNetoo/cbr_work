@@ -81,18 +81,24 @@ _ERROR_CODES = {
 }
 
 
+def _interfaces_are_compatible() -> bool:
+    """Check the generated ROS types required by this server at startup."""
+    return all((
+        hasattr(PickObject.Result(), 'observed_detections'),
+        hasattr(PickObject.Result(), 'scene_observation'),
+        hasattr(PrepareManipulator.Goal(), 'gripper_loaded'),
+        hasattr(SceneObservation, 'CONTAINERS_HSV'),
+        hasattr(ContainerStampedDetection(), 'mask_area_px'),
+    ))
+
+
 class ManipulationServer(Node):
     """Owns the arm/gripper resource and exposes semantic manipulation actions."""
 
     def __init__(self) -> None:
         """Load calibrated profiles and create the serialized action servers."""
         super().__init__('manipulation_server')
-        if (
-            not hasattr(PickObject.Result(), 'observed_detections')
-            or not hasattr(PickObject.Result(), 'scene_observation')
-            or not hasattr(PrepareManipulator.Goal(), 'gripper_loaded')
-            or not hasattr(ContainerStampedDetection(), 'external_height_m')
-        ):
+        if not _interfaces_are_compatible():
             raise ConfigurationError(
                 'As interfaces de manipulação instaladas estão desatualizadas; '
                 'recompile interfaces antes de iniciar manipulation.'
@@ -116,10 +122,10 @@ class ManipulationServer(Node):
             'prepare_action': 'manipulation/prepare',
             'moveit_server_timeout_s': 15.0,
             'vision_analysis_duration_s': 2.0,
-            'vision_detectors.pick': ['apriltags', 'containers'],
+            'vision_detectors.pick': ['apriltags', 'containers_hsv'],
             'vision_detectors.place_on_table': ['table_surface'],
             'vision_detectors.place_in_container': ['containers_hsv'],
-            'vision_detectors.stack': ['apriltags', 'containers'],
+            'vision_detectors.stack': ['apriltags', 'containers_hsv'],
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -328,7 +334,6 @@ class ManipulationServer(Node):
     def _parse_detector_names(operation: str, names: list[str]) -> int:
         bits = {
             'apriltags': SceneObservation.APRILTAGS,
-            'containers': SceneObservation.CONTAINERS,
             'containers_hsv': SceneObservation.CONTAINERS_HSV,
             'table_surface': SceneObservation.TABLE_SURFACE,
         }
@@ -359,12 +364,12 @@ class ManipulationServer(Node):
         if configured is not None:
             return int(configured[operation])
         defaults = {
-            'pick': SceneObservation.APRILTAGS | SceneObservation.CONTAINERS,
+            'pick': SceneObservation.APRILTAGS | SceneObservation.CONTAINERS_HSV,
             'place_on_table': SceneObservation.TABLE_SURFACE,
             'place_in_container': (
                 SceneObservation.CONTAINERS_HSV
             ),
-            'stack': SceneObservation.APRILTAGS | SceneObservation.CONTAINERS,
+            'stack': SceneObservation.APRILTAGS | SceneObservation.CONTAINERS_HSV,
         }
         return defaults[operation]
 
@@ -403,7 +408,6 @@ class ManipulationServer(Node):
         result = self._motion.analisar_cena(
             duration,
             analisar_apriltags=bool(mask & SceneObservation.APRILTAGS),
-            analisar_containers=bool(mask & SceneObservation.CONTAINERS),
             analisar_containers_hsv=bool(mask & SceneObservation.CONTAINERS_HSV),
             analisar_mesa_branca=table_requested,
             altura_mesa_m=float(work_surface_height_m),
@@ -1304,33 +1308,19 @@ class ManipulationServer(Node):
 
     @staticmethod
     def _container_release_pose(
-        detection: Any, height_cm: float, offset_xyz: tuple[float, float, float],
-        *, use_detected_top: bool = False,
+        detection: Any, offset_xyz: tuple[float, float, float],
     ) -> PoseStamped:
         position = detection.pose.position
-        x, y = float(position.x), float(position.y)
-        width = float(detection.external_width_m)
-        depth = float(detection.external_depth_m)
-        external_height = float(detection.external_height_m)
-        if (
-            not all(math.isfinite(value) for value in (
-                x, y, height_cm, width, depth, external_height
-            ))
-            or min(width, depth, external_height) <= 0.0
-        ):
-            raise PerceptionUnavailable(
-                'Contêiner possui posição ou dimensões externas inválidas.')
+        coordinates = (float(position.x), float(position.y), float(position.z))
+        if not all(math.isfinite(value) for value in coordinates):
+            raise PerceptionUnavailable('Contêiner possui posição inválida.')
         dx, dy, dz = offset_xyz
-        z = ((float(position.z) if use_detected_top else
-              height_cm / 100.0 + external_height) + dz)
-        if not math.isfinite(z):
-            raise PerceptionUnavailable('Altura de soltura do contêiner inválida.')
         pose = PoseStamped()
         pose.header.frame_id = REFERENCIAL_BASE
-        pose.pose.position.x = x + dx
-        pose.pose.position.y = y + dy
-        pose.pose.position.z = z
-        pose.pose.orientation.w = 1.0  # Placeholder; orientation is unconstrained.
+        pose.pose.position.x = coordinates[0] + dx
+        pose.pose.position.y = coordinates[1] + dy
+        pose.pose.position.z = coordinates[2] + dz
+        pose.pose.orientation.w = 1.0
         return pose
 
     def _execute_place_on_table(self, goal_handle: Any) -> PlaceOnTable.Result:
@@ -1504,34 +1494,14 @@ class ManipulationServer(Node):
                                float(detection.pose.position.y)),
                 ),
             )
-            hsv_target = bool(
-                scene_observation.requested_detectors &
-                SceneObservation.CONTAINERS_HSV)
-            if selected.partial and not hsv_target:
-                overlap = float(selected.partial_fit_overlap)
-                uncertainty = float(selected.position_uncertainty_m)
-                if (not math.isfinite(overlap) or
-                    not math.isfinite(uncertainty) or
-                    overlap < profile.partial_target_min_overlap or
-                    uncertainty > profile.partial_target_max_uncertainty_m):
-                    raise PerceptionUnavailable(
-                        'Contêiner parcial detectado, mas a estimativa do '
-                        'centro excede os limites configurados para depósito: '
-                        f'overlap={overlap:.2f}, incerteza XY={uncertainty:.3f} m.')
             release_pose = self._container_release_pose(
-                selected, height_cm, profile.reference_offset_xyz,
-                use_detected_top=hsv_target,
+                selected, profile.reference_offset_xyz,
             )
             if selected.partial:
-                description = (
-                    'Contêiner cortado: depositando no centro da parte visível'
-                    if hsv_target else
-                    'Contêiner parcialmente visível: usando centro estimado '
-                    f'(incerteza XY {selected.position_uncertainty_m:.3f} m)'
-                )
                 self._feedback(
                     goal_handle, PlaceInContainer,
-                    ManipulationFeedback.OBSERVING, 0.30, description,
+                    ManipulationFeedback.OBSERVING, 0.30,
+                    'Contêiner cortado: depositando no centro da parte visível',
                 )
             return self._release_in_container(
                 goal_handle, release_pose,

@@ -204,7 +204,6 @@ class ExecutorDoMoveIt:
         duracao_da_analise: float,
         *,
         analisar_apriltags: bool,
-        analisar_containers: bool,
         analisar_containers_hsv: bool = False,
         analisar_mesa_branca: bool = False,
         altura_mesa_m: float = 0.0,
@@ -222,7 +221,6 @@ class ExecutorDoMoveIt:
             raise ValueError("A duração da análise deve ser positiva.")
         if (
             not analisar_apriltags
-            and not analisar_containers
             and not analisar_containers_hsv
             and not analisar_mesa_branca
         ):
@@ -254,8 +252,6 @@ class ExecutorDoMoveIt:
         objetivo.requested_detectors = 0
         if analisar_apriltags:
             objetivo.requested_detectors |= AnalyzeScene.Goal.APRILTAGS
-        if analisar_containers:
-            objetivo.requested_detectors |= AnalyzeScene.Goal.CONTAINERS
         if analisar_containers_hsv:
             objetivo.requested_detectors |= AnalyzeScene.Goal.CONTAINERS_HSV
         if analisar_mesa_branca:
@@ -357,7 +353,6 @@ class ExecutorDoMoveIt:
         apriltags, _ = self.analisar_cena(
             duracao_da_analise,
             analisar_apriltags=True,
-            analisar_containers=False,
         )
         return apriltags
 
@@ -367,7 +362,7 @@ class ExecutorDoMoveIt:
         _, containers = self.analisar_cena(
             duracao_da_analise,
             analisar_apriltags=False,
-            analisar_containers=True,
+            analisar_containers_hsv=True,
             altura_mesa_m=altura_mesa_m,
         )
         return containers

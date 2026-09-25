@@ -620,8 +620,7 @@ class MissionManager(Node):
             not bool(detection.partial),
             int(detection.observation_count),
             -finite_or_infinity(detection.position_spread_m),
-            -finite_or_infinity(detection.position_uncertainty_m),
-            -finite_or_infinity(detection.pose_error),
+            finite_or_infinity(detection.mask_area_px),
         )
 
     def _remember_scene_observations(self, result: Any) -> None:
@@ -638,7 +637,7 @@ class MissionManager(Node):
             )
             container_observation_completed = bool(
                 int(scene.requested_detectors) & (
-                    SceneObservation.CONTAINERS | SceneObservation.CONTAINERS_HSV)
+                    SceneObservation.CONTAINERS_HSV)
             )
         else:
             detections = list(getattr(result, 'observed_detections', []))
