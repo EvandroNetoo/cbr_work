@@ -637,7 +637,8 @@ class MissionManager(Node):
                 int(scene.requested_detectors) & SceneObservation.APRILTAGS
             )
             container_observation_completed = bool(
-                int(scene.requested_detectors) & SceneObservation.CONTAINERS
+                int(scene.requested_detectors) & (
+                    SceneObservation.CONTAINERS | SceneObservation.CONTAINERS_HSV)
             )
         else:
             detections = list(getattr(result, 'observed_detections', []))

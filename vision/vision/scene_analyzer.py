@@ -43,11 +43,16 @@ from tf2_geometry_msgs import do_transform_pose_stamped
 from tf2_ros import Buffer, TransformBroadcaster, TransformException, TransformListener
 
 from .partial_container import fit_partial_container, rotation_from_quaternion
+from .hsv_container import (
+    area_thresholds_for_height, detect_blobs, pixel_on_base_plane,
+    PixelObservation, PixelTrack, update_tracks,
+)
 
 
 APRILTAGS = AnalyzeScene.Goal.APRILTAGS
 CONTAINERS = AnalyzeScene.Goal.CONTAINERS
 TABLE_SURFACE = AnalyzeScene.Goal.TABLE_SURFACE
+CONTAINERS_HSV = AnalyzeScene.Goal.CONTAINERS_HSV
 RED = ContainerStampedDetection.RED
 BLUE = ContainerStampedDetection.BLUE
 COLOR_NAMES = {RED: 'red', BLUE: 'blue'}
@@ -165,6 +170,7 @@ class Session:
     latest_camera: list[AprilTagStampedDetection] = field(default_factory=list)
     latest_base: list[AprilTagStampedDetection] = field(default_factory=list)
     container_tracks: list['ContainerTrack'] = field(default_factory=list)
+    hsv_container_tracks: list[PixelTrack] = field(default_factory=list)
     latest_containers_camera: list[ContainerStampedDetection] = field(default_factory=list)
     latest_containers_base: list[ContainerStampedDetection] = field(default_factory=list)
     containers_ready_at: float = math.inf
@@ -241,6 +247,7 @@ class SceneAnalyzer(Node):
         self.declare_parameter('image_topic', '/camera/image_rect')
         self.declare_parameter('camera_info_topic', '/camera/camera_info')
         self.declare_parameter('base_frame', 'base_link')
+        self.declare_parameter('floor_frame', 'base_link')
         self.declare_parameter(
             'container_target_topic', '/manipulation/container_release_target')
         self.declare_parameter('tag_frame_prefix', 'apriltag')
@@ -251,6 +258,7 @@ class SceneAnalyzer(Node):
         self.declare_parameter('max_detection_rate_hz', 10.0)
         self.declare_parameter('apriltag_detection_rate_hz', 0.0)
         self.declare_parameter('container_detection_rate_hz', 0.0)
+        self.declare_parameter('hsv_container_detection_rate_hz', 0.0)
         self.declare_parameter('table_surface_detection_rate_hz', 0.0)
         self.declare_parameter('debug_image_rate_hz', 5.0)
         self.declare_parameter('opencv_threads', 0)
@@ -298,6 +306,14 @@ class SceneAnalyzer(Node):
         self.declare_parameter('min_container_observations', 3)
         self.declare_parameter('max_container_position_deviation_m', 0.04)
         self.declare_parameter('max_container_yaw_deviation_deg', 20.0)
+        self.declare_parameter('hsv_container_min_area_le_7_5cm_px', 4000)
+        self.declare_parameter('hsv_container_min_area_le_12_5cm_px', 6500)
+        self.declare_parameter('hsv_container_min_area_gt_12_5cm_px', 9000)
+        self.declare_parameter('hsv_container_min_partial_area_le_5cm_px', 1800)
+        self.declare_parameter('hsv_container_min_partial_area_le_10cm_px', 2500)
+        self.declare_parameter('hsv_container_min_partial_area_gt_10cm_px', 3500)
+        self.declare_parameter('hsv_container_min_confirmed_frames', 3)
+        self.declare_parameter('hsv_container_center_tolerance_px', 12.0)
         self.declare_parameter('white_surface_max_saturation', 45)
         self.declare_parameter('white_surface_min_value', 40)
         self.declare_parameter('white_surface_max_value', 250)
@@ -311,6 +327,7 @@ class SceneAnalyzer(Node):
                                else None)
 
         self.base_frame = str(self.get_parameter('base_frame').value)
+        self.floor_frame = str(self.get_parameter('floor_frame').value)
         self.tag_frame_prefix = str(self.get_parameter('tag_frame_prefix').value)
         self.tag_size_m = float(self.get_parameter('tag_size_m').value)
         self.min_decision_margin = float(self.get_parameter('min_decision_margin').value)
@@ -327,6 +344,7 @@ class SceneAnalyzer(Node):
         for detector, parameter in (
             (APRILTAGS, 'apriltag_detection_rate_hz'),
             (CONTAINERS, 'container_detection_rate_hz'),
+            (CONTAINERS_HSV, 'hsv_container_detection_rate_hz'),
             (TABLE_SURFACE, 'table_surface_detection_rate_hz'),
         ):
             rate = float(self.get_parameter(parameter).value)
@@ -369,6 +387,7 @@ class SceneAnalyzer(Node):
         self.pending_images: dict[int, Image | None] = {
             APRILTAGS: None,
             CONTAINERS: None,
+            CONTAINERS_HSV: None,
             TABLE_SURFACE: None,
         }
         self.image_worker_stopping = False
@@ -382,6 +401,7 @@ class SceneAnalyzer(Node):
             for detector, name in (
                 (APRILTAGS, 'apriltags'),
                 (CONTAINERS, 'containers'),
+                (CONTAINERS_HSV, 'containers-hsv'),
                 (TABLE_SURFACE, 'table-surface'),
             )
         ]
@@ -397,6 +417,23 @@ class SceneAnalyzer(Node):
             quad_decimate=float(self.get_parameter('quad_decimate').value),
             refine_edges=1)
         self._configure_container_detector()
+        self.hsv_min_areas = tuple(int(self.get_parameter(name).value) for name in (
+            'hsv_container_min_area_le_7_5cm_px',
+            'hsv_container_min_area_le_12_5cm_px',
+            'hsv_container_min_area_gt_12_5cm_px'))
+        self.hsv_min_partial_areas = tuple(int(self.get_parameter(name).value) for name in (
+            'hsv_container_min_partial_area_le_5cm_px',
+            'hsv_container_min_partial_area_le_10cm_px',
+            'hsv_container_min_partial_area_gt_10cm_px'))
+        self.hsv_min_frames = int(self.get_parameter(
+            'hsv_container_min_confirmed_frames').value)
+        self.hsv_center_tolerance = float(self.get_parameter(
+            'hsv_container_center_tolerance_px').value)
+        if (min(*self.hsv_min_areas, *self.hsv_min_partial_areas,
+                self.hsv_min_frames) <= 0 or
+                not math.isfinite(self.hsv_center_tolerance) or
+                self.hsv_center_tolerance <= 0):
+            raise ValueError('Invalid HSV container area/frame/center parameters')
         self._configure_white_surface_detector()
         self.tf_broadcaster = TransformBroadcaster(self)
         output_qos = QoSProfile(
@@ -610,8 +647,9 @@ class SceneAnalyzer(Node):
             self.get_logger().warning('Rejecting non-finite work surface height.')
             return GoalResponse.REJECT
         requested = int(goal_request.requested_detectors)
-        known = APRILTAGS | CONTAINERS | TABLE_SURFACE
-        if requested == 0 or requested & ~known:
+        known = APRILTAGS | CONTAINERS | TABLE_SURFACE | CONTAINERS_HSV
+        if (requested == 0 or requested & ~known or
+                requested & CONTAINERS and requested & CONTAINERS_HSV):
             self.get_logger().warning(
                 f'Rejecting scene goal with invalid detector mask: {requested}.')
             return GoalResponse.REJECT
@@ -871,7 +909,7 @@ class SceneAnalyzer(Node):
             now = time.monotonic()
             session.containers_ready_at = (
                 now + self.container_warmup
-                if session.requested_detectors & (CONTAINERS | TABLE_SURFACE)
+                if session.requested_detectors & (CONTAINERS | CONTAINERS_HSV | TABLE_SURFACE)
                 else now
             )
             # The requested analysis duration starts after exposure/white-balance
@@ -934,6 +972,7 @@ class SceneAnalyzer(Node):
         detector_names = (
             (APRILTAGS, 'apriltags'),
             (CONTAINERS, 'containers'),
+            (CONTAINERS_HSV, 'containers_hsv'),
             (TABLE_SURFACE, 'table_surface'),
         )
         rates = [
@@ -1009,6 +1048,9 @@ class SceneAnalyzer(Node):
             tracks = [ContainerTrack(
                 color=track.color, observations=list(track.observations))
                 for track in session.container_tracks]
+            hsv_tracks = [PixelTrack(
+                color=track.color, observations=list(track.observations))
+                for track in session.hsv_container_tracks]
             frames_processed = session.frames_processed
             frames_with_base_transform = session.frames_with_base_transform
             table_observations = list(session.table_cell_observations)
@@ -1016,7 +1058,9 @@ class SceneAnalyzer(Node):
         result = AnalyzeScene.Result()
         result.best_apriltags_camera = apriltags_camera
         result.best_apriltags_base = apriltags_base
-        camera, base = self._confirmed_container_results(tracks)
+        camera, base = (self._confirmed_hsv_container_results(hsv_tracks)
+                        if session.requested_detectors & CONTAINERS_HSV
+                        else self._confirmed_container_results(tracks))
         result.best_containers_camera = camera
         result.best_containers_base = base
         grid = TableSurfaceGrid()
@@ -1092,7 +1136,7 @@ class SceneAnalyzer(Node):
         for detector, period in self.detector_periods.items():
             if not session.requested_detectors & detector:
                 continue
-            if (detector & (CONTAINERS | TABLE_SURFACE)
+            if (detector & (CONTAINERS | CONTAINERS_HSV | TABLE_SURFACE)
                     and now < session.containers_ready_at):
                 continue
             last = session.last_detector_times.get(detector, float('-inf'))
@@ -1217,6 +1261,16 @@ class SceneAnalyzer(Node):
                 container_camera_poses.append(PoseStamped(
                     header=item.header, pose=item.pose))
 
+        hsv_blobs = []
+        if active_detectors & CONTAINERS_HSV:
+            minimum_full, minimum_partial = area_thresholds_for_height(
+                session.work_surface_height_m, self.hsv_min_areas,
+                self.hsv_min_partial_areas)
+            masks = self.container_color_masks(bgr)
+            hsv_blobs = detect_blobs(
+                masks, bgr.shape[:2], minimum_full, minimum_partial,
+                self.container_border_margin_px, self.max_contour_fraction)
+
         base_items: list[AprilTagStampedDetection] = []
         base_poses: list[PoseStamped] = []
         container_base_items: list[ContainerStampedDetection] = []
@@ -1227,7 +1281,7 @@ class SceneAnalyzer(Node):
         )
         if (
             camera_poses or container_camera_poses or has_partial
-            or active_detectors & TABLE_SURFACE
+            or active_detectors & (TABLE_SURFACE | CONTAINERS_HSV)
         ) and tf_buffer is not None:
             try:
                 base_transform = tf_buffer.lookup_transform(
@@ -1236,7 +1290,7 @@ class SceneAnalyzer(Node):
             except TransformException:
                 if (
                     container_camera_poses or has_partial
-                    or active_detectors & TABLE_SURFACE
+                    or active_detectors & (TABLE_SURFACE | CONTAINERS_HSV)
                 ):
                     try:
                         # The arm is stationary during scene analysis. A latest
@@ -1318,6 +1372,49 @@ class SceneAnalyzer(Node):
                     container_camera_items.append(camera_item)
                     container_base_items.append(self.copy_container_stamped(
                         camera_item, pose_base, self.base_frame))
+        hsv_observations = []
+        if active_detectors & CONTAINERS_HSV and base_transform is not None:
+            floor_z = 0.0
+            floor_frame = getattr(self, 'floor_frame', self.base_frame)
+            if floor_frame != self.base_frame:
+                try:
+                    floor_transform = tf_buffer.lookup_transform(
+                        self.base_frame, floor_frame, Time(),
+                        timeout=Duration())
+                    floor_z = float(floor_transform.transform.translation.z)
+                except TransformException:
+                    floor_z = math.nan
+                    self.get_logger().warning(
+                        f'No TF from {floor_frame} to {self.base_frame} for '
+                        'HSV container height', throttle_duration_sec=2.0)
+            top_z = floor_z + session.work_surface_height_m + self.external_height
+            rotation = rotation_from_quaternion(base_transform.transform.rotation)
+            origin = np.array([
+                base_transform.transform.translation.x,
+                base_transform.transform.translation.y,
+                base_transform.transform.translation.z])
+            for blob in hsv_blobs:
+                base_point = pixel_on_base_plane(
+                    blob.center, camera_matrix, base_transform, top_z)
+                if base_point is None:
+                    continue
+                camera_point = rotation.T @ (base_point - origin)
+                camera_pose = Pose()
+                (camera_pose.position.x, camera_pose.position.y,
+                 camera_pose.position.z) = map(float, camera_point)
+                camera_pose.orientation.w = 1.0
+                base_pose = Pose()
+                (base_pose.position.x, base_pose.position.y,
+                 base_pose.position.z) = map(float, base_point)
+                base_pose.orientation.w = 1.0
+                camera_item = self.hsv_blob_to_stamped(
+                    blob, message.header, camera_pose, camera_frame)
+                base_item = self.copy_container_stamped(
+                    camera_item, base_pose, self.base_frame)
+                container_camera_items.append(camera_item)
+                container_base_items.append(base_item)
+                hsv_observations.append(PixelObservation(
+                    session.frames_processed + 1, blob, camera_item, base_item))
         table_observed = [False] * (
             session.table_grid_width * session.table_grid_height)
         table_confirmed = [False] * len(table_observed)
@@ -1342,7 +1439,7 @@ class SceneAnalyzer(Node):
                 self.pose_array(self.base_frame, message, base_poses))
             self.detection_publisher.publish(
                 self.detection_array(self.base_frame, message, base_items))
-        if active_detectors & CONTAINERS:
+        if active_detectors & (CONTAINERS | CONTAINERS_HSV):
             self.container_camera_detection_publisher.publish(
                 self.container_detection_array(
                     camera_frame, message, container_camera_items))
@@ -1368,7 +1465,7 @@ class SceneAnalyzer(Node):
                     self.copy_stamped(x) for x in camera_items]
                 session.latest_base = [
                     self.copy_stamped(x) for x in base_items]
-            if active_detectors & CONTAINERS:
+            if active_detectors & (CONTAINERS | CONTAINERS_HSV):
                 session.latest_containers_camera = [
                     self.copy_container_stamped(item)
                     for item in container_camera_items]
@@ -1391,6 +1488,9 @@ class SceneAnalyzer(Node):
                     container_base_items,
                     session.frames_processed,
                 )
+            if active_detectors & CONTAINERS_HSV:
+                update_tracks(session.hsv_container_tracks, hsv_observations,
+                              self.hsv_center_tolerance)
             completed_at = time.monotonic()
             session.recent_frame_times.append(completed_at)
             cutoff = completed_at - 1.0
@@ -1430,6 +1530,9 @@ class SceneAnalyzer(Node):
                         message, bgr, masks, candidates, camera_matrix,
                         base_transform, session,
                         self._detector_observation_fps(session, CONTAINERS))
+                if debug_detectors & CONTAINERS_HSV:
+                    self.publish_hsv_container_debug_image(
+                        message, bgr, hsv_blobs, session)
 
     def evaluate_white_table_grid(
         self,
@@ -1942,6 +2045,26 @@ class SceneAnalyzer(Node):
         ) = quaternion_from_rotation(rotation)
         return pose, best[0]
 
+    def hsv_blob_to_stamped(self, blob, header, pose, frame):
+        item = ContainerStampedDetection()
+        item.header = copy.deepcopy(header)
+        item.header.frame_id = frame
+        item.color = blob.color
+        item.contour_area_px = float(blob.area)
+        item.rectangularity = 0.0  # No rectangle is fitted by this detector.
+        item.pose_error = 0.0  # No PnP or reprojection error is available.
+        item.external_width_m = self.external_width
+        item.external_depth_m = self.external_depth
+        item.external_height_m = self.external_height
+        item.observation_count = 1
+        item.partial = blob.partial
+        # A clipped mask's centroid is biased. Return it for observation, but
+        # forbid its use as a release target without a complete observation.
+        item.position_uncertainty_m = 1.0 if blob.partial else 0.0
+        item.partial_fit_overlap = 0.0 if blob.partial else 1.0
+        item.pose = pose
+        return item
+
     def container_to_stamped(
         self, candidate: ContainerCandidate, header,
     ) -> ContainerStampedDetection:
@@ -2219,6 +2342,43 @@ class SceneAnalyzer(Node):
                 self._axial_yaw_distance(yaw, value) for value in yaws))
         return result
 
+    def _confirmed_hsv_container_results(self, tracks):
+        camera_results, base_results = [], []
+        for track in tracks:
+            observations = track.observations
+            complete = [item for item in observations if not item.blob.partial]
+            selected = complete if len(complete) >= self.hsv_min_frames else observations
+            if len(selected) < self.hsv_min_frames:
+                continue
+            centers = np.array([item.blob.center for item in selected])
+            center = np.median(centers, axis=0)
+            selected = [item for item, distance in zip(
+                selected, np.linalg.norm(centers - center, axis=1))
+                if distance <= self.hsv_center_tolerance]
+            if len(selected) < self.hsv_min_frames:
+                continue
+            for field_name, output in (('camera', camera_results),
+                                       ('base', base_results)):
+                representative = max(selected, key=lambda item: item.blob.area)
+                result = self.copy_container_stamped(
+                    getattr(representative, field_name))
+                positions = np.array([
+                    self._container_position(getattr(item, field_name))
+                    for item in selected])
+                position = np.median(positions, axis=0)
+                (result.pose.position.x, result.pose.position.y,
+                 result.pose.position.z) = map(float, position)
+                result.observation_count = len(selected)
+                result.contour_area_px = float(np.median([
+                    item.blob.area for item in selected]))
+                result.position_spread_m = float(max(
+                    np.linalg.norm(positions - position, axis=1), default=0.0))
+                result.partial = any(item.blob.partial for item in selected)
+                result.position_uncertainty_m = 1.0 if result.partial else 0.0
+                result.partial_fit_overlap = 0.0 if result.partial else 1.0
+                output.append(result)
+        return camera_results, base_results
+
     def _confirmed_container_results(
         self, tracks: list[ContainerTrack],
     ) -> tuple[list[ContainerStampedDetection], list[ContainerStampedDetection]]:
@@ -2238,6 +2398,30 @@ class SceneAnalyzer(Node):
             if base is not None:
                 base_results.append(base)
         return camera_results, base_results
+
+    def publish_hsv_container_debug_image(self, source, bgr, blobs, session):
+        debug = bgr.copy()
+        for blob in blobs:
+            center = tuple(round(value) for value in blob.center)
+            color = DEBUG_COLORS[blob.color]
+            cv2.circle(debug, center, 6, color, 2)
+            cv2.putText(debug,
+                        f'{COLOR_NAMES[blob.color]} {blob.area}px' +
+                        (' partial' if blob.partial else ''),
+                        (center[0] + 8, center[1]),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
+        summary = self._detector_summary(session, CONTAINERS_HSV, 'LIVE')
+        cv2.rectangle(debug, (0, 0), (debug.shape[1] - 1, 25),
+                      (0, 0, 0), -1)
+        self._draw_debug_text(debug, f'{summary} B{len(blobs)}', (5, 17),
+                              scale=0.34)
+        self.latest_container_debug_frame = ContainerDebugFrame(
+            header=copy.deepcopy(source.header), image=debug.copy(),
+            camera_matrix=np.array(session.latest_debug_frame.camera_matrix),
+            camera_to_base=copy.deepcopy(
+                session.latest_debug_frame.camera_to_base))
+        self.container_debug_image_publisher.publish(
+            self._bgr_image_message(source.header, debug))
 
     def publish_container_debug_image(
         self,
@@ -2498,20 +2682,34 @@ class SceneAnalyzer(Node):
             self._draw_final_apriltags(debug, frame, detections)
             self.debug_image_publisher.publish(
                 self._bgr_image_message(frame.header, debug))
-        if session.requested_detectors & CONTAINERS:
+        if session.requested_detectors & (CONTAINERS | CONTAINERS_HSV):
+            selected_detector = (CONTAINERS_HSV if session.requested_detectors & CONTAINERS_HSV
+                                 else CONTAINERS)
             frame = session.latest_debug_frames.get(
-                CONTAINERS, session.latest_debug_frame)
+                selected_detector, session.latest_debug_frame)
             if frame is None:
                 return
             debug = frame.image.copy()
             detections = list(result.best_containers_base)
-            summary = self._detector_summary(session, CONTAINERS, status)
+            summary = self._detector_summary(session, selected_detector, status)
             cv2.rectangle(
                 debug, (0, 0), (debug.shape[1] - 1, 25), (0, 0, 0), -1)
             self._draw_debug_text(
                 debug, f'{summary} A{len(detections)}', (5, 17),
                 scale=0.34)
-            self._draw_final_containers(debug, frame, detections)
+            if selected_detector == CONTAINERS_HSV:
+                for track in session.hsv_container_tracks:
+                    if len(track.observations) < self.hsv_min_frames:
+                        continue
+                    center = tuple(round(float(value)) for value in track.center)
+                    cv2.drawMarker(debug, center, DEBUG_COLORS[track.color],
+                                   cv2.MARKER_CROSS, 18, 2)
+                    self._draw_debug_text(
+                        debug,
+                        f'{COLOR_NAMES[track.color]} n={len(track.observations)}',
+                        (center[0] + 8, center[1] - 8), scale=0.38)
+            else:
+                self._draw_final_containers(debug, frame, detections)
             self.latest_container_debug_frame = ContainerDebugFrame(
                 header=copy.deepcopy(frame.header),
                 image=debug.copy(),

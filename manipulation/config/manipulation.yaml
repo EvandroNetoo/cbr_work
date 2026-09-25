@@ -22,5 +22,5 @@ manipulation_server:
     # sessions where those observations are useful to the mission.
     vision_detectors.pick: [apriltags, containers]
     vision_detectors.place_on_table: [table_surface]
-    vision_detectors.place_in_container: [apriltags, containers]
+    vision_detectors.place_in_container: [apriltags, containers_hsv]
     vision_detectors.stack: [apriltags, containers]

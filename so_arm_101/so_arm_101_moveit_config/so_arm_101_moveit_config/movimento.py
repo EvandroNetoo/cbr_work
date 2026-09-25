@@ -205,6 +205,7 @@ class ExecutorDoMoveIt:
         *,
         analisar_apriltags: bool,
         analisar_containers: bool,
+        analisar_containers_hsv: bool = False,
         analisar_mesa_branca: bool = False,
         altura_mesa_m: float = 0.0,
         mesa_x_min_m: float = 0.0,
@@ -222,6 +223,7 @@ class ExecutorDoMoveIt:
         if (
             not analisar_apriltags
             and not analisar_containers
+            and not analisar_containers_hsv
             and not analisar_mesa_branca
         ):
             raise ValueError("A análise deve solicitar ao menos um detector.")
@@ -254,6 +256,8 @@ class ExecutorDoMoveIt:
             objetivo.requested_detectors |= AnalyzeScene.Goal.APRILTAGS
         if analisar_containers:
             objetivo.requested_detectors |= AnalyzeScene.Goal.CONTAINERS
+        if analisar_containers_hsv:
+            objetivo.requested_detectors |= AnalyzeScene.Goal.CONTAINERS_HSV
         if analisar_mesa_branca:
             objetivo.requested_detectors |= AnalyzeScene.Goal.TABLE_SURFACE
         nanossegundos_totais = round(duracao_da_analise * 1_000_000_000)

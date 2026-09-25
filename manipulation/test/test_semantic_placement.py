@@ -5,7 +5,7 @@ from geometry_msgs.msg import PoseStamped
 from interfaces.action import PlaceInContainer, PlaceOnTable
 from interfaces.msg import (
     AprilTagStampedDetection, ContainerStampedDetection,
-    ManipulationFeedback, ManipulationResult, TableSurfaceGrid,
+    ManipulationFeedback, ManipulationResult, SceneObservation, TableSurfaceGrid,
 )
 
 from manipulation.errors import (
@@ -715,12 +715,12 @@ def _container_goal(color, height_cm=12.5):
     (PlaceInContainer.Goal.RED, 12.5, 0.073),
     (PlaceInContainer.Goal.BLUE, 20.0, 0.090),
 ])
-def test_container_release_height_uses_table_bin_and_offset(
+def test_hsv_container_release_uses_detected_top_and_offset(
     color, height_cm, external_height_m,
 ):
     selected = _container_detection(color)
     selected.external_height_m = external_height_m
-    selected.pose.position.z = float('nan')
+    selected.pose.position.z = height_cm / 100.0 + external_height_m - 0.097
     selected.pose.orientation.w = 0.0
     other = _container_detection(
         PlaceInContainer.Goal.BLUE
@@ -743,7 +743,7 @@ def test_container_release_height_uses_table_bin_and_offset(
     assert pose.pose.position.x == pytest.approx(selected.pose.position.x)
     assert pose.pose.position.y == pytest.approx(selected.pose.position.y)
     assert pose.pose.position.z == pytest.approx(
-        height_cm / 100.0 + external_height_m + 0.07
+        selected.pose.position.z + 0.07
     )
     assert pose.pose.orientation.w == pytest.approx(1.0)
     assert len(released[0]) == 4
@@ -756,6 +756,8 @@ def test_partial_container_can_be_selected_as_deposit_target():
     target.position_uncertainty_m = 0.025
     target.partial_fit_overlap = 0.8
     server = _container_operation_server([target])
+    server._vision_detector_masks = {
+        'place_in_container': SceneObservation.CONTAINERS}
     feedback = []
     server._feedback = lambda *args: feedback.append(args[-1])
     server._release_in_container = lambda *args: ('ok', 4, args[1])
@@ -778,6 +780,8 @@ def test_ambiguous_partial_container_is_not_used_as_drop_center(
     target.position_uncertainty_m = uncertainty
     target.partial_fit_overlap = overlap
     server = _container_operation_server([target])
+    server._vision_detector_masks = {
+        'place_in_container': SceneObservation.CONTAINERS}
     server._release_in_container = lambda *args: pytest.fail(
         'pose parcial muito ambígua não deve mover o braço')
 
@@ -844,3 +848,35 @@ def test_container_invalid_geometry_does_not_start_release(invalid_field):
             _container_goal(PlaceInContainer.Goal.BLUE)
         )
     assert released == []
+
+
+def test_hsv_container_release_uses_top_height_in_arm_base_frame():
+    detection = _container_detection(PlaceInContainer.Goal.BLUE)
+    detection.pose.position.z = 0.076  # floor-to-arm offset already applied
+    release = ManipulationServer._container_release_pose(
+        detection, 10.0, (0.0, 0.0, 0.015), use_detected_top=True)
+    assert release.pose.position.z == pytest.approx(0.091)
+
+
+def test_hsv_partial_container_deposits_at_visible_center():
+    target = _container_detection(PlaceInContainer.Goal.BLUE,
+                                  x=0.19085, y=-0.23576, z=0.026)
+    target.partial = True
+    target.observation_count = 34
+    target.position_uncertainty_m = 1.0
+    target.partial_fit_overlap = 0.0
+    server = _container_operation_server([target])
+    feedback = []
+    releases = []
+    server._feedback = lambda *args: feedback.append(args[-1])
+    server._release_in_container = lambda *args: releases.append(args[1]) or (
+        'ok', 4, args[1])
+
+    _message, _location, pose = server._execute_place_in_container(
+        _container_goal(PlaceInContainer.Goal.BLUE, 5.0))
+
+    assert len(releases) == 1
+    assert pose.pose.position.x == pytest.approx(0.19085)
+    assert pose.pose.position.y == pytest.approx(-0.23576)
+    assert pose.pose.position.z == pytest.approx(0.096)  # top + profile offset
+    assert any('centro da parte visível' in message for message in feedback)

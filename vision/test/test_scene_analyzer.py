@@ -264,10 +264,12 @@ def test_goal_requires_a_known_nonempty_detector_mask():
         )
 
     assert analyzer.goal_callback(request(0)).name == 'REJECT'
-    assert analyzer.goal_callback(request(8)).name == 'REJECT'
+    assert analyzer.goal_callback(request(16)).name == 'REJECT'
     assert analyzer.goal_callback(request(AnalyzeScene.Goal.APRILTAGS)).name == 'ACCEPT'
     assert analyzer.state == 'activating'
     assert analyzer.goal_callback(request(AnalyzeScene.Goal.CONTAINERS)).name == 'REJECT'
+    analyzer.state = 'idle'
+    assert analyzer.goal_callback(request(8)).name == 'ACCEPT'
 
 
 def test_goal_accepts_geometry_independent_white_table_grid():
@@ -1036,3 +1038,105 @@ def test_table_surface_gets_its_own_final_debug_summary():
     assert len(outputs) == 1
     assert outputs[0].encoding == 'bgr8'
     assert np.count_nonzero(np.frombuffer(outputs[0].data, np.uint8)) > 0
+
+
+def test_hsv_result_requires_three_stable_frames_and_keeps_fixed_top_height():
+    from vision.hsv_container import Blob, PixelObservation, PixelTrack
+
+    analyzer = object.__new__(SceneAnalyzer)
+    analyzer.hsv_min_frames = 3
+    analyzer.hsv_center_tolerance = 6.0
+    observations = []
+    for frame, x in enumerate((40.0, 42.0, 41.0), 1):
+        camera = ContainerStampedDetection()
+        camera.color = RED
+        camera.pose.position.x = x / 100.0
+        camera.pose.position.z = 0.30
+        camera.pose.orientation.w = 1.0
+        base = ContainerStampedDetection()
+        base.color = RED
+        base.pose.position.x = x / 100.0
+        base.pose.position.z = 0.173
+        base.pose.orientation.w = 1.0
+        observations.append(PixelObservation(
+            frame, Blob(RED, (x, 30.0), 8000, False), camera, base))
+    track = PixelTrack(RED, observations)
+    assert analyzer._confirmed_hsv_container_results([
+        PixelTrack(RED, observations[:2])]) == ([], [])
+    camera, base = analyzer._confirmed_hsv_container_results([track])
+    assert len(camera) == len(base) == 1
+    assert base[0].observation_count == 3
+    assert base[0].pose.position.x == pytest.approx(0.41)
+    assert base[0].pose.position.z == pytest.approx(0.173)
+    assert base[0].color == RED
+
+
+def test_hsv_image_callback_returns_confirmed_base_pose_from_pixel_only():
+    analyzer = _analyzer_for_container()
+    analyzer.base_frame = 'base_link'
+    analyzer.floor_frame = 'base_footprint'
+    analyzer.sessions_lock = threading.RLock()
+    analyzer.session = Session(
+        goal_handle=SimpleNamespace(is_cancel_requested=False),
+        duration=2.0, requested_detectors=AnalyzeScene.Goal.CONTAINERS_HSV,
+        work_surface_height_m=0.10)
+    analyzer.session.containers_ready_at = 0.0
+    analyzer.last_detection_time = float('-inf')
+    analyzer.detection_period = 0.0
+    analyzer.publish_debug_image = False
+    analyzer.hsv_min_areas = (100, 100, 100)
+    analyzer.hsv_min_partial_areas = (100, 100, 100)
+    analyzer.hsv_min_frames = 3
+    analyzer.hsv_center_tolerance = 5.0
+    analyzer.camera_info = SimpleNamespace(
+        p=[400.0, 0.0, 160.0, 0.0, 0.0, 400.0, 120.0, 0.0,
+           0.0, 0.0, 1.0, 0.0],
+        header=SimpleNamespace(frame_id='camera'))
+    transform = TransformStamped()
+    transform.header.frame_id = 'base_link'
+    transform.child_frame_id = 'camera'
+    transform.transform.translation.z = 0.5
+    transform.transform.rotation.x = 1.0
+    transform.transform.rotation.w = 0.0
+    floor_transform = TransformStamped()
+    floor_transform.transform.translation.z = -0.097
+    analyzer.tf_buffer = SimpleNamespace(
+        lookup_transform=lambda _target, source, *_args, **_kwargs:
+        floor_transform if source == 'base_footprint' else transform)
+    outputs = []
+    analyzer.container_detection_publisher = SimpleNamespace(
+        publish=outputs.append)
+    analyzer.container_camera_detection_publisher = SimpleNamespace(
+        publish=lambda *_args: None)
+    image = np.zeros((240, 320, 3), np.uint8)
+    cv2.rectangle(image, (180, 130), (219, 169), (255, 0, 0), -1)
+    message = Image()
+    message.header.frame_id = 'camera'
+    message.height, message.width = image.shape[:2]
+    message.encoding = 'bgr8'
+    message.step = message.width * 3
+    message.data = image.tobytes()
+    for frame in range(3):
+        message.header.stamp.nanosec = frame + 1
+        analyzer.image_callback(message)
+    assert len(outputs) == 3
+    assert len(outputs[-1].detections) == 1
+    _camera, confirmed = analyzer._confirmed_hsv_container_results(
+        analyzer.session.hsv_container_tracks)
+    assert len(confirmed) == 1
+    assert confirmed[0].color == BLUE
+    assert confirmed[0].observation_count == 3
+    assert confirmed[0].pose.position.z == pytest.approx(0.076)
+    assert confirmed[0].pose.position.x == pytest.approx(
+        (199.5 - 160) / 400 * (0.5 - 0.076))
+
+
+def test_hsv_area_parameter_names_match_height_bands():
+    parameters = yaml.safe_load((PACKAGE / 'config' / 'vision.yaml').read_text())[
+        'scene_analyzer']['ros__parameters']
+    assert parameters['hsv_container_min_area_le_7_5cm_px'] == 4000
+    assert parameters['hsv_container_min_area_le_12_5cm_px'] == 6500
+    assert parameters['hsv_container_min_area_gt_12_5cm_px'] == 9000
+    assert parameters['hsv_container_min_partial_area_le_5cm_px'] == 1800
+    assert parameters['hsv_container_min_partial_area_le_10cm_px'] == 2500
+    assert parameters['hsv_container_min_partial_area_gt_10cm_px'] == 3500

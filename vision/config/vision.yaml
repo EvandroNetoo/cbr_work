@@ -3,6 +3,8 @@ scene_analyzer:
     image_topic: /camera/image_rect
     camera_info_topic: /camera/camera_info
     base_frame: base_link
+    # base_footprint is the floor reference on the mobile robot.
+    floor_frame: base_footprint
     container_target_topic: /manipulation/container_release_target
     tag_frame_prefix: apriltag
     family: tag36h11
@@ -20,6 +22,7 @@ scene_analyzer:
     # and containers down to the same throughput in combined goals.
     apriltag_detection_rate_hz: 15.0
     container_detection_rate_hz: 12.0
+    hsv_container_detection_rate_hz: 12.0
     table_surface_detection_rate_hz: 8.0
     min_decision_margin: 30.0
     max_hamming: 0
@@ -89,6 +92,17 @@ scene_analyzer:
     max_container_position_deviation_m: 0.06
     # Yaw é comparado módulo 180 graus pela simetria do retângulo externo.
     max_container_yaw_deviation_deg: 20.0
+
+    # HSV centroid detector. Pixel areas use the original rectified image.
+    # These are initial values to tune against recorded frames at each height.
+    hsv_container_min_area_le_7_5cm_px: 4000
+    hsv_container_min_area_le_12_5cm_px: 6500
+    hsv_container_min_area_gt_12_5cm_px: 9000
+    hsv_container_min_partial_area_le_5cm_px: 1800
+    hsv_container_min_partial_area_le_10cm_px: 2500
+    hsv_container_min_partial_area_gt_10cm_px: 3500
+    hsv_container_min_confirmed_frames: 3
+    hsv_container_center_tolerance_px: 12.0
 
     # White-table free-space detector. Saturated and very dark pixels are
     # unknown rather than white so loss of image information never creates a

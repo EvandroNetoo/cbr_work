@@ -56,7 +56,7 @@ def test_scene_analysis_routes_modalities_by_operation():
     assert "_analyze_for_operation(\n                    'place_on_table'" in table
     assert "_analyze_for_operation(\n                    'place_in_container'" in container
     assert "'vision_detectors.place_on_table': ['table_surface']" in source
-    assert "'vision_detectors.place_in_container': ['apriltags', 'containers']" in source
+    assert "'vision_detectors.place_in_container': ['containers_hsv']" in source
 
 
 def test_detector_policy_requires_each_operations_primary_detector():

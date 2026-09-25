@@ -94,3 +94,32 @@ the median position. Base-frame yaw is normalized modulo 180 degrees because
 the fitted external rectangle has that symmetry. The result fields
 `observation_count`, `position_spread_m`, and `yaw_spread_deg` expose the
 support and stability of every confirmed container.
+
+### Detector de contêiner por centro HSV
+
+`AnalyzeScene.Goal.CONTAINERS_HSV` (bit 8) seleciona a alternativa por cor e
+centro de componente na imagem retificada. O detector `CONTAINERS` (bit 2)
+continua disponível. Os dois bits não podem ser pedidos na mesma análise,
+pois compartilham os campos `best_containers_*` da action. O depósito usa
+`CONTAINERS_HSV` por padrão.
+
+A máscara usa os limites HSV existentes. O detector exige a área mínima em
+pixels da faixa de altura da mesa (`<=7,5 cm`, `<=12,5 cm`, `>12,5 cm`)
+para componentes completos. Componentes que tocam a borda usam faixas
+independentes (`<=5 cm`, `<=10 cm`, `>10 cm`). Centros da mesma cor devem
+estar a até `hsv_container_center_tolerance_px` em pelo menos
+`hsv_container_min_confirmed_frames` imagens. O resultado em `base_link` usa
+somente o pixel central e a interseção do raio da câmera com o plano
+`work_surface_height_m + external_height_m` (0,073 m por padrão),
+convertido do `floor_frame` para `base_frame` por TF. No robô móvel,
+`floor_frame` é `base_footprint` e `base_frame` é `arm_base_link`.
+
+Componentes cortados podem ser confirmados e retornados como `partial`.
+No depósito com `CONTAINERS_HSV`, o alvo XY é o centro da parte visível,
+sem estimativa do centro do contêiner inteiro. Os campos
+`partial_fit_overlap=0` e `position_uncertainty_m=1` são marcadores de que
+não houve ajuste geométrico; os limites de qualidade do detector antigo não
+são aplicados ao HSV. O centro pode ficar deslocado da abertura. Ajuste as
+áreas e o limite de proximidade em `config/vision.yaml` com gravações da
+câmera, iluminação e alturas reais. A câmera e o braço devem permanecer
+parados durante a janela de confirmação.
