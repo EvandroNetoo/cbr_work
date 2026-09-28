@@ -23,6 +23,11 @@ steps:
     action: place_in_container
     container_color: red
 
+  - id: navigate_to_ws_2
+    action: navigate
+    target: ws_2
+
+
   # - id: pegar_cubo_3
   #   action: pick
   #   tag_id: 3

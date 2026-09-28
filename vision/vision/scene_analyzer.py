@@ -37,7 +37,7 @@ from rclpy.qos import (
 )
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
 from tf2_geometry_msgs import do_transform_pose_stamped
 from tf2_ros import Buffer, TransformBroadcaster, TransformException, TransformListener
 
@@ -166,7 +166,6 @@ class Session:
     hsv_container_tracks: list[PixelTrack] = field(default_factory=list)
     latest_containers_camera: list[ContainerStampedDetection] = field(default_factory=list)
     latest_containers_base: list[ContainerStampedDetection] = field(default_factory=list)
-    containers_ready_at: float = math.inf
     last_feedback: float = 0.0
     last_base_transform: TransformStamped | None = None
     recent_frame_times: list[float] = field(default_factory=list)
@@ -221,12 +220,13 @@ class SceneAnalyzer(
         self.declare_parameter(
             'camera_capture_service', '/camera/set_capture')
         self.declare_parameter('camera_capture_timeout_sec', 5.0)
-        self.declare_parameter('camera_idle_timeout_sec', 0.0)
+        self.declare_parameter('camera_capture_state_service', '/camera/get_capture')
         self.declare_parameter('camera_capture_retry_sec', 1.0)
         self.declare_parameter('manage_vision_led', True)
         self.declare_parameter(
             'vision_led_service', '/base_hardware/set_vision_led')
         self.declare_parameter('vision_led_timeout_sec', 5.0)
+        self.declare_parameter('vision_led_state_service', '/base_hardware/get_vision_led')
         self.declare_parameter('external_height_m', 0.073)
         self.declare_parameter('min_saturation', 80)
         self.declare_parameter('min_value', 45)
@@ -239,7 +239,7 @@ class SceneAnalyzer(
         self.declare_parameter('morphology_kernel_px', 5)
         self.declare_parameter('container_border_margin_px', 6)
         self.declare_parameter('max_contour_area_fraction', 0.85)
-        self.declare_parameter('container_warmup_sec', 0.5)
+        self.declare_parameter('camera_stabilization_sec', 0.5)
         self.declare_parameter('hsv_container_min_area_le_7_5cm_px', 4000)
         self.declare_parameter('hsv_container_min_area_le_12_5cm_px', 6500)
         self.declare_parameter('hsv_container_min_area_gt_12_5cm_px', 9000)
@@ -311,6 +311,10 @@ class SceneAnalyzer(
             0.1, float(self.get_parameter('camera_capture_timeout_sec').value))
         self.camera_capture_retry = max(
             0.1, float(self.get_parameter('camera_capture_retry_sec').value))
+        self.camera_stabilization = float(
+            self.get_parameter('camera_stabilization_sec').value)
+        if not math.isfinite(self.camera_stabilization) or self.camera_stabilization < 0:
+            raise ValueError('camera_stabilization_sec must be finite and nonnegative')
         self.camera_info: CameraInfo | None = None
         self.camera_info_subscription = None
         self.latest_image_subscription = None
@@ -398,7 +402,6 @@ class SceneAnalyzer(
         self.capture_target: bool | None = None
         self.next_capture_attempt = 0.0
         self.capture_client = None
-        self.camera_idle_timer = None
         self.manage_vision_led = bool(
             self.get_parameter('manage_vision_led').value)
         self.vision_led_timeout = max(
@@ -409,6 +412,10 @@ class SceneAnalyzer(
                 self.get_parameter('vision_led_service').value)
             self.vision_led_client = self.create_client(
                 SetBool, self.vision_led_service)
+            self.vision_led_state_service = str(
+                self.get_parameter('vision_led_state_service').value)
+            self.vision_led_state_client = self.create_client(
+                Trigger, self.vision_led_state_service)
         if self.manage_camera_capture:
             self.camera_capture_service = str(
                 self.get_parameter('camera_capture_service').value)
@@ -416,7 +423,10 @@ class SceneAnalyzer(
                 SetBool,
                 self.camera_capture_service,
             )
-            self._schedule_camera_stop()
+            self.camera_state_service = str(
+                self.get_parameter('camera_capture_state_service').value)
+            self.camera_state_client = self.create_client(
+                Trigger, self.camera_state_service)
         self.action_server = ActionServer(self, AnalyzeScene, 'vision/analyze_scene',
                                           goal_callback=self.goal_callback,
                                           cancel_callback=self.cancel_callback,
@@ -574,7 +584,6 @@ class SceneAnalyzer(
                 return
             self._destroy_inputs_locked()
             self.state = 'idle'
-        self._schedule_camera_stop()
         self.get_logger().info('Scene analyzer idle.')
 
     def _begin_capture_request(self, enabled: bool) -> bool:
@@ -622,12 +631,12 @@ class SceneAnalyzer(
                 self.capture_target = None
                 self.capture_condition.notify_all()
 
-    def _wait_for_camera_capture(self) -> bool:
+    def _wait_for_camera_capture(self, enabled: bool = True) -> bool:
         if not self.manage_camera_capture:
             return True
         deadline = time.monotonic() + self.camera_capture_timeout
         while rclpy.ok() and time.monotonic() < deadline:
-            if self._begin_capture_request(True):
+            if self._begin_capture_request(enabled):
                 return True
             with self.capture_condition:
                 self.capture_condition.wait(timeout=0.05)
@@ -637,13 +646,28 @@ class SceneAnalyzer(
             f'{self.camera_capture_timeout:.1f} s.')
         return False
 
-    def _schedule_camera_stop(self) -> None:
-        """Stop USB capture without leaving an idle timer behind."""
-        if not self.manage_camera_capture:
-            return
-        if self.camera_idle_timer is None:
-            self.camera_idle_timer = self.create_timer(
-                0.25, self._stop_camera_when_idle)
+    def _resource_state(self, client, service: str, timeout: float) -> bool | None:
+        if client is None or not client.wait_for_service(timeout_sec=timeout):
+            self.get_logger().error(f'O serviço de estado {service} não está disponível.')
+            return None
+        future = client.call_async(Trigger.Request())
+        completed = threading.Event()
+        future.add_done_callback(lambda _future: completed.set())
+        if not completed.wait(timeout=timeout):
+            self.get_logger().error(f'O serviço de estado {service} não respondeu.')
+            return None
+        try:
+            response = future.result()
+            if response is not None and response.success:
+                if response.message == 'on':
+                    return True
+                if response.message == 'off':
+                    return False
+        except Exception as error:
+            self.get_logger().error(f'Falha ao consultar {service}: {error}')
+            return None
+        self.get_logger().error(f'Estado inválido recebido de {service}.')
+        return None
 
     def _set_vision_led(self, enabled: bool) -> bool:
         """Liga ou desliga a iluminação através do dono da serial do brick."""
@@ -677,20 +701,6 @@ class SceneAnalyzer(
                 f'Não foi possível alterar o LED de visão: {message}')
             return False
         return True
-
-    def _stop_camera_when_idle(self) -> None:
-        with self.sessions_lock:
-            idle = self.state == 'idle'
-        if not idle:
-            return
-        stopped = self._begin_capture_request(False)
-        with self.capture_condition:
-            stop_confirmed = self.capture_state is False
-        if stopped or stop_confirmed:
-            timer = self.camera_idle_timer
-            self.camera_idle_timer = None
-            if timer is not None:
-                self.destroy_timer(timer)
 
     def execute_callback(self, goal_handle):
         if not goal_handle.is_cancel_requested:
@@ -730,28 +740,44 @@ class SceneAnalyzer(
         with self.image_condition:
             for detector in self.pending_images:
                 self.pending_images[detector] = None
-        vision_led_enabled = False
+        led_started = False
+        camera_started = False
         try:
-            if not self._set_vision_led(True):
-                result = self._result(
-                    session, 'A iluminação da câmera não pôde ser ligada.')
-                goal_handle.abort(result)
-                return result
-            vision_led_enabled = self.manage_vision_led
-            if not self._wait_for_camera_capture():
-                result = self._result(
-                    session, 'A câmera não iniciou dentro do tempo limite.')
-                goal_handle.abort(result)
-                return result
-            now = time.monotonic()
-            session.containers_ready_at = (
-                now + self.container_warmup
-                if session.requested_detectors & (CONTAINERS_HSV | TABLE_SURFACE)
-                else now
-            )
-            # The requested analysis duration starts after exposure/white-balance
-            # stabilization, rather than consuming the useful observation window.
-            session.started = session.containers_ready_at
+            if self.manage_vision_led:
+                led_state = self._resource_state(
+                    self.vision_led_state_client, self.vision_led_state_service,
+                    self.vision_led_timeout)
+                if led_state is None:
+                    result = self._result(session, 'Estado do LED indisponível.')
+                    goal_handle.abort(result)
+                    return result
+                if not led_state:
+                    led_started = True
+                    if not self._set_vision_led(True):
+                        result = self._result(
+                            session, 'A iluminação da câmera não pôde ser ligada.')
+                        goal_handle.abort(result)
+                        return result
+            if self.manage_camera_capture:
+                camera_state = self._resource_state(
+                    self.camera_state_client, self.camera_state_service,
+                    self.camera_capture_timeout)
+                if camera_state is None:
+                    result = self._result(session, 'Estado da câmera indisponível.')
+                    goal_handle.abort(result)
+                    return result
+                with self.capture_condition:
+                    self.capture_state = camera_state
+                if not camera_state:
+                    camera_started = True
+                    if not self._wait_for_camera_capture(True):
+                        result = self._result(
+                            session, 'A câmera não iniciou dentro do tempo limite.')
+                        goal_handle.abort(result)
+                        return result
+            # All requested detectors wait for stabilization. The action's
+            # requested capture duration starts after this deadline.
+            session.started = time.monotonic() + self.camera_stabilization
             while rclpy.ok() and goal_handle.is_active:
                 time.sleep(0.02)
                 elapsed = max(0.0, time.monotonic() - session.started)
@@ -786,7 +812,9 @@ class SceneAnalyzer(
                 if self.session is session:
                     self.session = None
                 self.state = 'deactivating'
-            if vision_led_enabled:
+            if camera_started:
+                self._wait_for_camera_capture(False)
+            if led_started:
                 self._set_vision_led(False)
             self.input_lifecycle_guard.trigger()
 
@@ -916,7 +944,7 @@ class SceneAnalyzer(
         result.table_surface_grid = grid
         result.frames_processed = frames_processed
         result.frames_with_base_transform = frames_with_base_transform
-        result.elapsed = _ros_duration(time.monotonic() - session.started)
+        result.elapsed = _ros_duration(max(0.0, time.monotonic() - session.started))
         result.message = message
         return result
 
@@ -964,11 +992,10 @@ class SceneAnalyzer(
 
     def _due_detectors(self, session: Session, now: float) -> int:
         due = 0
+        if now < session.started:
+            return 0
         for detector, period in self.detector_periods.items():
             if not session.requested_detectors & detector:
-                continue
-            if (detector & (CONTAINERS_HSV | TABLE_SURFACE)
-                    and now < session.containers_ready_at):
                 continue
             last = session.last_detector_times.get(detector, float('-inf'))
             if now - last >= period:

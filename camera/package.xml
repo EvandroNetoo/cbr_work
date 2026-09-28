@@ -12,6 +12,8 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>usb_cam</exec_depend>
   <exec_depend>image_proc</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

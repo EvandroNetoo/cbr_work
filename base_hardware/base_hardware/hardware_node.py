@@ -13,7 +13,7 @@ from rclpy.logging import get_logger
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
 
 from .mariola_adapter import (
     MariolaBase,
@@ -141,7 +141,15 @@ class BaseHardwareNode(Node):
             self.get_parameter('vision_led.service').value,
             self._set_vision_led_callback,
         )
+        self._vision_led_state_service = self.create_service(
+            Trigger, '/base_hardware/get_vision_led',
+            self._get_vision_led_callback)
         self._timer = self.create_timer(1.0 / rate, self._io_cycle)
+
+    def _get_vision_led_callback(self, _request, response):
+        response.success = True
+        response.message = 'on' if self._vision_led_enabled else 'off'
+        return response
 
     def _set_vision_led_callback(self, request, response):
         enabled = bool(request.data)

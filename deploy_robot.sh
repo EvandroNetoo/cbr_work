@@ -3,12 +3,12 @@
 set -euo pipefail
 
 # BANANA="banana@172.20.10.8"
-# BANANA="banana@10.201.81.44"
-BANANA="banana@192.168.1.217"
+BANANA="banana@10.86.118.44"
+# BANANA="banana@192.168.1.217"
 
 # RASPBERRY="rasp@172.20.10.13"
-# RASPBERRY="rasp@10.201.81.248"
-RASPBERRY="rasp@192.168.1.114"
+RASPBERRY="rasp@10.86.118.248"
+# RASPBERRY="rasp@192.168.1.114"
 
 WORKSPACE="$HOME/ros2_ws"
 SOURCE_DIR="$WORKSPACE/src/cbr_work/"

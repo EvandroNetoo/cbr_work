@@ -29,6 +29,8 @@ def test_camera_configuration_is_explicit_and_uses_matching_calibration():
 def test_camera_launch_does_not_start_apriltag_or_robot():
     source = (PACKAGE / 'launch' / 'camera.launch.py').read_text()
     assert "package='usb_cam'" in source
+    assert "executable='capture_control'" in source
+    assert "('set_capture', 'driver/set_capture')" in source
     assert "executable='rectify_node'" in source
     assert "default_value='false'" in source
     assert "'framerate', default_value='15.0'" in source
@@ -43,3 +45,11 @@ def test_calibration_target_has_expected_physical_size():
     assert root.attrib['width'] == '297mm'
     assert root.attrib['height'] == '210mm'
     assert '225 by 175 mm' in root.find('{http://www.w3.org/2000/svg}desc').text
+
+
+def test_capture_control_is_installed_as_ros_executable():
+    setup = (PACKAGE / 'setup.py').read_text()
+    config = (PACKAGE / 'setup.cfg').read_text()
+    assert "capture_control = camera.capture_control:main" in setup
+    assert 'script_dir=$base/lib/camera' in config
+    assert 'install_scripts=$base/lib/camera' in config

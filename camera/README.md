@@ -82,6 +82,7 @@ Em outro terminal:
 ```bash
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
+ros2 service call /camera/set_capture std_srvs/srv/SetBool "{data: true}"
 ros2 topic hz /camera/image_raw
 rqt_image_view /camera/image_raw
 ```
@@ -176,3 +177,12 @@ versão do pacote não publica esse TF propositalmente.
 Depois de validar separadamente imagem retificada, `CameraInfo` e TF, o perfil
 `bringup robot.launch.py` passou a iniciar câmera, retificação e detector
 AprilTag sempre.
+
+## Controle de captura
+
+O launch inicia `capture_control`, que coloca a câmera em estado desligado
+antes de expor `/camera/set_capture`. O serviço `/camera/get_capture`
+(`std_srvs/Trigger`) retorna `message: on` ou `message: off`; `success: false`
+significa que o estado é desconhecido. O serviço original do `usb_cam` fica em
+`/camera/driver/set_capture` e deve ser acessado somente pelo controlador para
+que o estado consultado corresponda aos comandos enviados.

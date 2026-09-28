@@ -50,10 +50,6 @@ class ContainerPipelineMixin:
             self.get_parameter('max_contour_area_fraction').value)
         if not 0.0 < self.max_contour_fraction <= 1.0:
             raise ValueError('max_contour_area_fraction must be in (0, 1]')
-        self.container_warmup = float(
-            self.get_parameter('container_warmup_sec').value)
-        if not math.isfinite(self.container_warmup) or self.container_warmup < 0:
-            raise ValueError('container_warmup_sec must be finite and nonnegative')
         self.hsv_min_areas = tuple(int(self.get_parameter(name).value) for name in (
             'hsv_container_min_area_le_7_5cm_px',
             'hsv_container_min_area_le_12_5cm_px',

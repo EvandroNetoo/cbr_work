@@ -29,11 +29,19 @@ def generate_launch_description() -> LaunchDescription:
             namespace='camera',
             name='driver',
             output='screen',
+            remappings=[('set_capture', 'driver/set_capture')],
             parameters=[
                 LaunchConfiguration('config_file'),
                 {'framerate': ParameterValue(
                     LaunchConfiguration('framerate'), value_type=float)},
             ],
+        ),
+        Node(
+            package='camera',
+            executable='capture_control',
+            namespace='camera',
+            name='capture_control',
+            output='screen',
         ),
         Node(
             package='image_proc',

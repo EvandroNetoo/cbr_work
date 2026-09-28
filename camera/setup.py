@@ -9,7 +9,7 @@ package_name = 'camera'
 setup(
     name=package_name,
     version='0.1.0',
-    packages=[],
+    packages=[package_name],
     data_files=[
         ('share/ament_index/resource_index/packages',
          ['resource/' + package_name]),
@@ -27,4 +27,7 @@ setup(
     maintainer_email='todo@todo.com',
     description='Standalone USB camera bringup and rectification for CBR',
     license='GPL-3.0-only',
+    entry_points={'console_scripts': [
+        'capture_control = camera.capture_control:main',
+    ]},
 )

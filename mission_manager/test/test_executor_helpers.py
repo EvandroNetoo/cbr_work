@@ -350,6 +350,7 @@ def test_manager_blocks_store_before_sending_action_when_gripper_is_empty():
     _attach_world_state(manager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._manipulation_timeout = lambda: 120.0
     manager._call_action = lambda *_args, **_kwargs: pytest.fail(
         'action física não deveria ser enviada'
@@ -434,6 +435,7 @@ def test_pick_retries_after_one_recoverable_result():
     manager._arena = _arena()
     manager._pick_client = object()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._tag_observations = {}
@@ -522,6 +524,7 @@ def test_remembered_pickup_position_respects_lateral_limit():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 250.0
     manager._tag_observations = {}
@@ -540,6 +543,7 @@ def test_pick_observations_are_updated_individually_and_survive_area_changes():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._tag_observations = {}
@@ -570,6 +574,7 @@ def test_scene_observation_keeps_best_container_memory_by_area_and_color():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 25.0
     manager._tag_observations = {}
@@ -603,6 +608,7 @@ def test_container_memory_only_repositions_and_still_calls_semantic_action():
     manager._world_state.commit_pick(5)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 100.0
     manager._container_observations = {
@@ -644,6 +650,7 @@ def test_container_absence_skips_repeated_analysis_at_same_position():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._tag_observations = {}
@@ -701,6 +708,7 @@ def test_container_search_skips_vision_when_base_did_not_move():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 100.0
     manager._container_observations = {}
@@ -839,6 +847,7 @@ def test_missing_tag_scans_every_position_once_and_then_fails():
     _attach_world_state(manager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._tag_observations = {}
@@ -930,6 +939,7 @@ def test_navigation_returns_to_departure_lateral_origin_while_backing_away(
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = current_lateral_position_mm
     manager._navigate_client = object()
@@ -960,6 +970,7 @@ def test_navigation_keeps_apriltag_memory_for_later_return():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 80.0
     marker = object()
@@ -1019,6 +1030,7 @@ def test_table_place_searches_all_positions_then_uses_table_fallback():
     manager._world_state.commit_pick(5)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._place_table_client = object()
@@ -1074,6 +1086,7 @@ def test_container_place_retries_at_next_search_position_and_continues():
     manager._world_state.commit_pick(8)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._place_container_client = object()
@@ -1124,6 +1137,7 @@ def test_container_place_uses_table_fallback_after_all_search_positions():
     manager._world_state.commit_pick(8)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._place_container_client = object()
@@ -1178,6 +1192,7 @@ def test_place_does_not_retry_after_confirmed_release_cleanup_failure():
     manager._world_state.commit_pick(5)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._place_table_client = object()
@@ -1206,6 +1221,7 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     _attach_world_state(manager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._tag_observations = {}
@@ -1275,3 +1291,47 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     assert calls[7][1].container_color == calls[7][1].RED
     assert calls[5][1].support_tag_id == 3
     assert calls[5][1].ws_height_cm == 12.5
+
+
+def test_ws_vision_is_enabled_after_navigation_and_before_alignment():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'start'
+    manager._current_lateral_position_mm = 0.0
+    manager._current_wall_distance_mm = None
+    manager._navigate_client = object()
+    manager._prepare_for_navigation = lambda: None
+    manager._navigation_timeout = lambda: 120.0
+    manager.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(to_msg=lambda: Time()))
+    events = []
+    manager._call_action = lambda *_args, **_kwargs: events.append('navigate')
+    manager._activate_ws_vision = lambda: events.append('on')
+    manager._control_wall = lambda *_args, **_kwargs: (
+        events.append('align') or FollowWall.Result())
+
+    manager._navigate('ws_1')
+
+    assert events == ['navigate', 'on', 'align']
+
+
+def test_ws_vision_is_disabled_before_departure_alignment():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_lateral_position_mm = 0.0
+    manager._current_wall_distance_mm = 200.0
+    manager._navigate_client = object()
+    manager._prepare_for_navigation = lambda: None
+    manager._navigation_timeout = lambda: 120.0
+    manager.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(to_msg=lambda: Time()))
+    events = []
+    manager._deactivate_ws_vision = lambda: events.append('off')
+    manager._control_wall = lambda *_args, **_kwargs: (
+        events.append('departure') or FollowWall.Result())
+    manager._call_action = lambda *_args, **_kwargs: events.append('navigate')
+
+    manager._navigate('start')
+
+    assert events == ['off', 'departure', 'navigate']

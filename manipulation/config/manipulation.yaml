@@ -16,7 +16,7 @@ manipulation_server:
     place_at_pose_action: manipulation/place_at_pose
     prepare_action: manipulation/prepare
     moveit_server_timeout_s: 20.0
-    vision_analysis_duration_s: 4.0
+    vision_analysis_duration_s: 2.0
     # Desative para analisar apenas a superfície e ignorar o veto por tags.
     table_apriltag_blocking_enabled: false
     table_apriltag_clearance_radius_m: 0.02

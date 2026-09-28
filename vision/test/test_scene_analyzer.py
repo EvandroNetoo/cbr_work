@@ -129,7 +129,7 @@ def test_one_public_action_owns_one_camera_session():
     assert 'self._create_inputs_locked()' in source
     assert 'self._destroy_inputs_locked()' in source
     assert 'self._set_vision_led(True)' in source
-    assert 'self._wait_for_camera_capture()' in source
+    assert 'self._wait_for_camera_capture(True)' in source
     assert source.count('self.apriltag_detector.detect(') == 1
     assert 'container_color_masks(bgr)' in source
 
@@ -200,7 +200,8 @@ def test_profile_combines_apriltag_and_measured_bin3_parameters():
     assert parameters['manage_camera_capture'] is True
     assert parameters['manage_vision_led'] is True
     assert parameters['container_border_margin_px'] == 6
-    assert parameters['container_warmup_sec'] == 2.0
+    assert parameters['camera_stabilization_sec'] == 0.5
+    assert 'container_warmup_sec' not in parameters
     assert parameters['nthreads'] == 3
     assert parameters['opencv_threads'] == 2
     assert parameters['apriltag_detection_rate_hz'] == 15.0
@@ -214,7 +215,7 @@ def test_profile_combines_apriltag_and_measured_bin3_parameters():
     assert not any(name.startswith('white_surface_') for name in parameters)
 
 
-def test_detector_rates_are_independent_and_tags_do_not_wait_for_warmup():
+def test_detector_rates_are_independent_and_all_wait_for_stabilization():
     analyzer = object.__new__(SceneAnalyzer)
     analyzer.detector_periods = {
         AnalyzeScene.Goal.APRILTAGS: 0.05,
@@ -229,9 +230,9 @@ def test_detector_rates_are_independent_and_tags_do_not_wait_for_warmup():
             | AnalyzeScene.Goal.CONTAINERS_HSV
             | AnalyzeScene.Goal.TABLE_SURFACE),
     )
-    session.containers_ready_at = 10.0
+    session.started = 10.0
 
-    assert analyzer._due_detectors(session, 9.0) == AnalyzeScene.Goal.APRILTAGS
+    assert analyzer._due_detectors(session, 9.0) == 0
 
     session.last_detector_times[AnalyzeScene.Goal.APRILTAGS] = 9.98
     due = analyzer._due_detectors(session, 10.0)
@@ -817,7 +818,6 @@ def test_hsv_image_callback_returns_confirmed_base_pose_from_pixel_only():
         goal_handle=SimpleNamespace(is_cancel_requested=False),
         duration=2.0, requested_detectors=AnalyzeScene.Goal.CONTAINERS_HSV,
         work_surface_height_m=0.10)
-    analyzer.session.containers_ready_at = 0.0
     analyzer.last_detection_time = float('-inf')
     analyzer.detection_period = 0.0
     analyzer.publish_debug_image = False
@@ -877,3 +877,56 @@ def test_hsv_area_parameter_names_match_height_bands():
     assert parameters['hsv_container_min_partial_area_le_5cm_px'] == 1800
     assert parameters['hsv_container_min_partial_area_le_10cm_px'] == 2500
     assert parameters['hsv_container_min_partial_area_gt_10cm_px'] == 3500
+
+
+@pytest.mark.parametrize('initially_on', [False, True])
+def test_vision_only_releases_resources_it_enabled(initially_on):
+    analyzer = object.__new__(SceneAnalyzer)
+    analyzer.sessions_lock = threading.RLock()
+    analyzer.image_condition = threading.Condition()
+    analyzer.pending_images = {}
+    analyzer.manage_vision_led = True
+    analyzer.manage_camera_capture = True
+    analyzer.vision_led_state_client = object()
+    analyzer.camera_state_client = object()
+    analyzer.vision_led_state_service = '/base_hardware/get_vision_led'
+    analyzer.camera_state_service = '/camera/get_capture'
+    analyzer.vision_led_timeout = 0.1
+    analyzer.camera_capture_timeout = 0.1
+    analyzer.camera_stabilization = 0.0
+    analyzer.feedback_period = 1e20
+    analyzer.capture_condition = threading.Condition()
+    analyzer.input_lifecycle_guard = SimpleNamespace(trigger=lambda: None)
+    analyzer._resource_state = lambda *_args: initially_on
+    commands = []
+    analyzer._set_vision_led = lambda value: commands.append(('led', value)) or True
+    analyzer._wait_for_camera_capture = (
+        lambda value: commands.append(('camera', value)) or True)
+    analyzer._finish_session = lambda *_args: SimpleNamespace()
+    goal = SimpleNamespace(
+        request=SimpleNamespace(
+            duration=SimpleNamespace(sec=0, nanosec=10_000_000),
+            requested_detectors=AnalyzeScene.Goal.APRILTAGS,
+            work_surface_height_m=0.1,
+            table_grid_resolution_m=0.01,
+            table_search_x_min_m=0.0,
+            table_search_x_max_m=0.0,
+            table_search_y_min_m=0.0,
+            table_search_y_max_m=0.0,
+        ),
+        is_cancel_requested=False,
+        is_active=True,
+        executing=lambda: None,
+        abort=lambda _result: None,
+        publish_feedback=lambda _feedback: None,
+    )
+
+    analyzer.execute_callback(goal)
+
+    if initially_on:
+        assert commands == []
+    else:
+        assert commands == [
+            ('led', True), ('camera', True),
+            ('camera', False), ('led', False),
+        ]

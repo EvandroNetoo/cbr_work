@@ -33,6 +33,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from std_srvs.srv import SetBool
 
 from .errors import ConfigurationError, MissionCanceled, StateConflict, StepFailed
 from .loaders import load_arena, load_plan, PLAN_ID_PATTERN, validate_plan
@@ -87,6 +88,9 @@ class MissionManager(Node):
             'server_timeout_s': 10.0,
             'navigation_timeout_s': 120.0,
             'manipulation_timeout_s': 120.0,
+            'camera_capture_service': '/camera/set_capture',
+            'vision_led_service': '/base_hardware/set_vision_led',
+            'vision_resource_timeout_s': 5.0,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -127,6 +131,7 @@ class MissionManager(Node):
         self._last_table_observation: TableObservation | None = None
         self._active_child = None
         self._arena: Arena | None = None
+        self._ws_vision_active = False
 
         slot_ids = [
             str(value) for value in self.get_parameter('cargo_slot_ids').value
@@ -153,6 +158,12 @@ class MissionManager(Node):
                 callback_group=self._callback_group,
             )
 
+        self._camera_capture_client = self.create_client(
+            SetBool, str(self.get_parameter('camera_capture_service').value),
+            callback_group=self._callback_group)
+        self._vision_led_client = self.create_client(
+            SetBool, str(self.get_parameter('vision_led_service').value),
+            callback_group=self._callback_group)
         self._navigate_client = client(NavigateToPose, 'navigate_action')
         self._wall_control_client = client(FollowWall, 'wall_control_action')
         self._prepare_client = client(PrepareManipulator, 'prepare_action')
@@ -1051,6 +1062,56 @@ class MissionManager(Node):
         goal.use_fallback_pose = True
         return goal
 
+    def _set_vision_resource(self, client, name: str, enabled: bool) -> None:
+        timeout = float(self.get_parameter('vision_resource_timeout_s').value)
+        if not client.wait_for_service(timeout_sec=timeout):
+            raise StepFailed(f'Serviço de {name} indisponível.')
+        request = SetBool.Request()
+        request.data = enabled
+        future = client.call_async(request)
+        completed = threading.Event()
+        future.add_done_callback(lambda _future: completed.set())
+        if not completed.wait(timeout=timeout):
+            raise StepFailed(f'Tempo limite ao controlar {name}.')
+        try:
+            response = future.result()
+        except Exception as error:
+            raise StepFailed(f'Falha ao controlar {name}: {error}') from error
+        if response is None or not response.success:
+            message = response.message if response is not None else 'sem resposta'
+            raise StepFailed(f'Falha ao controlar {name}: {message}')
+
+    def _activate_ws_vision(self) -> None:
+        if self._ws_vision_active:
+            return
+        # Mark active before the calls so a timeout still gets cleanup.
+        self._ws_vision_active = True
+        try:
+            self._set_vision_resource(self._camera_capture_client, 'câmera', True)
+            self._set_vision_resource(self._vision_led_client, 'LED', True)
+        except Exception:
+            try:
+                self._deactivate_ws_vision()
+            except StepFailed as error:
+                self.get_logger().error(str(error))
+            raise
+
+    def _deactivate_ws_vision(self) -> None:
+        if not self._ws_vision_active:
+            return
+        failures = []
+        for client, name in (
+            (self._camera_capture_client, 'câmera'),
+            (self._vision_led_client, 'LED'),
+        ):
+            try:
+                self._set_vision_resource(client, name, False)
+            except StepFailed as error:
+                failures.append(str(error))
+        if failures:
+            raise StepFailed('; '.join(failures))
+        self._ws_vision_active = False
+
     def _navigate(self, target: str) -> None:
         assert self._arena is not None
         pose = self._arena.pose_for(target)
@@ -1058,6 +1119,8 @@ class MissionManager(Node):
             self._current_location in self._arena.service_areas
             and target != self._current_location
         ):
+            if self._arena.service_areas[self._current_location].area_type == 'WS':
+                self._deactivate_ws_vision()
             departure = self._arena.service_areas[
                 self._current_location
             ].departure
@@ -1099,6 +1162,8 @@ class MissionManager(Node):
         self._current_wall_distance_mm = None
         self._current_lateral_position_mm = 0.0
         if target in self._arena.service_areas:
+            if self._arena.service_areas[target].area_type == 'WS':
+                self._activate_ws_vision()
             alignment = self._arena.service_areas[target].alignment
             result = self._control_wall(
                 alignment.distance_mm,
@@ -1512,6 +1577,7 @@ class MissionManager(Node):
 
     def _execute_callback(self, goal_handle: Any) -> ExecuteMission.Result:
         self._status = 'running'
+        self._ws_vision_active = False
         self._current_location = 'start'
         self._current_wall_distance_mm = None
         self._current_lateral_position_mm = 0.0
@@ -1526,6 +1592,9 @@ class MissionManager(Node):
             arena, plan = self._load_goal_files(str(goal_handle.request.plan_id))
             self._arena = arena
             self._current_location = plan.initial_location
+            if (self._current_location in arena.service_areas
+                    and arena.service_areas[self._current_location].area_type == 'WS'):
+                self._activate_ws_vision()
             self._world_state.reset()
             self._publish_world_state()
             total = len(plan.steps)
@@ -1540,6 +1609,7 @@ class MissionManager(Node):
                 )
                 self._execute_step(step)
                 completed += 1
+            self._deactivate_ws_vision()
             self._status = 'succeeded'
             return self._result(
                 goal_handle,
@@ -1586,6 +1656,10 @@ class MissionManager(Node):
                 str(error),
             )
         finally:
+            try:
+                self._deactivate_ws_vision()
+            except StepFailed as error:
+                self.get_logger().error(f'Falha ao desligar visão após missão: {error}')
             self._cancel_event.clear()
             self._arena = None
             self._active_world_operation = ''
