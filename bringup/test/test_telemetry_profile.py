@@ -30,7 +30,7 @@ def test_telemetry_config_uses_live_robot_topics():
         (PACKAGE_ROOT / 'config' / 'telemetry.rviz').read_text())
     manager = config['Visualization Manager']
 
-    assert manager['Global Options']['Fixed Frame'] == '/map'
+    assert manager['Global Options']['Fixed Frame'] == 'map'
 
     assert [panel['Class'] for panel in config['Panels']] == [
         'rviz_common/Displays']
@@ -51,6 +51,12 @@ def test_telemetry_config_uses_live_robot_topics():
     tf_display = _display(config, 'TF (diagnostico)')
     assert tf_display['Enabled'] is False
 
+    camera_raw = _display(config, 'Camera raw')
+    assert camera_raw['Enabled'] is True
+    assert camera_raw['Value'] is True
+    assert camera_raw['Topic']['Value'] == '/camera/image_raw'
+    assert camera_raw['Topic']['Reliability Policy'] == 'Best Effort'
+
     apriltag_debug = _display(config, 'Debug AprilTag')
     assert apriltag_debug['Enabled'] is True
     assert apriltag_debug['Topic']['Value'] == '/apriltags/debug_image'
@@ -59,13 +65,20 @@ def test_telemetry_config_uses_live_robot_topics():
     assert containers_debug['Enabled'] is True
     assert containers_debug['Topic']['Value'] == '/containers/debug_image'
 
+    table_debug = _display(config, 'Debug table')
+    assert table_debug['Enabled'] is True
+    assert table_debug['Value'] is True
+    assert table_debug['Topic']['Value'] == '/table_surface/debug_image'
+
     motion_planning = _display(config, 'MotionPlanning')
     assert motion_planning['Class'] == 'moveit_rviz_plugin/MotionPlanning'
-    assert motion_planning['Enabled'] is False
-    assert motion_planning['Value'] is False
+    assert motion_planning['Enabled'] is True
+    assert motion_planning['Value'] is True
 
     window_geometry = config['Window Geometry']
     assert window_geometry['MotionPlanning']['collapsed'] is False
+    for name in ('Camera raw', 'Debug AprilTag', 'Debug containers', 'Debug table'):
+        assert window_geometry[name]['collapsed'] is False
     assert window_geometry['QMainWindow State']
 
     tool_classes = [tool['Class'] for tool in manager['Tools']]

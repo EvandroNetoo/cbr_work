@@ -360,7 +360,21 @@ Visualization Manager:
       Update Interval: 0
       Value: false
     - Class: rviz_default_plugins/Image
-      Enabled: false
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Camera raw
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /camera/image_raw
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
       Max Value: 1
       Median window: 5
       Min Value: 0
@@ -372,9 +386,9 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /apriltags/debug_image
-      Value: false
+      Value: true
     - Class: rviz_default_plugins/Image
-      Enabled: false
+      Enabled: true
       Max Value: 1
       Median window: 5
       Min Value: 0
@@ -386,9 +400,9 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /containers/debug_image
-      Value: false
+      Value: true
     - Class: rviz_default_plugins/Image
-      Enabled: false
+      Enabled: true
       Max Value: 1
       Median window: 5
       Min Value: 0
@@ -400,10 +414,10 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /table_surface/debug_image
-      Value: false
+      Value: true
     - Acceleration_Scaling_Factor: 0.1
       Class: moveit_rviz_plugin/MotionPlanning
-      Enabled: false
+      Enabled: true
       Move Group Namespace: ""
       MoveIt_Allow_Approximate_IK: false
       MoveIt_Allow_External_Program: false
@@ -481,7 +495,7 @@ Visualization Manager:
         Robot Alpha: 1
         Show Robot Collision: false
         Show Robot Visual: true
-      Value: false
+      Value: true
       Velocity_Scaling_Factor: 0.1
   Enabled: true
   Global Options:
@@ -557,6 +571,8 @@ Visualization Manager:
         X: 0
         Y: 0
 Window Geometry:
+  Camera raw:
+    collapsed: false
   Debug AprilTag:
     collapsed: false
   Debug containers:
@@ -565,14 +581,14 @@ Window Geometry:
     collapsed: false
   Displays:
     collapsed: false
-  Height: 900
+  Height: 1000
   Hide Left Dock: false
   Hide Right Dock: false
   MotionPlanning:
     collapsed: false
   MotionPlanning - Trajectory Slider:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd00000001000000000000015600000326fc0200000006fb000000100044006900730070006c006100790073000000003f000001a4000000cc00fffffffb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e006700000001c5000001bf0000019600fffffffb000000200044006500620075006700200063006f006e007400610069006e006500720073000000003f000001090000001700fffffffb0000001c0044006500620075006700200041007000720069006c005400610067000000014e000001080000001700fffffffb00000016004400650062007500670020007400610062006c0065000000025c000001090000001700fffffffb00000044004d006f00740069006f006e0050006c0061006e006e0069006e00670020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000004400ffffff000005780000032600000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
-  Width: 1400
+  QMainWindow State: 000000ff00000000fd0000000200000000000001d60000029bfc0200000003fb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e0067010000014d0000029b0000003200fffffffb000000100044006900730070006c0061007900730000000000ffffffff0000003200fffffffb00000044004d006f00740069006f006e0050006c0061006e006e0069006e00670020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000003200ffffff000000020000076c00000136fc0100000004fb0000001400430061006d00650072006100200072006100770100000000000001d70000006100fffffffb0000001c0044006500620075006700200041007000720069006c00540061006701000001dd000001d60000007b00fffffffb000000200044006500620075006700200063006f006e007400610069006e00650072007301000003b9000001d70000008e00fffffffb00000016004400650062007500670020007400610062006c00650100000596000001d60000006200ffffff000005900000029b00000004000000040000000100000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  Width: 1900
   X: 80
   Y: 40
