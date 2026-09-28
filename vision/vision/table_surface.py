@@ -1,4 +1,4 @@
-"""Classify white table cells in the known horizontal plane."""
+"""Classify monochrome table cells in the known horizontal plane."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from .geometry import rotation_from_quaternion
 
 
 class TableSurfaceMixin:
-    def evaluate_white_table_grid(
+    def evaluate_table_surface_grid(
         self,
         session: Session,
         bgr: np.ndarray,
@@ -23,19 +23,32 @@ class TableSurfaceMixin:
         hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
         saturation = hsv[:, :, 1]
         value = hsv[:, :, 2]
-        unknown = np.logical_or(
-            value < self.white_surface_min_value,
-            value > self.white_surface_max_value,
-        )
+        # Independent HSV ranges let white and black table markings be tuned
+        # separately. AprilTag detections are excluded by placement.
         white = np.logical_and.reduce((
-            ~unknown,
-            saturation <= self.white_surface_max_saturation,
+            value >= self.table_surface_white_min_value,
+            value <= self.table_surface_white_max_value,
+            saturation >= self.table_surface_white_min_saturation,
+            saturation <= self.table_surface_white_max_saturation,
         ))
+        black = np.logical_and.reduce((
+            value >= self.table_surface_black_min_value,
+            value <= self.table_surface_black_max_value,
+            saturation >= self.table_surface_black_min_saturation,
+            saturation <= self.table_surface_black_max_saturation,
+        ))
+        surface = np.logical_or(white, black)
+        overexposed = value > max(
+            self.table_surface_white_max_value,
+            self.table_surface_black_max_value)
         debug = bgr.copy() if render_debug else None
         if debug is not None:
-            debug[unknown] = (0, 180, 255)
+            debug[overexposed] = (0, 180, 255)
             debug[white] = (
                 0.35 * debug[white] + 0.65 * np.array([40, 210, 40])
+            ).astype(np.uint8)
+            debug[black] = (
+                0.35 * debug[black] + 0.65 * np.array([220, 80, 0])
             ).astype(np.uint8)
 
         transform = camera_to_base.transform
@@ -122,15 +135,15 @@ class TableSurfaceMixin:
             [0.0, rectified_height - 1.0],
         ], dtype=np.float32)
         homography = cv2.getPerspectiveTransform(outer_source, outer_target)
-        warped_unknown = cv2.warpPerspective(
-            unknown.astype(np.uint8), homography,
+        warped_overexposed = cv2.warpPerspective(
+            overexposed.astype(np.uint8), homography,
             (rectified_width, rectified_height),
             flags=cv2.INTER_NEAREST,
             borderMode=cv2.BORDER_CONSTANT,
             borderValue=1,
         )
-        warped_white = cv2.warpPerspective(
-            white.astype(np.uint8), homography,
+        warped_surface = cv2.warpPerspective(
+            surface.astype(np.uint8), homography,
             (rectified_width, rectified_height),
             flags=cv2.INTER_NEAREST,
             borderMode=cv2.BORDER_CONSTANT,
@@ -139,13 +152,14 @@ class TableSurfaceMixin:
         reduction_shape = (
             grid_height, samples_per_cell,
             grid_width, samples_per_cell)
-        unknown_fraction = warped_unknown.reshape(reduction_shape).mean(
+        overexposed_fraction = warped_overexposed.reshape(reduction_shape).mean(
             axis=(1, 3)).reshape(-1)
-        white_fraction = warped_white.reshape(reduction_shape).mean(
+        matching_fraction = warped_surface.reshape(reduction_shape).mean(
             axis=(1, 3)).reshape(-1)
         observed = np.logical_and(
             fully_visible,
-            unknown_fraction <= self.white_surface_max_unknown_fraction)
+            overexposed_fraction <= self.table_surface_max_overexposed_fraction)
         confirmed = np.logical_and(
-            observed, white_fraction >= self.white_surface_min_fraction)
+            observed,
+            matching_fraction >= self.table_surface_min_matching_fraction)
         return observed.tolist(), confirmed.tolist(), debug

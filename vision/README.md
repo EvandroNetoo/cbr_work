@@ -1,9 +1,23 @@
 # Vision
 
 `vision` serves `/vision/analyze_scene`. Each goal selects AprilTags (bit 1),
-the white table surface (bit 4), HSV containers (bit 8), or a combination.
+the monochrome table surface (bit 4), HSV containers (bit 8), or a combination.
 The camera is captured on demand, and each detector processes the newest
 available rectified frame at its configured rate.
+
+The table surface mask has independent inclusive HSV ranges:
+
+- White: `table_surface_white_min_value`, `table_surface_white_max_value`,
+  `table_surface_white_min_saturation`,
+  `table_surface_white_max_saturation`.
+- Black: `table_surface_black_min_value`, `table_surface_black_max_value`,
+  `table_surface_black_min_saturation`,
+  `table_surface_black_max_saturation`.
+
+The grid then applies `table_surface_min_matching_fraction`,
+`table_surface_max_overexposed_fraction`,
+`table_surface_min_confirmed_frames`, and
+`table_surface_min_confirmed_ratio`.
 
 ```bash
 ros2 launch vision vision.launch.py
@@ -37,7 +51,9 @@ thresholds, border margin, and center tolerance when resolution changes.
 colored regions with white boundaries. Live frames also show component centers
 and areas. The retained final frame shows the masks from the last processed
 container frame and the confirmed centers. `/apriltags/debug_image` shows tag
-poses; `/table_surface/debug_image` shows usable and unknown table pixels.
+poses; `/table_surface/debug_image` colors white-mask pixels green and
+black-mask pixels blue, with live FPS, frame/TF, observed/confirmed, and
+free/blocked/unknown cell counts.
 A planned release target is projected over the stored container image when
 `/manipulation/container_release_target` is published.
 

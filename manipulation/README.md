@@ -43,8 +43,12 @@ As análises retornam um `SceneObservation` comum com todas as AprilTags e
 containers observados. A seleção é configurada por operação em
 `vision_detectors.*`: por padrão `pick` e `stack` analisam AprilTags e
 contêineres HSV juntos, `place_in_container` analisa o contêiner HSV e
-`place_on_table` solicita somente a superfície branca. Assim, depósitos em mesas sem tags ou containers
-não dependem desses detectores, e novas combinações não exigem mudar as actions.
+`place_on_table` solicita a superfície da mesa e, por padrão, as AprilTags
+na mesma sessão. A máscara da superfície aceita branco e preto; a seleção
+combina a grade livre com um disco de exclusão ao redor de cada tag. A flag
+`table_apriltag_blocking_enabled` (padrão: `true`) desativa tanto a análise
+de AprilTags nessa operação quanto esse bloqueio quando vale `false`.
+O raio do disco é `table_apriltag_clearance_radius_m` (padrão: 0,02 m).
 
 Quando `pickup.tabletop.reachability_filter_enabled` está habilitado, a coleta
 usa seus próprios limites `reach_x/y_*`, CP e CL, definidos em
@@ -64,8 +68,9 @@ fechar a garra, o MoveIt planeja explicitamente o retorno primeiro para
 reprodução de trajetórias armazenadas.
 
 `place_on_table` sempre posiciona a câmera e solicita uma única sessão de
-`/vision/analyze_scene` com a superfície da mesa. Detectores adicionais podem
-ser habilitados pela política da operação. A grade nasce diretamente
+`/vision/analyze_scene` com a superfície da mesa e, se a flag estiver ativa,
+com as AprilTags. A superfície é obrigatória; a flag controla as tags mesmo
+que `vision_detectors.place_on_table` contenha `apriltags`. A grade nasce diretamente
 dos limites `search_x_min_m`, `search_x_max_m`, `search_y_min_m` e
 `search_y_max_m`, usando `search_step_m`; a altura do TCP é calculada por
 `(ws_height_cm + tcp_release_offset_cm) / 100`. Os candidatos válidos para o

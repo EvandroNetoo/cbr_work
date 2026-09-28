@@ -122,6 +122,8 @@ class ManipulationServer(Node):
             'prepare_action': 'manipulation/prepare',
             'moveit_server_timeout_s': 15.0,
             'vision_analysis_duration_s': 2.0,
+            'table_apriltag_clearance_radius_m': 0.02,
+            'table_apriltag_blocking_enabled': True,
             'vision_detectors.pick': ['apriltags', 'containers_hsv'],
             'vision_detectors.place_on_table': ['table_surface'],
             'vision_detectors.place_in_container': ['containers_hsv'],
@@ -150,6 +152,16 @@ class ManipulationServer(Node):
                 'pick', 'place_on_table', 'place_in_container', 'stack'
             )
         }
+
+        self._table_apriltag_blocking_enabled = bool(
+            self.get_parameter('table_apriltag_blocking_enabled').value)
+        self._table_apriltag_clearance_radius_m = float(
+            self.get_parameter('table_apriltag_clearance_radius_m').value)
+        if (not math.isfinite(self._table_apriltag_clearance_radius_m)
+                or self._table_apriltag_clearance_radius_m < 0.0):
+            raise ConfigurationError(
+                'table_apriltag_clearance_radius_m deve ser finito e '
+                'não negativo.')
 
         self._callback_group = ReentrantCallbackGroup()
         self._busy = False
@@ -352,7 +364,7 @@ class ManipulationServer(Node):
             'place_in_container': SceneObservation.CONTAINERS_HSV,
             'stack': SceneObservation.APRILTAGS,
         }[operation]
-        if not mask & required:
+        if mask & required != required:
             raise ConfigurationError(
                 f'vision_detectors.{operation} deve incluir o detector '
                 'necessário para a operação.'
@@ -362,16 +374,29 @@ class ManipulationServer(Node):
     def _detector_mask(self, operation: str) -> int:
         configured = getattr(self, '_vision_detector_masks', None)
         if configured is not None:
-            return int(configured[operation])
-        defaults = {
-            'pick': SceneObservation.APRILTAGS | SceneObservation.CONTAINERS_HSV,
-            'place_on_table': SceneObservation.TABLE_SURFACE,
-            'place_in_container': (
-                SceneObservation.CONTAINERS_HSV
-            ),
-            'stack': SceneObservation.APRILTAGS | SceneObservation.CONTAINERS_HSV,
-        }
-        return defaults[operation]
+            mask = int(configured[operation])
+        else:
+            defaults = {
+                'pick': (
+                    SceneObservation.APRILTAGS
+                    | SceneObservation.CONTAINERS_HSV
+                ),
+                'place_on_table': SceneObservation.TABLE_SURFACE,
+                'place_in_container': SceneObservation.CONTAINERS_HSV,
+                'stack': (
+                    SceneObservation.APRILTAGS
+                    | SceneObservation.CONTAINERS_HSV
+                ),
+            }
+            mask = defaults[operation]
+        if operation == 'place_on_table':
+            # The flag controls both the detector request and placement veto,
+            # even if the detector list contains an explicit apriltags entry.
+            if self._table_apriltag_blocking_enabled:
+                mask |= SceneObservation.APRILTAGS
+            else:
+                mask &= ~SceneObservation.APRILTAGS
+        return mask
 
     def _new_scene_observation(self, operation: str) -> SceneObservation:
         observation = SceneObservation()
@@ -1096,6 +1121,34 @@ class ManipulationServer(Node):
         return checked > 0
 
     @staticmethod
+    def _table_footprint_avoids_apriltags(
+        tags: list[Any], x: float, y: float, yaw_deg: float,
+        half_extent_x_m: float, half_extent_y_m: float, padding_m: float,
+        radius_m: float, frame_id: str,
+    ) -> bool:
+        """Keep the gripper footprint outside each tag's metric exclusion disk."""
+        yaw = math.radians(yaw_deg)
+        cosine, sine = math.cos(yaw), math.sin(yaw)
+        half_x = half_extent_x_m + padding_m
+        half_y = half_extent_y_m + padding_m
+        for tag in tags:
+            if tag.header.frame_id != frame_id:
+                raise PerceptionUnavailable(
+                    'AprilTag e grade da mesa estão em referenciais diferentes.')
+            dx = float(tag.pose.position.x) - x
+            dy = float(tag.pose.position.y) - y
+            if not (math.isfinite(dx) and math.isfinite(dy)):
+                raise PerceptionUnavailable('AprilTag possui posição inválida.')
+            local_x = dx * cosine + dy * sine
+            local_y = -dx * sine + dy * cosine
+            nearest_x = max(abs(local_x) - half_x, 0.0)
+            nearest_y = max(abs(local_y) - half_y, 0.0)
+            distance_squared = nearest_x * nearest_x + nearest_y * nearest_y
+            if distance_squared <= radius_m ** 2 + 1e-12:
+                return False
+        return True
+
+    @staticmethod
     def _select_free_table_position(
         candidates: list[tuple[float, float]],
         obstacles: list[tuple[float, ...]],
@@ -1325,6 +1378,8 @@ class ManipulationServer(Node):
 
     def _execute_place_on_table(self, goal_handle: Any) -> PlaceOnTable.Result:
         scene_observation = self._new_scene_observation('place_on_table')
+        block_apriltags = bool(
+            scene_observation.requested_detectors & SceneObservation.APRILTAGS)
 
         def operation() -> tuple[str, int, Any]:
             height_cm = float(goal_handle.request.ws_height_cm)
@@ -1378,7 +1433,7 @@ class ManipulationServer(Node):
             duration = float(
                 self.get_parameter('vision_analysis_duration_s').value)
             try:
-                _tags, _containers, table_grid = self._analyze_for_operation(
+                tags, _containers, table_grid = self._analyze_for_operation(
                     'place_on_table', duration, scene_observation,
                     work_surface_height_m=height_cm / 100.0,
                     table_bounds=(
@@ -1406,11 +1461,23 @@ class ManipulationServer(Node):
                     float(profile.free_space_half_extent_y_m),
                     trial[3],
                 )
+                and (
+                    not block_apriltags
+                    or self._table_footprint_avoids_apriltags(
+                        tags, trial[0], trial[1], trial[2],
+                        float(profile.free_space_half_extent_x_m),
+                        float(profile.free_space_half_extent_y_m),
+                        trial[3],
+                        self._table_apriltag_clearance_radius_m,
+                        table_grid.header.frame_id,
+                    )
+                )
             ), None)
             if selected is None:
                 raise NoFreeSpace(
                     'Nenhuma pose da região de busca teve toda a área da '
-                    'garra confirmada como mesa branca.')
+                    'garra confirmada como superfície livre'
+                    + (' de AprilTags.' if block_apriltags else '.'))
             selected_x_m, selected_y_m, selected_yaw_deg, selected_padding_m = (
                 selected)
             self._feedback(
@@ -1419,7 +1486,9 @@ class ManipulationServer(Node):
                 f'Posição livre selecionada: '
                 f'x={selected_x_m:.3f}, y={selected_y_m:.3f} m; '
                 f'yaw={selected_yaw_deg:.1f}°; '
-                f'margem={selected_padding_m:.3f} m; área branca confirmada',
+                f'margem={selected_padding_m:.3f} m; '
+                + ('superfície e tags verificadas' if block_apriltags
+                 else 'superfície verificada'),
             )
             release_pose = criar_pose(
                 float(selected_x_m),

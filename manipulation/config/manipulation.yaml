@@ -17,9 +17,11 @@ manipulation_server:
     prepare_action: manipulation/prepare
     moveit_server_timeout_s: 20.0
     vision_analysis_duration_s: 4.0
-    # Detector selection is operation-specific. This keeps table placement
-    # independent from container/tag perception while allowing shared camera
-    # sessions where those observations are useful to the mission.
+    # Desative para analisar apenas a superfície e ignorar o veto por tags.
+    table_apriltag_blocking_enabled: false
+    table_apriltag_clearance_radius_m: 0.02
+    # Detector selection is operation-specific. For place_on_table, the flag
+    # above adds or removes AprilTags regardless of this detector list.
     vision_detectors.pick: [apriltags, containers_hsv]
     vision_detectors.place_on_table: [table_surface]
     vision_detectors.place_in_container: [apriltags, containers_hsv]

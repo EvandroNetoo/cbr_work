@@ -248,13 +248,18 @@ class SceneAnalyzer(
         self.declare_parameter('hsv_container_min_partial_area_gt_10cm_px', 3500)
         self.declare_parameter('hsv_container_min_confirmed_frames', 3)
         self.declare_parameter('hsv_container_center_tolerance_px', 12.0)
-        self.declare_parameter('white_surface_max_saturation', 45)
-        self.declare_parameter('white_surface_min_value', 40)
-        self.declare_parameter('white_surface_max_value', 250)
-        self.declare_parameter('white_surface_min_fraction', 0.88)
-        self.declare_parameter('white_surface_max_unknown_fraction', 0.12)
-        self.declare_parameter('white_surface_min_confirmed_frames', 2)
-        self.declare_parameter('white_surface_min_confirmed_ratio', 0.60)
+        self.declare_parameter('table_surface_white_min_value', 70)
+        self.declare_parameter('table_surface_white_max_value', 255)
+        self.declare_parameter('table_surface_white_min_saturation', 0)
+        self.declare_parameter('table_surface_white_max_saturation', 70)
+        self.declare_parameter('table_surface_black_min_value', 0)
+        self.declare_parameter('table_surface_black_max_value', 69)
+        self.declare_parameter('table_surface_black_min_saturation', 0)
+        self.declare_parameter('table_surface_black_max_saturation', 255)
+        self.declare_parameter('table_surface_min_matching_fraction', 0.88)
+        self.declare_parameter('table_surface_max_overexposed_fraction', 0.20)
+        self.declare_parameter('table_surface_min_confirmed_frames', 2)
+        self.declare_parameter('table_surface_min_confirmed_ratio', 0.60)
 
         self.warning_filter = (NativeWarningFilter()
                                if bool(self.get_parameter('suppress_native_pose_warning').value)
@@ -348,7 +353,7 @@ class SceneAnalyzer(
             quad_decimate=float(self.get_parameter('quad_decimate').value),
             refine_edges=1)
         self._configure_hsv_container_detector()
-        self._configure_white_surface_detector()
+        self._configure_table_surface_detector()
         self.tf_broadcaster = TransformBroadcaster(self)
         output_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -422,42 +427,38 @@ class SceneAnalyzer(
             'Scene analyzer idle; waiting for /vision/analyze_scene goals.')
 
 
-    def _configure_white_surface_detector(self) -> None:
-        """Validate the conservative white-table classification thresholds."""
-        self.white_surface_max_saturation = int(
-            self.get_parameter('white_surface_max_saturation').value)
-        self.white_surface_min_value = int(
-            self.get_parameter('white_surface_min_value').value)
-        self.white_surface_max_value = int(
-            self.get_parameter('white_surface_max_value').value)
-        self.white_surface_min_fraction = float(
-            self.get_parameter('white_surface_min_fraction').value)
-        self.white_surface_max_unknown_fraction = float(
-            self.get_parameter('white_surface_max_unknown_fraction').value)
-        self.white_surface_min_confirmed_frames = int(
-            self.get_parameter('white_surface_min_confirmed_frames').value)
-        self.white_surface_min_confirmed_ratio = float(
-            self.get_parameter('white_surface_min_confirmed_ratio').value)
-        if not 0 <= self.white_surface_max_saturation <= 255:
-            raise ValueError('white_surface_max_saturation must be in [0, 255]')
-        if not (
-            0 <= self.white_surface_min_value
-            < self.white_surface_max_value <= 255
+    def _configure_table_surface_detector(self) -> None:
+        """Validate independent HSV ranges and grid confirmation thresholds."""
+        for color in ('white', 'black'):
+            for channel in ('value', 'saturation'):
+                minimum_name = f'table_surface_{color}_min_{channel}'
+                maximum_name = f'table_surface_{color}_max_{channel}'
+                minimum = int(self.get_parameter(minimum_name).value)
+                maximum = int(self.get_parameter(maximum_name).value)
+                if not 0 <= minimum <= maximum <= 255:
+                    raise ValueError(
+                        f'{minimum_name} and {maximum_name} must satisfy '
+                        '0 <= min <= max <= 255')
+                setattr(self, minimum_name, minimum)
+                setattr(self, maximum_name, maximum)
+        self.table_surface_min_matching_fraction = float(
+            self.get_parameter('table_surface_min_matching_fraction').value)
+        self.table_surface_max_overexposed_fraction = float(
+            self.get_parameter('table_surface_max_overexposed_fraction').value)
+        self.table_surface_min_confirmed_frames = int(
+            self.get_parameter('table_surface_min_confirmed_frames').value)
+        self.table_surface_min_confirmed_ratio = float(
+            self.get_parameter('table_surface_min_confirmed_ratio').value)
+        for name in (
+            'table_surface_min_matching_fraction',
+            'table_surface_max_overexposed_fraction',
+            'table_surface_min_confirmed_ratio',
         ):
-            raise ValueError(
-                'white surface value limits must satisfy 0 <= min < max <= 255')
-        for name, value in (
-            ('white_surface_min_fraction', self.white_surface_min_fraction),
-            ('white_surface_max_unknown_fraction',
-             self.white_surface_max_unknown_fraction),
-            ('white_surface_min_confirmed_ratio',
-             self.white_surface_min_confirmed_ratio),
-        ):
-            if not 0.0 <= value <= 1.0:
+            if not 0.0 <= getattr(self, name) <= 1.0:
                 raise ValueError(f'{name} must be in [0, 1]')
-        if self.white_surface_min_confirmed_frames <= 0:
+        if self.table_surface_min_confirmed_frames <= 0:
             raise ValueError(
-                'white_surface_min_confirmed_frames must be positive')
+                'table_surface_min_confirmed_frames must be positive')
 
     def destroy_node(self):
         with self.sessions_lock:
@@ -903,11 +904,11 @@ class SceneAnalyzer(
         grid.cells = [
             (
                 TableSurfaceGrid.FREE
-                if observations >= self.white_surface_min_confirmed_frames
+                if observations >= self.table_surface_min_confirmed_frames
                 and confirmations / observations
-                >= self.white_surface_min_confirmed_ratio
+                >= self.table_surface_min_confirmed_ratio
                 else TableSurfaceGrid.BLOCKED
-            ) if observations >= self.white_surface_min_confirmed_frames
+            ) if observations >= self.table_surface_min_confirmed_frames
             else TableSurfaceGrid.UNKNOWN
             for observations, confirmations in zip(
                 table_observations, table_confirmations)
@@ -1162,16 +1163,15 @@ class SceneAnalyzer(
         table_observed = [False] * (
             session.table_grid_width * session.table_grid_height)
         table_confirmed = [False] * len(table_observed)
+        table_debug = None
         if (
             active_detectors & TABLE_SURFACE
             and base_transform is not None
         ):
             table_observed, table_confirmed, table_debug = (
-                self.evaluate_white_table_grid(
+                self.evaluate_table_surface_grid(
                     session, bgr, camera_matrix, base_transform,
                     render_debug=bool(debug_detectors & TABLE_SURFACE)))
-            if debug_detectors & TABLE_SURFACE:
-                self.publish_table_surface_debug_image(message, table_debug)
         if active_detectors & APRILTAGS:
             self.camera_pose_publisher.publish(
                 self.pose_array(camera_frame, message, camera_poses))
@@ -1268,6 +1268,11 @@ class SceneAnalyzer(
                 if debug_detectors & CONTAINERS_HSV:
                     self.publish_hsv_container_debug_image(
                         message, bgr, masks, hsv_blobs, session)
+                if debug_detectors & TABLE_SURFACE:
+                    self.publish_table_surface_debug_image(
+                        message, table_debug if table_debug is not None
+                        else bgr.copy(), session, table_observed,
+                        table_confirmed)
 
     @staticmethod
     def to_pose(translation: np.ndarray, rotation: np.ndarray) -> Pose:

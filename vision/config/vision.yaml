@@ -78,16 +78,23 @@ scene_analyzer:
     hsv_container_min_confirmed_frames: 3
     hsv_container_center_tolerance_px: 12.0
 
-    # White-table free-space detector. Saturated and very dark pixels are
-    # unknown rather than white so loss of image information never creates a
-    # false free-space confirmation.
-    white_surface_max_saturation: 70
-    white_surface_min_value: 70
-    white_surface_max_value: 250
-    # Cada célula usa 9 amostras. Estes limites toleram uma amostra divergente
-    # por célula, mas duas ainda impedem que ela seja considerada livre.
-    white_surface_min_fraction: 0.88
-    white_surface_max_unknown_fraction: 0.20
-    white_surface_min_confirmed_frames: 2
+    # Máscara HSV da superfície. Os limites de cada cor são inclusivos e
+    # independentes e podem ser calibrados para a iluminação atual.
+    # Branco: valor (brilho) e saturação.
+    table_surface_white_min_value: 140
+    table_surface_white_max_value: 255
+    table_surface_white_min_saturation: 0
+    table_surface_white_max_saturation: 70
+    # Preto: valor (brilho) e saturação.
+    table_surface_black_min_value: 0
+    table_surface_black_max_value: 0
+    table_surface_black_min_saturation: 0
+    table_surface_black_max_saturation: 0
+
+    # Uma célula só é livre quando a fração mínima da máscara é confirmada.
+    table_surface_min_matching_fraction: 0.88
+    # Pixels com V acima do maior limite configurado são desconhecidos.
+    table_surface_max_overexposed_fraction: 0.20
+    table_surface_min_confirmed_frames: 2
     # Tolera oscilações de exposição/sombra entre os frames da análise.
-    white_surface_min_confirmed_ratio: 0.60
+    table_surface_min_confirmed_ratio: 0.60

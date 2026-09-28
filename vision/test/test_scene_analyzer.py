@@ -206,6 +206,12 @@ def test_profile_combines_apriltag_and_measured_bin3_parameters():
     assert parameters['apriltag_detection_rate_hz'] == 15.0
     assert parameters['hsv_container_detection_rate_hz'] == 12.0
     assert parameters['table_surface_detection_rate_hz'] == 8.0
+    for color in ('white', 'black'):
+        for channel in ('value', 'saturation'):
+            minimum = parameters[f'table_surface_{color}_min_{channel}']
+            maximum = parameters[f'table_surface_{color}_max_{channel}']
+            assert 0 <= minimum <= maximum <= 255
+    assert not any(name.startswith('white_surface_') for name in parameters)
 
 
 def test_detector_rates_are_independent_and_tags_do_not_wait_for_warmup():
@@ -517,17 +523,22 @@ def test_analyze_scene_interface_contains_both_modalities():
     assert 'bool continuous' in action
 
 
-def _white_surface_analyzer() -> SceneAnalyzer:
+def _table_surface_analyzer() -> SceneAnalyzer:
     analyzer = object.__new__(SceneAnalyzer)
-    analyzer.white_surface_max_saturation = 45
-    analyzer.white_surface_min_value = 40
-    analyzer.white_surface_max_value = 250
-    analyzer.white_surface_min_fraction = 0.95
-    analyzer.white_surface_max_unknown_fraction = 0.05
+    analyzer.table_surface_white_min_value = 40
+    analyzer.table_surface_white_max_value = 250
+    analyzer.table_surface_white_min_saturation = 0
+    analyzer.table_surface_white_max_saturation = 45
+    analyzer.table_surface_black_min_value = 0
+    analyzer.table_surface_black_max_value = 39
+    analyzer.table_surface_black_min_saturation = 0
+    analyzer.table_surface_black_max_saturation = 255
+    analyzer.table_surface_min_matching_fraction = 0.95
+    analyzer.table_surface_max_overexposed_fraction = 0.05
     return analyzer
 
 
-def _white_surface_session() -> Session:
+def _table_surface_session() -> Session:
     return Session(
         goal_handle=SimpleNamespace(is_cancel_requested=False),
         duration=1.0,
@@ -550,28 +561,28 @@ def _downward_camera_transform() -> TransformStamped:
     return transform
 
 
-def test_white_surface_grid_cell_requires_its_local_patch_to_be_white():
-    analyzer = _white_surface_analyzer()
-    session = _white_surface_session()
+def test_table_surface_grid_cell_requires_its_local_patch_to_be_white():
+    analyzer = _table_surface_analyzer()
+    session = _table_surface_session()
     matrix = np.array([[100.0, 0.0, 50.0],
                        [0.0, 100.0, 50.0],
                        [0.0, 0.0, 1.0]])
     image = np.full((100, 100, 3), 220, dtype=np.uint8)
 
-    observed, confirmed, _debug = analyzer.evaluate_white_table_grid(
+    observed, confirmed, _debug = analyzer.evaluate_table_surface_grid(
         session, image, matrix, _downward_camera_transform())
     assert observed == [True]
     assert confirmed == [True]
 
     image[43:58, 43:58] = (0, 0, 180)
-    _observed, confirmed, _debug = analyzer.evaluate_white_table_grid(
+    _observed, confirmed, _debug = analyzer.evaluate_table_surface_grid(
         session, image, matrix, _downward_camera_transform())
     assert confirmed == [False]
 
 
-def test_white_surface_grid_uses_all_pixels_inside_projected_cell():
-    analyzer = _white_surface_analyzer()
-    session = _white_surface_session()
+def test_table_surface_grid_uses_all_pixels_inside_projected_cell():
+    analyzer = _table_surface_analyzer()
+    session = _table_surface_session()
     matrix = np.array([[100.0, 0.0, 50.0],
                        [0.0, 100.0, 50.0],
                        [0.0, 0.0, 1.0]])
@@ -581,34 +592,112 @@ def test_white_surface_grid_uses_all_pixels_inside_projected_cell():
     # Rasterizing the complete projected cell must still detect it.
     image[45:56, 47:49] = (0, 0, 180)
 
-    observed, confirmed, _debug = analyzer.evaluate_white_table_grid(
+    observed, confirmed, _debug = analyzer.evaluate_table_surface_grid(
         session, image, matrix, _downward_camera_transform())
 
     assert observed == [True]
     assert confirmed == [False]
 
 
-def test_white_surface_does_not_treat_clipped_highlights_as_free_space():
-    analyzer = _white_surface_analyzer()
-    session = _white_surface_session()
+def test_table_surface_accepts_black_and_white_but_rejects_color():
+    analyzer = _table_surface_analyzer()
+    session = _table_surface_session()
+    matrix = np.array([[100.0, 0.0, 50.0],
+                       [0.0, 100.0, 50.0],
+                       [0.0, 0.0, 1.0]])
+    image = np.full((100, 100, 3), 220, dtype=np.uint8)
+    # Dark red has high saturation; only the low-value branch accepts it.
+    image[43:58, 43:58] = (0, 0, 30)
+    observed, confirmed, _ = analyzer.evaluate_table_surface_grid(
+        session, image, matrix, _downward_camera_transform())
+    assert observed == [True]
+    assert confirmed == [True]
+    image[43:58, 43:58] = (0, 0, 180)
+    observed, confirmed, _ = analyzer.evaluate_table_surface_grid(
+        session, image, matrix, _downward_camera_transform())
+    assert observed == [True]
+    assert confirmed == [False]
+
+
+@pytest.mark.parametrize('value,saturation,expected', [
+    (200, 40, True),   # white range
+    (170, 40, False),  # below white minimum value
+    (230, 40, False),  # above white maximum value
+    (200, 10, False),  # below white minimum saturation
+    (200, 70, False),  # above white maximum saturation
+    (30, 80, True),    # black range
+    (5, 80, False),    # below black minimum value
+    (50, 80, False),   # above black maximum value
+    (30, 10, False),   # below black minimum saturation
+    (30, 170, False),  # above black maximum saturation
+])
+def test_table_surface_white_and_black_hsv_ranges_are_independent(
+    value, saturation, expected,
+):
+    analyzer = _table_surface_analyzer()
+    analyzer.table_surface_white_min_value = 180
+    analyzer.table_surface_white_max_value = 220
+    analyzer.table_surface_white_min_saturation = 20
+    analyzer.table_surface_white_max_saturation = 60
+    analyzer.table_surface_black_min_value = 10
+    analyzer.table_surface_black_max_value = 40
+    analyzer.table_surface_black_min_saturation = 30
+    analyzer.table_surface_black_max_saturation = 150
+    pixel = cv2.cvtColor(
+        np.array([[[0, saturation, value]]], dtype=np.uint8),
+        cv2.COLOR_HSV2BGR)[0, 0]
+    image = np.tile(pixel, (100, 100, 1))
+    matrix = np.array([[100.0, 0.0, 50.0],
+                       [0.0, 100.0, 50.0],
+                       [0.0, 0.0, 1.0]])
+
+    _observed, confirmed, _debug = analyzer.evaluate_table_surface_grid(
+        _table_surface_session(), image, matrix,
+        _downward_camera_transform(), render_debug=False)
+
+    assert confirmed == [expected]
+
+
+@pytest.mark.parametrize('color,channel', [
+    ('white', 'value'),
+    ('white', 'saturation'),
+    ('black', 'value'),
+    ('black', 'saturation'),
+])
+def test_table_surface_rejects_inverted_hsv_limits(color, channel):
+    parameters = yaml.safe_load(
+        (PACKAGE / 'config' / 'vision.yaml').read_text()
+    )['scene_analyzer']['ros__parameters']
+    parameters[f'table_surface_{color}_min_{channel}'] = 200
+    parameters[f'table_surface_{color}_max_{channel}'] = 100
+    analyzer = object.__new__(SceneAnalyzer)
+    analyzer.get_parameter = lambda name: SimpleNamespace(value=parameters[name])
+
+    with pytest.raises(ValueError, match='0 <= min <= max <= 255'):
+        analyzer._configure_table_surface_detector()
+
+
+def test_table_surface_does_not_treat_clipped_highlights_as_free_space():
+    analyzer = _table_surface_analyzer()
+    session = _table_surface_session()
     matrix = np.array([[100.0, 0.0, 50.0],
                        [0.0, 100.0, 50.0],
                        [0.0, 0.0, 1.0]])
     image = np.full((100, 100, 3), 255, dtype=np.uint8)
 
-    observed, confirmed, _debug = analyzer.evaluate_white_table_grid(
+    observed, confirmed, _debug = analyzer.evaluate_table_surface_grid(
         session, image, matrix, _downward_camera_transform())
     assert observed == [False]
     assert confirmed == [False]
 
 
-def test_white_surface_result_requires_repeated_confirmation():
-    analyzer = _white_surface_analyzer()
+def test_table_surface_result_requires_repeated_confirmation():
+    analyzer = _table_surface_analyzer()
     analyzer.sessions_lock = threading.RLock()
     analyzer.base_frame = 'arm_base_link'
-    analyzer.white_surface_min_confirmed_frames = 2
-    analyzer.white_surface_min_confirmed_ratio = 0.60
-    session = _white_surface_session()
+    analyzer.table_surface_min_confirmed_frames = 2
+    analyzer.table_surface_min_confirmed_ratio = 0.60
+    session = _table_surface_session()
     session.table_cell_observations = [3]
     session.table_cell_confirmations = [2]
 
@@ -621,12 +710,43 @@ def test_white_surface_result_requires_repeated_confirmation():
     assert list(result.table_surface_grid.cells) == [TableSurfaceGrid.BLOCKED]
 
 
+def test_table_surface_live_debug_reports_current_grid_and_session_counts():
+    analyzer = _table_surface_analyzer()
+    analyzer.table_surface_min_confirmed_frames = 2
+    analyzer.table_surface_min_confirmed_ratio = 0.60
+    output = []
+    labels = []
+    analyzer.table_surface_debug_image_publisher = SimpleNamespace(
+        publish=output.append)
+    analyzer._draw_debug_text = (
+        lambda _image, label, _origin, **_kwargs: labels.append(label))
+    session = _table_surface_session()
+    session.table_cell_observations = [3]
+    session.table_cell_confirmations = [2]
+    session.detector_frame_counts[AnalyzeScene.Goal.TABLE_SURFACE] = 3
+    session.detector_frames_with_base_transform[
+        AnalyzeScene.Goal.TABLE_SURFACE] = 2
+    source = Image()
+    source.header.stamp.sec = 12
+    debug = np.full((100, 100, 3), 220, dtype=np.uint8)
+
+    analyzer.publish_table_surface_debug_image(
+        source, debug, session, [True], [False])
+
+    assert labels == ['LIVE 0.0fps F3 TF2/3', 'GRID OBS1 OK0 FREE1 BLOCK0 UNK0']
+    assert len(output) == 1
+    assert output[0].header.stamp.sec == 12
+    assert output[0].encoding == 'bgr8'
+    assert np.frombuffer(output[0].data, np.uint8).reshape(100, 100, 3)[
+        0, 0].tolist() == [0, 0, 0]
+
+
 def test_table_surface_gets_its_own_final_debug_summary():
-    analyzer = _white_surface_analyzer()
+    analyzer = _table_surface_analyzer()
     outputs = []
     analyzer.table_surface_debug_image_publisher = SimpleNamespace(
         publish=outputs.append)
-    session = _white_surface_session()
+    session = _table_surface_session()
     session.detector_frame_counts[AnalyzeScene.Goal.TABLE_SURFACE] = 5
     session.detector_frames_with_base_transform[
         AnalyzeScene.Goal.TABLE_SURFACE] = 4

@@ -46,10 +46,33 @@ class ContainerDebugFrame:
 
 class DebugImagesMixin:
     def publish_table_surface_debug_image(
-        self, message: Image, debug: np.ndarray,
+        self, message: Image, debug: np.ndarray, session: Session,
+        observed: list[bool], confirmed: list[bool],
     ) -> None:
-        output = self._bgr_image_message(message.header, debug)
-        self.table_surface_debug_image_publisher.publish(output)
+        """Publish the live mask with the current grid and detector counts."""
+        summary = self._detector_summary(session, TABLE_SURFACE, 'LIVE')
+        observations = session.table_cell_observations
+        confirmations = session.table_cell_confirmations
+        observed_enough = sum(
+            count >= self.table_surface_min_confirmed_frames
+            for count in observations)
+        free = sum(
+            count >= self.table_surface_min_confirmed_frames
+            and accepted / count >= self.table_surface_min_confirmed_ratio
+            for count, accepted in zip(observations, confirmations)
+        )
+        blocked = observed_enough - free
+        unknown = len(observations) - observed_enough
+        cv2.rectangle(debug, (0, 0), (debug.shape[1] - 1, 43),
+                      (0, 0, 0), -1)
+        self._draw_debug_text(debug, summary, (5, 17), scale=0.34)
+        self._draw_debug_text(
+            debug,
+            f'GRID OBS{sum(observed)} OK{sum(confirmed)} '
+            f'FREE{free} BLOCK{blocked} UNK{unknown}',
+            (5, 35), scale=0.34)
+        self.table_surface_debug_image_publisher.publish(
+            self._bgr_image_message(message.header, debug))
 
     def publish_hsv_container_debug_image(
             self, source, bgr, masks, blobs, session):
@@ -253,7 +276,7 @@ class DebugImagesMixin:
                 return
             debug = frame.image.copy()
             if frame.camera_to_base is not None:
-                _observed, _confirmed, rendered = self.evaluate_white_table_grid(
+                _observed, _confirmed, rendered = self.evaluate_table_surface_grid(
                     session, frame.image, frame.camera_matrix,
                     frame.camera_to_base, render_debug=True)
                 if rendered is not None:

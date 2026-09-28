@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 
 PACKAGE = Path(__file__).parents[1]
@@ -57,6 +58,11 @@ def test_scene_analysis_routes_modalities_by_operation():
     assert "_analyze_for_operation(\n                    'place_in_container'" in container
     assert "'vision_detectors.place_on_table': ['table_surface']" in source
     assert "'vision_detectors.place_in_container': ['containers_hsv']" in source
+    parameters = yaml.safe_load(
+        (PACKAGE / 'config' / 'manipulation.yaml').read_text()
+    )['manipulation_server']['ros__parameters']
+    assert parameters['table_apriltag_blocking_enabled'] is True
+    assert parameters['vision_detectors.place_on_table'] == ['table_surface']
 
 
 def test_detector_policy_requires_each_operations_primary_detector():
@@ -66,9 +72,14 @@ def test_detector_policy_requires_each_operations_primary_detector():
     actions = SOURCE_ROOT / 'interfaces' / 'action'
 
     assert ManipulationServer._parse_detector_names(
-        'place_on_table', ['table_surface']) == SceneObservation.TABLE_SURFACE
+        'place_on_table', ['table_surface', 'apriltags']) == (
+        SceneObservation.TABLE_SURFACE | SceneObservation.APRILTAGS)
     with pytest.raises(ConfigurationError, match='necessário'):
         ManipulationServer._parse_detector_names('pick', ['containers_hsv'])
+    assert ManipulationServer._parse_detector_names(
+        'place_on_table', ['table_surface']) == SceneObservation.TABLE_SURFACE
+    with pytest.raises(ConfigurationError, match='necessário'):
+        ManipulationServer._parse_detector_names('place_on_table', ['apriltags'])
 
     pick = (actions / 'PickObject.action').read_text()
     assert 'uint8 RECOVERY_OUT_OF_REACH=1' in pick

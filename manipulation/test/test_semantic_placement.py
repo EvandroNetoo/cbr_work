@@ -208,6 +208,8 @@ def test_gripper_failure_reports_physical_effect_as_unknown():
 def _operation_only_server():
     server = ManipulationServer.__new__(ManipulationServer)
     server._feedback = lambda *args: None
+    server._table_apriltag_clearance_radius_m = 0.02
+    server._table_apriltag_blocking_enabled = True
     server._profiles = SimpleNamespace(
         placements={
             'table': PlacementProfile(
@@ -258,7 +260,7 @@ def test_table_deposit_always_uses_one_combined_scene_request():
 
     duration, request = calls[0]
     assert duration == 2.0
-    assert request['analisar_apriltags'] is False
+    assert request['analisar_apriltags'] is True
     assert request['analisar_containers_hsv'] is False
     assert request['analisar_mesa_branca'] is True
     assert request['altura_mesa_m'] == pytest.approx(0.125)
@@ -267,6 +269,65 @@ def test_table_deposit_always_uses_one_combined_scene_request():
     assert request['mesa_x_max_m'] > 0.16
     assert request['mesa_y_min_m'] < -0.24
     assert request['mesa_y_max_m'] > -0.14
+
+
+@pytest.mark.parametrize('enabled,configured,expected', [
+    (True, SceneObservation.TABLE_SURFACE,
+     SceneObservation.TABLE_SURFACE | SceneObservation.APRILTAGS),
+    (False, SceneObservation.TABLE_SURFACE | SceneObservation.APRILTAGS,
+     SceneObservation.TABLE_SURFACE),
+])
+def test_table_apriltag_flag_controls_detector_request(
+    enabled, configured, expected,
+):
+    server = _operation_only_server()
+    server._table_apriltag_blocking_enabled = enabled
+    server._vision_detector_masks = {'place_on_table': configured}
+    assert server._detector_mask('place_on_table') == expected
+
+
+def test_table_deposit_skips_tag_analysis_and_veto_when_disabled():
+    server = _operation_only_server()
+    server._table_apriltag_blocking_enabled = False
+    server._vision_detector_masks = {
+        'place_on_table': (
+            SceneObservation.TABLE_SURFACE | SceneObservation.APRILTAGS),
+    }
+    server._profiles = SimpleNamespace(
+        placements={'table': _search_profile(
+            search_x_min_m=0.0, search_x_max_m=0.0,
+            search_y_min_m=-0.20, search_y_max_m=-0.20,
+        )},
+        pickup_profile=lambda _name: SimpleNamespace(
+            observation_state='detect_apriltags'),
+    )
+    server._arm_state = lambda *_args: None
+    server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
+    calls = []
+    tag = _detection(7, 0.0, -0.20)
+    tag.header.frame_id = 'camera_link'
+
+    def analyze(_duration, **kwargs):
+        calls.append(kwargs)
+        return [tag], [], _table_grid()
+
+    server._motion = SimpleNamespace(analisar_cena=analyze)
+    released = []
+
+    def release(_handle, _action, pose, _profile, _destination):
+        released.append(pose)
+        return 'ok', 4, pose
+
+    server._release_at_pose = release
+    goal = PlaceOnTable.Goal()
+    goal.ws_height_cm = 10.0
+
+    server._execute_place_on_table(SimpleNamespace(request=goal))
+
+    assert len(calls) == 1
+    assert calls[0]['analisar_apriltags'] is False
+    assert calls[0]['analisar_mesa_branca'] is True
+    assert len(released) == 1
 
 
 def test_table_fallback_skips_perception_and_uses_normal_table_profile():
@@ -429,6 +490,26 @@ def test_table_grid_requires_every_intersecting_footprint_cell_to_be_free():
         grid, 0.0, -0.20, -90.0, 0.07, 0.04, 0.0)
 
 
+def test_table_apriltag_clearance_uses_oriented_gripper_footprint():
+    tag = _detection(7, 0.0, -0.13)
+    clear = ManipulationServer._table_footprint_avoids_apriltags
+    assert not clear([tag], 0.0, -0.20, 0.0, 0.04, 0.04, 0.01,
+                     0.02, 'arm_base_link')
+    assert clear([tag], 0.0, -0.20, -90.0, 0.04, 0.02, 0.0,
+                 0.02, 'arm_base_link')
+    assert not clear([tag], 0.0, -0.20, -90.0, 0.04, 0.02, 0.0,
+                     0.03, 'arm_base_link')
+
+
+def test_table_apriltag_clearance_rejects_other_reference_frame():
+    tag = _detection(7, 0.0, -0.20)
+    tag.header.frame_id = 'camera_link'
+    with pytest.raises(PerceptionUnavailable, match='referenciais diferentes'):
+        ManipulationServer._table_footprint_avoids_apriltags(
+            [tag], 0.0, -0.20, 0.0, 0.04, 0.04, 0.0, 0.02,
+            'arm_base_link')
+
+
 def test_table_search_prefers_nearest_candidate_with_comfortable_clearance():
     selected = ManipulationServer._select_free_table_position(
         [(0.0, 0.05), (0.0, 0.07)],
@@ -537,7 +618,7 @@ def test_table_deposit_reports_no_space_without_confirmed_white_surface():
     goal = PlaceOnTable.Goal()
     goal.ws_height_cm = 10.0
 
-    with pytest.raises(NoFreeSpace, match='mesa branca'):
+    with pytest.raises(NoFreeSpace, match='superfície livre'):
         server._execute_place_on_table(SimpleNamespace(request=goal))
 
 
@@ -569,6 +650,29 @@ def test_table_deposit_uses_first_shuffled_candidate_free_in_grid(monkeypatch):
 
     assert captured['pose'].pose.position.x == pytest.approx(-0.10)
     assert captured['pose'].pose.position.y == pytest.approx(-0.30)
+
+
+def test_table_deposit_rejects_tag_even_when_surface_grid_is_free():
+    server = _operation_only_server()
+    server._profiles = SimpleNamespace(
+        placements={'table': _search_profile(
+            search_x_min_m=0.0, search_x_max_m=0.0,
+            search_y_min_m=-0.20, search_y_max_m=-0.20,
+        )},
+        pickup_profile=lambda _name: SimpleNamespace(
+            observation_state='detect_apriltags'),
+    )
+    server._arm_state = lambda *_args: None
+    server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
+    server._motion = SimpleNamespace(analisar_cena=lambda *_args, **_kwargs: (
+        [_detection(7, 0.0, -0.20)], [], _table_grid()
+    ))
+    server._release_at_pose = lambda *_args: pytest.fail(
+        'Não deve depositar sobre a AprilTag')
+    goal = PlaceOnTable.Goal()
+    goal.ws_height_cm = 10.0
+    with pytest.raises(NoFreeSpace, match='superfície livre'):
+        server._execute_place_on_table(SimpleNamespace(request=goal))
 
 
 def test_table_deposit_applies_alternate_yaw_selected_by_free_space_search():

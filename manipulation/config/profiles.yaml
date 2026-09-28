@@ -31,7 +31,7 @@ placements:
     free_space_half_extent_x_m: 0.065
     free_space_half_extent_y_m: 0.025
     # Distância adicional obrigatória entre a garra e os obstáculos.
-    free_space_min_padding_m: 0.02
+    free_space_min_padding_m: 0.01
     free_space_preferred_padding_m: 0.04
     # Em cada posição sorteada, testar nesta ordem.
     free_space_preferred_yaw_deg: -90.0
