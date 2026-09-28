@@ -261,7 +261,7 @@ def test_table_deposit_always_uses_one_combined_scene_request():
     duration, request = calls[0]
     assert duration == 2.0
     assert request['analisar_apriltags'] is True
-    assert request['analisar_containers_hsv'] is False
+    assert request['analisar_containers_hsv'] is True
     assert request['analisar_mesa_branca'] is True
     assert request['altura_mesa_m'] == pytest.approx(0.125)
     assert request['resolucao_grade_m'] == pytest.approx(0.01)
@@ -271,27 +271,26 @@ def test_table_deposit_always_uses_one_combined_scene_request():
     assert request['mesa_y_max_m'] > -0.14
 
 
-@pytest.mark.parametrize('enabled,configured,expected', [
-    (True, SceneObservation.TABLE_SURFACE,
-     SceneObservation.TABLE_SURFACE | SceneObservation.APRILTAGS),
-    (False, SceneObservation.TABLE_SURFACE | SceneObservation.APRILTAGS,
-     SceneObservation.TABLE_SURFACE),
+@pytest.mark.parametrize('enabled,configured', [
+    (True, SceneObservation.TABLE_SURFACE),
+    (False, SceneObservation.TABLE_SURFACE | SceneObservation.APRILTAGS),
 ])
-def test_table_apriltag_flag_controls_detector_request(
-    enabled, configured, expected,
+def test_table_apriltag_flag_does_not_change_detector_request(
+    enabled, configured,
 ):
     server = _operation_only_server()
     server._table_apriltag_blocking_enabled = enabled
     server._vision_detector_masks = {'place_on_table': configured}
-    assert server._detector_mask('place_on_table') == expected
+    assert server._detector_mask('place_on_table') == configured
 
 
-def test_table_deposit_skips_tag_analysis_and_veto_when_disabled():
+def test_table_deposit_analyzes_tags_without_veto_when_disabled():
     server = _operation_only_server()
     server._table_apriltag_blocking_enabled = False
     server._vision_detector_masks = {
         'place_on_table': (
-            SceneObservation.TABLE_SURFACE | SceneObservation.APRILTAGS),
+            SceneObservation.TABLE_SURFACE | SceneObservation.APRILTAGS
+            | SceneObservation.CONTAINERS_HSV),
     }
     server._profiles = SimpleNamespace(
         placements={'table': _search_profile(
@@ -325,7 +324,8 @@ def test_table_deposit_skips_tag_analysis_and_veto_when_disabled():
     server._execute_place_on_table(SimpleNamespace(request=goal))
 
     assert len(calls) == 1
-    assert calls[0]['analisar_apriltags'] is False
+    assert calls[0]['analisar_apriltags'] is True
+    assert calls[0]['analisar_containers_hsv'] is True
     assert calls[0]['analisar_mesa_branca'] is True
     assert len(released) == 1
 

@@ -602,6 +602,64 @@ def test_scene_observation_keeps_best_container_memory_by_area_and_color():
     assert remembered.detection.partial is False
 
 
+def test_place_on_table_scene_saves_tags_containers_and_visited_position():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._tag_observations = {}
+    manager._container_observations = {}
+    manager._visited_search_positions = {}
+    manager._container_search_positions = {}
+
+    result = PlaceOnTable.Result()
+    result.scene_observation.completed = True
+    result.scene_observation.requested_detectors = (
+        SceneObservation.TABLE_SURFACE | SceneObservation.APRILTAGS
+        | SceneObservation.CONTAINERS_HSV
+    )
+    result.scene_observation.apriltags = [_detection(3, 0.0, -0.22)]
+    result.scene_observation.containers = [_container_detection(1)]
+
+    manager._remember_scene_observations(result)
+
+    assert ('ws_1', 3) in manager._tag_observations
+    assert ('ws_1', 1) in manager._container_observations
+    assert manager._visited_search_positions == {'ws_1': {0}}
+    assert manager._container_search_positions == {'ws_1': {0}}
+
+
+def test_pick_skips_position_observed_before_intermediate_place():
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._tag_observations = {}
+    manager._visited_search_positions = {'ws_1': {0}}
+    manager._last_table_observation = None
+    manager._pick_client = object()
+    manager.get_logger = lambda: SimpleNamespace(info=lambda *_args: None)
+    positions = []
+
+    def move(wall, lateral, _description):
+        manager._current_wall_distance_mm = float(wall)
+        manager._current_lateral_position_mm = float(lateral)
+        return True
+
+    def call_action(*_args, **_kwargs):
+        positions.append(manager._current_lateral_position_mm)
+        return _pick_result(ManipulationResult.SUCCESS)
+
+    manager._move_to_table_position = move
+    manager._call_action = call_action
+    manager._execute_pick(Step('pick_2', 'pick', tag_id=2), 120.0)
+
+    assert positions == [250.0]
+
+
 def test_container_memory_only_repositions_and_still_calls_semantic_action():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
@@ -713,6 +771,7 @@ def test_container_search_skips_vision_when_base_did_not_move():
     manager._current_lateral_position_mm = 100.0
     manager._container_observations = {}
     manager._container_search_positions = {'ws_1': {0}}
+    manager._visited_search_positions = {'ws_1': {0}}
     manager._last_table_observation = TableObservation(
         area_id='ws_1',
         wall_distance_mm=200.0,
@@ -1264,6 +1323,8 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     manager._execute_manipulation(Step('store', 'store', slot_id='left'))
     manager._execute_manipulation(Step('retrieve', 'retrieve', slot_id='left'))
     manager._execute_manipulation(Step('table', 'place_on_table'))
+    # This test verifies goal mapping with synthetic results, not scene search.
+    manager._visited_search_positions.clear()
     for tag_id, step in (
         (8, Step('container', 'place_in_container', container_color='blue')),
         (9, Step('stack', 'stack', support_tag_id=3)),
@@ -1272,6 +1333,7 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
         manager._world_state.reset()
         manager._world_state.commit_pick(tag_id)
         manager._execute_manipulation(step)
+    manager._visited_search_positions.clear()
     manager._world_state.reset()
     manager._world_state.commit_pick(11)
     manager._execute_manipulation(

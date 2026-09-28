@@ -125,7 +125,8 @@ class ManipulationServer(Node):
             'table_apriltag_clearance_radius_m': 0.02,
             'table_apriltag_blocking_enabled': True,
             'vision_detectors.pick': ['apriltags', 'containers_hsv'],
-            'vision_detectors.place_on_table': ['table_surface'],
+            'vision_detectors.place_on_table': [
+                'table_surface', 'apriltags', 'containers_hsv'],
             'vision_detectors.place_in_container': ['containers_hsv'],
             'vision_detectors.stack': ['apriltags', 'containers_hsv'],
         }
@@ -381,7 +382,11 @@ class ManipulationServer(Node):
                     SceneObservation.APRILTAGS
                     | SceneObservation.CONTAINERS_HSV
                 ),
-                'place_on_table': SceneObservation.TABLE_SURFACE,
+                'place_on_table': (
+                    SceneObservation.TABLE_SURFACE
+                    | SceneObservation.APRILTAGS
+                    | SceneObservation.CONTAINERS_HSV
+                ),
                 'place_in_container': SceneObservation.CONTAINERS_HSV,
                 'stack': (
                     SceneObservation.APRILTAGS
@@ -389,13 +394,6 @@ class ManipulationServer(Node):
                 ),
             }
             mask = defaults[operation]
-        if operation == 'place_on_table':
-            # The flag controls both the detector request and placement veto,
-            # even if the detector list contains an explicit apriltags entry.
-            if self._table_apriltag_blocking_enabled:
-                mask |= SceneObservation.APRILTAGS
-            else:
-                mask &= ~SceneObservation.APRILTAGS
         return mask
 
     def _new_scene_observation(self, operation: str) -> SceneObservation:
@@ -1379,7 +1377,8 @@ class ManipulationServer(Node):
     def _execute_place_on_table(self, goal_handle: Any) -> PlaceOnTable.Result:
         scene_observation = self._new_scene_observation('place_on_table')
         block_apriltags = bool(
-            scene_observation.requested_detectors & SceneObservation.APRILTAGS)
+            self._table_apriltag_blocking_enabled
+            and scene_observation.requested_detectors & SceneObservation.APRILTAGS)
 
         def operation() -> tuple[str, int, Any]:
             height_cm = float(goal_handle.request.ws_height_cm)

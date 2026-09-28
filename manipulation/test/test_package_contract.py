@@ -56,13 +56,15 @@ def test_scene_analysis_routes_modalities_by_operation():
         '    def _execute_stack', 1)[0]
     assert "_analyze_for_operation(\n                    'place_on_table'" in table
     assert "_analyze_for_operation(\n                    'place_in_container'" in container
-    assert "'vision_detectors.place_on_table': ['table_surface']" in source
+    assert "'vision_detectors.place_on_table': [" in source
+    assert "'table_surface', 'apriltags', 'containers_hsv'" in source
     assert "'vision_detectors.place_in_container': ['containers_hsv']" in source
     parameters = yaml.safe_load(
         (PACKAGE / 'config' / 'manipulation.yaml').read_text()
     )['manipulation_server']['ros__parameters']
-    assert parameters['table_apriltag_blocking_enabled'] is True
-    assert parameters['vision_detectors.place_on_table'] == ['table_surface']
+    assert parameters['table_apriltag_blocking_enabled'] is False
+    assert parameters['vision_detectors.place_on_table'] == [
+        'table_surface', 'apriltags', 'containers_hsv']
 
 
 def test_detector_policy_requires_each_operations_primary_detector():

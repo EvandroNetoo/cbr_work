@@ -1020,6 +1020,24 @@ class MissionManager(Node):
             ):
                 visited.add(position)
 
+    def _current_search_position_visited(self) -> bool:
+        """Whether the current WS search point was analyzed earlier."""
+        if self._current_wall_distance_mm is None:
+            return False
+        config = self._arena.pickup_recovery
+        area = self._arena.service_areas[self._current_location]
+        if (abs(area.alignment.distance_mm - self._current_wall_distance_mm)
+                > config.wall_tolerance_mm):
+            return False
+        visited = getattr(self, '_visited_search_positions', {}).get(
+            self._current_location, set())
+        return any(
+            position in visited
+            and abs(position - self._current_lateral_position_mm)
+            <= config.travel_tolerance_mm
+            for position in config.search_positions_mm
+        )
+
     def _move_to_next_place_search_position(
         self, step: Step, visited: set[int]
     ) -> bool:
@@ -1249,16 +1267,19 @@ class MissionManager(Node):
             )
             if (
                 original_observation is None
-                and self._current_observation_excludes(int(step.tag_id))
+                and (
+                    self._current_observation_excludes(int(step.tag_id))
+                    or self._current_search_position_visited()
+                )
             ):
                 self.get_logger().info(
-                    f'AprilTag {step.tag_id} ausente na última observação da '
-                    'posição atual; evitando uma nova detecção no mesmo local.'
+                    f'AprilTag {step.tag_id} não localizada nas observações '
+                    'da posição atual; evitando uma nova detecção no mesmo local.'
                 )
                 if not self._move_to_next_search_position(int(step.tag_id)):
                     raise StepFailed(
                         f"passo '{step.step_id}' (pick) falhou: AprilTag "
-                        f'{step.tag_id} não apareceu na última observação e '
+                        f'{step.tag_id} não apareceu nas observações e '
                         'todas as posições de busca já foram examinadas.'
                     )
         original_fallback_pending = original_observation is not None
@@ -1328,11 +1349,8 @@ class MissionManager(Node):
     ) -> None:
         """Retry perception-based placement across table search points."""
         visited: set[int] = set(
-            getattr(self, '_container_search_positions', {}).get(
-                self._current_location, set()
-            )
-            if step.action == 'place_in_container'
-            else ()
+            getattr(self, '_visited_search_positions', {}).get(
+                self._current_location, set())
         )
         positioned_from_memory = False
         if step.action == 'place_in_container':
@@ -1343,12 +1361,15 @@ class MissionManager(Node):
             if (
                 step.action == 'place_in_container'
                 and not positioned_from_memory
-                and self._current_observation_excludes_container(color)
+                and (
+                    self._current_observation_excludes_container(color)
+                    or self._current_search_position_visited()
+                )
             ):
                 self.get_logger().info(
-                    f"Contêiner do passo '{step.step_id}' ausente na última "
-                    'observação da posição atual; evitando uma nova detecção '
-                    'no mesmo local.'
+                    f"Contêiner do passo '{step.step_id}' não localizado "
+                    'nas observações da posição atual; evitando uma nova '
+                    'detecção no mesmo local.'
                 )
                 self._mark_current_search_position(visited)
                 if self._move_to_next_place_search_position(step, visited):
