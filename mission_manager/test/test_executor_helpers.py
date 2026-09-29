@@ -1,3 +1,4 @@
+from dataclasses import replace
 from types import SimpleNamespace
 
 from action_msgs.msg import GoalStatus
@@ -1147,6 +1148,64 @@ def test_table_place_ignores_apriltag_visits_and_falls_back_after_search(
     assert all(
         not goal.use_fallback_pose for _, goal in action_calls[:-1]
     )
+    assert manager._world_state.snapshot()[1] == EMPTY
+
+
+
+def test_table_place_tries_five_configured_positions_before_fallback():
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._world_state.commit_pick(5)
+    arena = _arena()
+    manager._arena = replace(
+        arena,
+        pickup_recovery=replace(
+            arena.pickup_recovery, minimum_lateral_position_mm=-350,
+            maximum_lateral_position_mm=350,
+        ),
+        table_place_search_positions_mm=(0, 160, 325, -160, -325),
+    )
+    manager._current_location = 'ws_1'
+    manager._ws_vision_active = False
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._place_table_client = object()
+    manager._manipulation_timeout = lambda: 120.0
+    manager._prepare_for_pick_observation = lambda: None
+    manager.get_logger = lambda: SimpleNamespace(
+        info=lambda _text: None, warning=lambda _text: None)
+    travels = []
+    calls = []
+
+    def control_wall(distance, *_args, **kwargs):
+        travel = kwargs['travel_distance_mm']
+        travels.append(travel)
+        result = FollowWall.Result()
+        result.final_average_distance_mm = float(distance)
+        result.traveled_distance_mm = float(travel)
+        return result
+
+    def call_action(client, goal, *_args, **_kwargs):
+        calls.append(goal)
+        if goal.use_fallback_pose:
+            return _place_result(
+                PlaceOnTable, ManipulationResult.SUCCESS,
+                location=ManipulationResult.LOCATION_DESTINATION,
+            )
+        return _place_result(
+            PlaceOnTable, ManipulationResult.NO_FREE_SPACE,
+            'sem espaço livre',
+        )
+
+    manager._control_wall = control_wall
+    manager._call_action = call_action
+
+    manager._execute_manipulation(Step('place_table', 'place_on_table'))
+
+    assert travels == [160, 165, -485, -165]
+    assert len(calls) == 6
+    assert all(not goal.use_fallback_pose for goal in calls[:5])
+    assert calls[-1].use_fallback_pose
     assert manager._world_state.snapshot()[1] == EMPTY
 
 

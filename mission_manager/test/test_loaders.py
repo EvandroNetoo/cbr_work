@@ -93,6 +93,19 @@ def test_arena_merges_partial_alignment_override(tmp_path):
     assert arena.pickup_recovery.search_positions_mm == (0, 250, -250)
 
 
+
+def test_table_place_positions_are_separate_from_pickup_positions(tmp_path):
+    source = VALID_ARENA.replace(
+        'start: {x_m:',
+        'table_place_search_positions_mm: [0, 160, 250, -160, -250]\n'
+        'start: {x_m:',
+    )
+    arena = load_arena(_write(tmp_path, 'arena.yaml', source))
+
+    assert arena.table_place_search_positions_mm == (0, 160, 250, -160, -250)
+    assert arena.pickup_recovery.search_positions_mm == (0, 250, -250)
+
+
 def test_package_arena_refuses_uncalibrated_poses():
     with pytest.raises(ConfigurationError, match='deve ser numérico'):
         load_arena(PACKAGE / 'config' / 'arena.yaml')

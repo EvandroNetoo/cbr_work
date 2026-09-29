@@ -341,6 +341,7 @@ def load_arena(path: str | Path) -> Arena:
         {
             'schema_version', 'frame_id', 'alignment_defaults',
             'departure_defaults', 'pickup_recovery',
+            'table_place_search_positions_mm',
             'start', 'finish', 'service_areas',
         },
         'arena',
@@ -355,6 +356,29 @@ def load_arena(path: str | Path) -> Arena:
     pickup_recovery = _pickup_recovery(
         root.get('pickup_recovery'), 'arena.pickup_recovery'
     )
+    table_positions_raw = root.get('table_place_search_positions_mm')
+    table_positions = None
+    if table_positions_raw is not None:
+        context = 'arena.table_place_search_positions_mm'
+        if not isinstance(table_positions_raw, list) or not table_positions_raw:
+            raise ConfigurationError(f'{context} deve ser uma lista não vazia.')
+        table_positions = tuple(
+            _integer(value, f'{context}[{index}]')
+            for index, value in enumerate(table_positions_raw)
+        )
+        if len(set(table_positions)) != len(table_positions):
+            raise ConfigurationError(f'{context} não pode conter posições repetidas.')
+        if 0 not in table_positions:
+            raise ConfigurationError(f'{context} deve conter a origem 0.')
+        outside = [
+            position for position in table_positions
+            if not pickup_recovery.minimum_lateral_position_mm <= position
+            <= pickup_recovery.maximum_lateral_position_mm
+        ]
+        if outside:
+            raise ConfigurationError(
+                f'{context} contém posições fora dos limites laterais: {outside}.'
+            )
     areas_raw = _mapping(root.get('service_areas'), 'arena.service_areas')
     areas: dict[str, ServiceArea] = {}
     for area_id, value in areas_raw.items():
@@ -410,6 +434,7 @@ def load_arena(path: str | Path) -> Arena:
         departure_defaults=departure_defaults,
         pickup_recovery=pickup_recovery,
         service_areas=areas,
+        table_place_search_positions_mm=table_positions,
     )
 
 

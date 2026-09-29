@@ -111,6 +111,7 @@ class Arena:
     departure_defaults: DepartureConfig
     pickup_recovery: PickupRecoveryConfig
     service_areas: dict[str, ServiceArea]
+    table_place_search_positions_mm: tuple[int, ...] | None = None
 
     def pose_for(self, target: str) -> MapPose:
         if target == 'start':

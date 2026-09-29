@@ -42,6 +42,10 @@ pickup_recovery:
   # A próxima posição ainda não observada é escolhida pela menor distância.
   search_positions_mm: [0, 325, -325]
 
+# Posições fixas de busca de espaço livre para place_on_table, em milímetros.
+# Coleta e depósito em contêiner continuam usando pickup_recovery.search_positions_mm.
+table_place_search_positions_mm: [0, 160, 325, -160, -325]
+
 # Preencher com poses medidas no mapa antes da primeira execução.
 start:
   x_m: 0.0009

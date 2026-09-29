@@ -125,9 +125,12 @@ braço. Trocar de área não apaga observações das áreas anteriores.
 
 ## Recuperação de depósito
 
-Os passos `place_on_table` e `place_in_container` também usam as posições de
-busca de `pickup_recovery.search_positions_mm`. Se a visão não encontrar espaço
-livre ou o contêiner solicitado, ou se a manipulação falhar antes de abrir a
+O passo `place_on_table` usa as posições de
+`table_place_search_positions_mm`; na arena padrão são
+`[0, 160, 325, -160, -325]`. Se o campo não for definido, usa as posições
+de `pickup_recovery.search_positions_mm`. `place_in_container` continua usando
+`pickup_recovery.search_positions_mm`. Se a visão não encontrar espaço livre
+ou o contêiner solicitado, ou se a manipulação falhar antes de abrir a
 garra, o mission manager mantém o objeto na garra, move a base para a posição
 ainda não examinada mais próxima e repete a action semântica.
 `place_in_container` reutiliza também as posições em que uma análise anterior

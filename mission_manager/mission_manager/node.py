@@ -999,7 +999,9 @@ class MissionManager(Node):
         visited.add(destination)
         return True
 
-    def _mark_current_search_position(self, visited: set[int]) -> None:
+    def _mark_current_search_position(
+        self, visited: set[int], positions: tuple[int, ...]
+    ) -> None:
         """Mark the configured table-search point at the current pose."""
         assert self._arena is not None
         if self._current_wall_distance_mm is None:
@@ -1013,7 +1015,7 @@ class MissionManager(Node):
             > config.wall_tolerance_mm
         ):
             return
-        for position in config.search_positions_mm:
+        for position in positions:
             if (
                 abs(position - self._current_lateral_position_mm)
                 <= config.travel_tolerance_mm
@@ -1043,13 +1045,12 @@ class MissionManager(Node):
         )
 
     def _move_to_next_place_search_position(
-        self, step: Step, visited: set[int]
+        self, step: Step, visited: set[int], positions: tuple[int, ...]
     ) -> bool:
         """Move to the nearest untried table-search point for this step."""
         assert self._arena is not None
-        config = self._arena.pickup_recovery
         candidates = [
-            position for position in config.search_positions_mm
+            position for position in positions
             if position not in visited
         ]
         if not candidates:
@@ -1058,7 +1059,7 @@ class MissionManager(Node):
             candidates,
             key=lambda position: (
                 abs(position - self._current_lateral_position_mm),
-                config.search_positions_mm.index(position),
+                positions.index(position),
             ),
         )
         area = self._arena.service_areas[self._current_location]
@@ -1360,6 +1361,12 @@ class MissionManager(Node):
                 self._current_location, set()))
             if step.action == 'place_in_container' else set()
         )
+        positions = (
+            self._arena.table_place_search_positions_mm
+            if step.action == 'place_on_table'
+            and self._arena.table_place_search_positions_mm is not None
+            else self._arena.pickup_recovery.search_positions_mm
+        )
         positioned_from_memory = False
         if step.action == 'place_in_container':
             color = int(goal.container_color)
@@ -1380,8 +1387,8 @@ class MissionManager(Node):
                     'nas observações da posição atual; evitando uma nova '
                     'detecção no mesmo local.'
                 )
-                self._mark_current_search_position(visited)
-                if self._move_to_next_place_search_position(step, visited):
+                self._mark_current_search_position(visited, positions)
+                if self._move_to_next_place_search_position(step, visited, positions):
                     # FollowWall may be stopped before producing any physical
                     # displacement. Re-check the measured position before
                     # spending another camera session at the same viewpoint.
@@ -1426,8 +1433,8 @@ class MissionManager(Node):
                 f'{self._current_lateral_position_mm:.0f} mm: {failure}. '
                 'Tentando outro ponto de observação.'
             )
-            self._mark_current_search_position(visited)
-            if self._move_to_next_place_search_position(step, visited):
+            self._mark_current_search_position(visited, positions)
+            if self._move_to_next_place_search_position(step, visited, positions):
                 continue
             break
 

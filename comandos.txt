@@ -2,7 +2,7 @@ ros2 launch bringup workstation.launch.py enable_xbox_teleop:=true
 ros2 launch nav2_bringup localization_launch.py   map:=/home/evandro/ros2_ws/src/cbr_work/bringup/maps/arena.yaml   params_file:=/home/evandro/ros2_ws/tools/amcl_localization.yaml autostart:=true
 ros2 launch bringup navigation.launch.py
 ros2 launch mission_manager mission_manager.launch.py
-ros2 action send_goal /mission/execute   interfaces/action/ExecuteMission   "{plan_id: example_transport}"   --feedback
+ros2 action send_goal /mission/execute   interfaces/action/ExecuteMission   "{plan_id: transportar_container_empilhar}"   --feedback
 
 
 ros2 service call /so101_hardware_node/set_torque std_srvs/srv/SetBool "{data: false}"
