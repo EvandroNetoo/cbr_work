@@ -10,6 +10,14 @@ todos em `config/hardware.yaml`. O brick permanece na SERIAL0, como no exemplo
 validado. Com os valores atuais, `100 = 11 rad/s`; com raio de 0,034 m, isso
 corresponde a aproximadamente 0,37 m/s na borda da roda.
 
+Ao iniciar, o driver lê `obtem_calibracao_motores()` do brick e usa o
+primeiro valor para a placa dianteira esquerda e o segundo para a direita.
+Cada `calibracao_manual` recebe `(abs(valor) * 2, -abs(valor) * 2)` com o
+multiplicador definido em `hardware.calibration_multiplier`. Os PID do brick e
+da expansão e os ajustes de freio também estão em `config/hardware.yaml`.
+Uma leitura inválida ou uma placa que não confirme a configuração impede a
+partida do driver.
+
 O bridge limita proporcionalmente as quatro rodas a `11 rad/s`, preservando a
 direção do comando mecanum. Zero permanece uma parada inequívoca; qualquer
 alvo não nulo recebe pelo menos magnitude `4` na escala física para compensar

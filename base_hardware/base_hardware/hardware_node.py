@@ -45,6 +45,16 @@ class BaseHardwareNode(Node):
         self.declare_parameter('hardware.min_effective_wheel_command', 4)
         self.declare_parameter('hardware.brick_ticks_per_revolution', 986)
         self.declare_parameter('hardware.expansion_ticks_per_revolution', 1972)
+        self.declare_parameter('hardware.calibration_multiplier', 2)
+        self.declare_parameter('hardware.brick_pid.kp', 2.0)
+        self.declare_parameter('hardware.brick_pid.ki', 2.0)
+        self.declare_parameter('hardware.brick_pid.kd', 2.0)
+        self.declare_parameter('hardware.expansion_pid.kp', 2.0)
+        self.declare_parameter('hardware.expansion_pid.ki', 2.0)
+        self.declare_parameter('hardware.expansion_pid.kd', 2.0)
+        self.declare_parameter('hardware.expansion_brake.kp', 3.0)
+        self.declare_parameter('hardware.expansion_brake.kd', 10.0)
+        self.declare_parameter('hardware.expansion_brake.delta', 20)
         self.declare_parameter('hardware.front_left.motor_id', 0)
         self.declare_parameter('hardware.front_left.inverted', False)
         self.declare_parameter('hardware.front_right.motor_id', 7)
@@ -100,6 +110,23 @@ class BaseHardwareNode(Node):
                 self.get_parameter('hardware.expansion_ticks_per_revolution').value),
             max_wheel_velocity_rad_s=float(
                 self.get_parameter('hardware.max_wheel_velocity_rad_s').value),
+            calibration_multiplier=int(
+                self.get_parameter('hardware.calibration_multiplier').value),
+            brick_pid_kp=float(self.get_parameter('hardware.brick_pid.kp').value),
+            brick_pid_ki=float(self.get_parameter('hardware.brick_pid.ki').value),
+            brick_pid_kd=float(self.get_parameter('hardware.brick_pid.kd').value),
+            expansion_pid_kp=float(
+                self.get_parameter('hardware.expansion_pid.kp').value),
+            expansion_pid_ki=float(
+                self.get_parameter('hardware.expansion_pid.ki').value),
+            expansion_pid_kd=float(
+                self.get_parameter('hardware.expansion_pid.kd').value),
+            expansion_brake_kp=float(
+                self.get_parameter('hardware.expansion_brake.kp').value),
+            expansion_brake_kd=float(
+                self.get_parameter('hardware.expansion_brake.kd').value),
+            expansion_brake_delta=int(
+                self.get_parameter('hardware.expansion_brake.delta').value),
             min_effective_wheel_command=int(
                 self.get_parameter(
                     'hardware.min_effective_wheel_command').value),

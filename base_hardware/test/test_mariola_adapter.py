@@ -229,3 +229,85 @@ def test_unified_controller_routes_led_to_brick_group():
 
     assert brick.led_colors == [(255, 255, 255)]
     controle.fechar(parar_motores=False)
+
+class FakeCalibrationBrick:
+    def __init__(self, values):
+        self.values = values
+        self.calls = []
+
+    def obtem_calibracao_motores(self):
+        self.calls.append(('read',))
+        return self.values
+
+    def pid_motor(self, *values):
+        self.calls.append(('pid', *values))
+        return True
+
+    def velocidade_motores(self, left, right):
+        self.calls.append(('velocity', left, right))
+
+
+class FakeCalibrationMotor:
+    def __init__(self, motor_id, *, fail=None):
+        self.id_equipamento = motor_id
+        self.fail = fail
+        self.calls = []
+
+    def set_kp_freio(self, value):
+        self.calls.append(('brake_kp', value))
+        return None if self.fail == 'brake_kp' else True
+
+    def set_kd_freio(self, value):
+        self.calls.append(('brake_kd', value))
+        return True
+
+    def set_delta_freio(self, value):
+        self.calls.append(('brake_delta', value))
+        return True
+
+    def pid_motor(self, *values):
+        self.calls.append(('pid', *values))
+        return True
+
+    def calibracao_manual(self, *values):
+        self.calls.append(('calibration', *values))
+        return True
+
+
+def test_startup_calibration_maps_brick_tuple_to_expansion_motors():
+    config = MariolaConfig(calibration_multiplier=2)
+    base = MariolaBase(config=config, controle=FakeControle())
+    brick = FakeCalibrationBrick((44, 51))
+    left = FakeCalibrationMotor(0)
+    right = FakeCalibrationMotor(7)
+
+    base._calibrar_expansao(brick, left, right)
+
+    assert brick.calls == [('read',), ('pid', 2.0, 2.0, 2.0), ('velocity', 0, 0)]
+    assert left.calls == [
+        ('brake_kp', 3.0), ('brake_kd', 10.0), ('brake_delta', 20),
+        ('pid', 2.0, 2.0, 2.0), ('calibration', 88, -88),
+    ]
+    assert right.calls[-1] == ('calibration', 102, -102)
+
+
+def test_invalid_startup_calibration_sends_no_motor_configuration():
+    base = MariolaBase(controle=FakeControle())
+    brick = FakeCalibrationBrick((44, 20000))
+    left = FakeCalibrationMotor(0)
+    right = FakeCalibrationMotor(7)
+
+    with pytest.raises(ValueError, match='fora do intervalo'):
+        base._calibrar_expansao(brick, left, right)
+
+    assert brick.calls == [('read',)]
+    assert left.calls == right.calls == []
+
+
+def test_startup_calibration_fails_when_expansion_does_not_acknowledge():
+    base = MariolaBase(controle=FakeControle())
+    brick = FakeCalibrationBrick((44, 44))
+    left = FakeCalibrationMotor(0, fail='brake_kp')
+
+    with pytest.raises(RuntimeError, match='set_kp_freio'):
+        base._calibrar_expansao(brick, left, FakeCalibrationMotor(7))

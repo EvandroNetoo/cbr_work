@@ -49,6 +49,16 @@ class MariolaConfig:
     expansion_ticks_per_revolution: int = EXPANSION_TICKS_PER_REVOLUTION
     max_wheel_velocity_rad_s: float = MAX_WHEEL_VELOCITY
     min_effective_wheel_command: int = MIN_EFFECTIVE_WHEEL_COMMAND
+    calibration_multiplier: int = 2
+    brick_pid_kp: float = 2.0
+    brick_pid_ki: float = 2.0
+    brick_pid_kd: float = 2.0
+    expansion_pid_kp: float = 2.0
+    expansion_pid_ki: float = 2.0
+    expansion_pid_kd: float = 2.0
+    expansion_brake_kp: float = 3.0
+    expansion_brake_kd: float = 10.0
+    expansion_brake_delta: int = 20
 
     def __post_init__(self) -> None:
         radians_per_second_to_command(
@@ -56,6 +66,8 @@ class MariolaConfig:
             self.max_wheel_velocity_rad_s,
             self.min_effective_wheel_command,
         )
+        if self.calibration_multiplier <= 0:
+            raise ValueError('calibration_multiplier deve ser positivo.')
 
 
 @dataclass(frozen=True)
@@ -163,6 +175,9 @@ class MariolaBase:
             id_equipamento=self._config.front_right_motor_id,
         )
 
+        self._calibrar_expansao(
+            motores_brick, motor_dianteiro_esquerdo, motor_dianteiro_direito)
+
         return ControleMotores(
             [
                 GrupoMotoresBrick(
@@ -186,6 +201,45 @@ class MariolaBase:
             ],
             freio_travado=False,
         )
+
+    def _calibrar_expansao(self, brick, motor_esquerdo, motor_direito) -> None:
+        """Aplica a configuração do exemplo antes de iniciar o controle ROS."""
+        calibracoes = brick.obtem_calibracao_motores()
+        if not isinstance(calibracoes, tuple) or len(calibracoes) != 2:
+            raise RuntimeError('O brick deve retornar duas calibrações de motor.')
+        giros = []
+        for calibracao in calibracoes:
+            giro = abs(int(calibracao)) * self._config.calibration_multiplier
+            if not 0 < giro <= 32767:
+                raise ValueError(f'Calibração da expansão fora do intervalo: {giro}')
+            giros.append(giro)
+        brick.pid_motor(
+            self._config.brick_pid_kp,
+            self._config.brick_pid_ki,
+            self._config.brick_pid_kd,
+        )
+        for motor, giro in zip((motor_esquerdo, motor_direito), giros):
+            ajustes = (
+                ('set_kp_freio', self._config.expansion_brake_kp),
+                ('set_kd_freio', self._config.expansion_brake_kd),
+                ('set_delta_freio', self._config.expansion_brake_delta),
+            )
+            for metodo, valor in ajustes:
+                if getattr(motor, metodo)(valor) is None:
+                    raise RuntimeError(
+                        f'Motor {motor.id_equipamento} falhou em {metodo}.')
+            if not motor.pid_motor(
+                self._config.expansion_pid_kp,
+                self._config.expansion_pid_ki,
+                self._config.expansion_pid_kd,
+            ):
+                raise RuntimeError(f'PID do motor {motor.id_equipamento} falhou.')
+            if motor.calibracao_manual(giro, -giro) is None:
+                raise RuntimeError(
+                    f'Calibração do motor {motor.id_equipamento} falhou.')
+        # A consulta de calibração deixa o último pacote do brick em modo F4.
+        # Reponha o comando de velocidade antes de ControleMotores configurar o freio.
+        brick.velocidade_motores(0, 0)
 
     def write(self, velocities: Mapping[str, float]):
         values = validate_complete_command(

@@ -27,6 +27,18 @@ base_hardware_node:
     hardware.brick_ticks_per_revolution: 986
     hardware.expansion_ticks_per_revolution: 1972
 
+    # calibração da expansão: cada valor do brick corresponde a um motor.
+    hardware.calibration_multiplier: 2
+    hardware.brick_pid.kp: 2.0
+    hardware.brick_pid.ki: 2.0
+    hardware.brick_pid.kd: 2.0
+    hardware.expansion_pid.kp: 2.0
+    hardware.expansion_pid.ki: 2.0
+    hardware.expansion_pid.kd: 2.0
+    hardware.expansion_brake.kp: 3.0
+    hardware.expansion_brake.kd: 10.0
+    hardware.expansion_brake.delta: 20
+
     # Rodas da expansão.
     hardware.front_left.motor_id: 0
     hardware.front_left.inverted: false
