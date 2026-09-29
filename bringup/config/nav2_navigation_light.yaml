@@ -157,15 +157,11 @@ local_costmap:
       footprint_padding: 0.02
       transform_tolerance: 0.2
       plugins: [static_layer, obstacle_layer, denoise_layer, inflation_layer]
-      filters: [keepout_filter, keepout_inflation]
+      filters: [keepout_filter]
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: true
         filter_info_topic: /keepout_costmap_filter_info
-      keepout_inflation:
-        plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 6.0
-        inflation_radius: 0.25
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
@@ -209,15 +205,11 @@ global_costmap:
       track_unknown_space: true
       transform_tolerance: 0.2
       plugins: [static_layer, obstacle_layer, denoise_layer, inflation_layer]
-      filters: [keepout_filter, keepout_inflation]
+      filters: [keepout_filter]
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: true
         filter_info_topic: /keepout_costmap_filter_info
-      keepout_inflation:
-        plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 6.0
-        inflation_radius: 0.25
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true

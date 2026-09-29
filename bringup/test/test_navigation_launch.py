@@ -117,11 +117,23 @@ def test_keepout_filter_has_servers_and_both_costmaps():
     assert "'keepout_costmap_filter_info_server'" in source
     for name in ('local_costmap', 'global_costmap'):
         costmap = params[name][name]['ros__parameters']
-        assert costmap['filters'] == ['keepout_filter', 'keepout_inflation']
+        assert costmap['filters'] == ['keepout_filter']
         assert costmap['keepout_filter']['plugin'] == (
             'nav2_costmap_2d::KeepoutFilter')
         assert costmap['keepout_filter']['filter_info_topic'] == (
             '/keepout_costmap_filter_info')
-        assert costmap['keepout_inflation']['plugin'] == (
-            'nav2_costmap_2d::InflationLayer')
-        assert costmap['keepout_inflation']['inflation_radius'] == 0.25
+        assert costmap['inflation_layer']['inflation_radius'] == 0.25
+
+
+def test_keepout_mask_uses_nav2_scaled_costs():
+    mask_yaml = yaml.safe_load(
+        (PACKAGE_ROOT / 'maps/arena2_keepout.yaml').read_text())
+    assert mask_yaml['mode'] == 'scale'
+    assert mask_yaml['free_thresh'] == 0.0
+    assert mask_yaml['occupied_thresh'] == 1.0
+
+    pgm = (PACKAGE_ROOT / 'maps' / mask_yaml['image']).read_bytes()
+    pixels = pgm.split(b'\n', 3)[3]
+    assert len(pixels) == 150 * 150
+    assert 0 in pixels and 255 in pixels
+    assert any(0 < pixel < 255 for pixel in pixels)

@@ -48,7 +48,7 @@ vl53_distance_action:
 
     # Erro em metros; a saída é convertida para linear.y, invertendo o sinal
     # porque a action usa positivo=direita e o ROS usa +Y=esquerda.
-    travel_pid.kp: 2.0
+    travel_pid.kp: 3.0
     travel_pid.ki: 0.0
     travel_pid.kd: 0.0
     travel_pid.integral_limit: 0.20

@@ -37,18 +37,22 @@ Se o mapa escolhido não tiver máscara, o perfil de processamento encerra com
 um erro explícito antes de iniciar a navegação.
 
 Para desenhar as paredes virtuais, edite o PGM `_keepout.pgm` correspondente
-sem alterar suas dimensões nem a geometria do YAML. No modo `trinary` usado
-pela arena, branco (255) é livre e preto (0) é proibido. A imagem deve manter
+sem alterar suas dimensões nem a geometria do YAML. No modo `scale`,
+branco (255) é livre, preto (0) é proibido e cinza representa custo
+intermediário. A imagem deve manter
 150 × 150 pixels, resolução de 0,05 m/célula, origem `[-0.611, -0.555, 0]`
 e orientação zero. Se criar outro mapa, crie também `<nome>_keepout.pgm` e
 `<nome>_keepout.yaml` com dimensões, resolução e origem alinhadas a ele.
 `setup.py` já instala os arquivos PGM e YAML da pasta `maps`.
 
 O `KeepoutFilter` está ativo no costmap global (planejamento) e no local
-(controle). Em ambos, `keepout_inflation` roda depois do filtro e infla as
-áreas proibidas em 0,25 m, sem precisar aumentar o desenho da máscara. A
-`inflation_layer` comum, em `plugins`, atua antes dos filtros e não infla a
-máscara. A footprint atual mede 0,238 × 0,310 m, mais 0,02 m de
+(controle). As máscaras usam `mode: scale` do MapServer: preto é proibido,
+branco é livre e tons de cinza são custos intermediários. Na máscara
+`arena2_keepout.pgm`, a faixa preta cobre até 0,25 m das marcações originais
+e os tons de cinza diminuem o custo até 0,50 m. Para alterar a margem, edite
+os pixels diretamente no PGM; não há geração de máscara no launch. A
+`inflation_layer` comum, em `plugins`, permanece em 0,25 m para paredes e
+obstáculos. A footprint atual mede 0,238 × 0,310 m, mais 0,02 m de
 `footprint_padding`; confira a margem, a incerteza de localização e os
 caminhos no RViz antes de testar com o robô em movimento.
 
