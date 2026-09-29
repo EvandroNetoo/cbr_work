@@ -21,6 +21,7 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     params_file = LaunchConfiguration('params_file')
+    keepout_mask = LaunchConfiguration('keepout_mask')
     use_sim_time = LaunchConfiguration('use_sim_time')
     autostart = LaunchConfiguration('autostart')
     log_level = LaunchConfiguration('log_level')
@@ -28,6 +29,8 @@ def generate_launch_description():
         FindPackageShare('bringup'), 'config', 'fastdds_nav2.xml'])
     default_params_file = PathJoinSubstitution([
         FindPackageShare('bringup'), 'config', 'nav2_navigation_light.yaml'])
+    default_keepout_mask = PathJoinSubstitution([
+        FindPackageShare('bringup'), 'maps', 'arena_keepout.yaml'])
     navigate_to_pose_bt = PathJoinSubstitution([
         FindPackageShare('bringup'), 'config', 'navigate_to_pose_safe.xml'])
 
@@ -36,6 +39,8 @@ def generate_launch_description():
     tf_remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
     cmd_vel_remapping = [('cmd_vel', 'cmd_vel_nav')]
     lifecycle_nodes = [
+        'keepout_filter_mask_server',
+        'keepout_costmap_filter_info_server',
         'controller_server',
         'planner_server',
         'velocity_smoother',
@@ -55,6 +60,30 @@ def generate_launch_description():
         # resolvidas, além dos parâmetros passados a cada componente abaixo.
         parameters=node_parameters,
         composable_node_descriptions=[
+            ComposableNode(
+                package='nav2_map_server',
+                plugin='nav2_map_server::MapServer',
+                name='keepout_filter_mask_server',
+                parameters=node_parameters + [{
+                    'yaml_filename': keepout_mask,
+                    'topic_name': '/keepout_filter_mask',
+                    'frame_id': 'map',
+                }],
+                remappings=tf_remappings,
+            ),
+            ComposableNode(
+                package='nav2_map_server',
+                plugin='nav2_map_server::CostmapFilterInfoServer',
+                name='keepout_costmap_filter_info_server',
+                parameters=node_parameters + [{
+                    'type': 0,
+                    'filter_info_topic': '/keepout_costmap_filter_info',
+                    'mask_topic': '/keepout_filter_mask',
+                    'base': 0.0,
+                    'multiplier': 1.0,
+                }],
+                remappings=tf_remappings,
+            ),
             ComposableNode(
                 package='nav2_controller',
                 plugin='nav2_controller::ControllerServer',
@@ -126,6 +155,10 @@ def generate_launch_description():
             'params_file',
             default_value=default_params_file,
             description='Arquivo YAML de parâmetros Nav2 da CBR.'),
+        DeclareLaunchArgument(
+            'keepout_mask',
+            default_value=default_keepout_mask,
+            description='YAML da máscara de zonas proibidas alinhada ao mapa.'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('autostart', default_value='true'),
         DeclareLaunchArgument('log_level', default_value='info'),

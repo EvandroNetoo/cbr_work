@@ -92,3 +92,7 @@ ros2 action send_goal /manipulation/place_on_shelf interfaces/action/PlaceOnShel
 
 
   ssh banana@192.168.1.216
+
+
+ros2 service call /camera/set_capture std_srvs/srv/SetBool "{data: true}"
+ros2 service call /base_hardware/set_vision_led std_srvs/srv/SetBool "{data: true}"

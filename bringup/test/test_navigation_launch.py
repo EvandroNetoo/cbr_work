@@ -98,7 +98,30 @@ def test_light_profile_reduces_controller_and_costmap_load():
     assert controller['controller_frequency'] == 10.0
     assert mppi['batch_size'] == 800
     assert mppi['time_steps'] == 40
-    assert local['resolution'] == 0.025
+    assert local['resolution'] == 0.05
     assert local['publish_frequency'] == 1.0
     assert global_costmap['update_frequency'] == 1.0
     assert global_costmap['publish_frequency'] == 1.0
+
+
+def test_keepout_filter_has_servers_and_both_costmaps():
+    source = (PACKAGE_ROOT / 'launch' / 'navigation.launch.py').read_text()
+    params = yaml.safe_load(NAVIGATION_PARAMS.read_text())
+
+    assert "plugin='nav2_map_server::MapServer'" in source
+    assert "plugin='nav2_map_server::CostmapFilterInfoServer'" in source
+    assert "'yaml_filename': keepout_mask" in source
+    assert "'type': 0" in source
+    assert "'mask_topic': '/keepout_filter_mask'" in source
+    assert "'keepout_filter_mask_server'" in source
+    assert "'keepout_costmap_filter_info_server'" in source
+    for name in ('local_costmap', 'global_costmap'):
+        costmap = params[name][name]['ros__parameters']
+        assert costmap['filters'] == ['keepout_filter', 'keepout_inflation']
+        assert costmap['keepout_filter']['plugin'] == (
+            'nav2_costmap_2d::KeepoutFilter')
+        assert costmap['keepout_filter']['filter_info_topic'] == (
+            '/keepout_costmap_filter_info')
+        assert costmap['keepout_inflation']['plugin'] == (
+            'nav2_costmap_2d::InflationLayer')
+        assert costmap['keepout_inflation']['inflation_radius'] == 0.25

@@ -1,7 +1,6 @@
-retirar codigo legado vision
-adicionar mascara de container no debug
-ligar a camera e led antes de alinhar e desligar antes de sair para navegar
-
+2 tcp para deposito de container
+alinhamento pode ser mais agressivo
+deposito em cima da mesa que tem container na imagem esta depositando em cima do container
 criar mapa occupancy grid no mapa para fita e mesa de 5cm
 nao bater na parede do lado ao guardar cubo
 se o chao for branco e o robo tiver do lado da mesa, ele pode depositar o cubo fora da mesa (limitar distancia para ir para o lado para depositar)

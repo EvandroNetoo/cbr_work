@@ -71,7 +71,8 @@ def _selected_components(context):
 
 def _resolve_map_file(map_name, maps_directory=None):
     """Resolve one installed map by stem and reject paths or extensions."""
-    if not map_name or Path(map_name).name != map_name or Path(map_name).suffix:
+    if (not map_name or Path(map_name).name != map_name
+            or Path(map_name).suffix or map_name.endswith('_keepout')):
         raise RuntimeError(
             "O argumento 'map' deve ser apenas o nome do mapa, sem caminho "
             "ou extensão (exemplo: map:=arena).")
@@ -82,10 +83,22 @@ def _resolve_map_file(map_name, maps_directory=None):
     if candidate.is_file():
         return str(candidate)
 
-    available = ', '.join(sorted(path.stem for path in maps_directory.glob('*.yaml')))
+    available = ', '.join(sorted(path.stem for path in maps_directory.glob('*.yaml')
+                                  if not path.stem.endswith('_keepout')))
     raise RuntimeError(
         f"Mapa '{map_name}' não encontrado em {maps_directory}. "
         f'Mapas disponíveis: {available or "nenhum"}.')
+
+
+def _resolve_keepout_file(map_name, maps_directory=None):
+    """Require a keepout mask paired with the selected localization map."""
+    map_file = Path(_resolve_map_file(map_name, maps_directory))
+    candidate = map_file.with_name(f'{map_name}_keepout.yaml')
+    if not candidate.is_file():
+        raise RuntimeError(
+            f"Máscara keepout não encontrada para '{map_name}': {candidate}. "
+            'Crie o YAML e a imagem correspondentes antes de iniciar Nav2.')
+    return str(candidate)
 
 
 def _shutdown(reason):
@@ -162,8 +175,9 @@ def _launch_setup(context):
                 'base_frame': LaunchConfiguration('base_frame'),
             }.items()))
 
+    map_name = LaunchConfiguration('map').perform(context)
     if 'localization' in selected:
-        map_file = _resolve_map_file(LaunchConfiguration('map').perform(context))
+        map_file = _resolve_map_file(map_name)
         localization_params = PathJoinSubstitution([
             FindPackageShare('bringup'), 'config', 'amcl_localization.yaml'])
         actions.append(
@@ -187,6 +201,7 @@ def _launch_setup(context):
             ]))
 
     if 'navigation' in selected:
+        keepout_mask = _resolve_keepout_file(map_name)
         navigation_params = PathJoinSubstitution([
             FindPackageShare('bringup'), 'config',
             'nav2_navigation_light.yaml'])
@@ -197,6 +212,7 @@ def _launch_setup(context):
                     'navigation.launch.py'])),
                 launch_arguments={
                     'params_file': navigation_params,
+                    'keepout_mask': keepout_mask,
                     'use_sim_time': 'false',
                     'autostart': 'true',
                     'log_level': 'info',

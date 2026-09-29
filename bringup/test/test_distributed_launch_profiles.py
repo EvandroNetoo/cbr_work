@@ -144,10 +144,12 @@ def test_map_names_resolve_without_paths_or_extensions():
     maps_directory = PACKAGE_ROOT / 'maps'
 
     for yaml_file in maps_directory.glob('*.yaml'):
+        if yaml_file.stem.endswith('_keepout'):
+            continue
         assert module._resolve_map_file(
             yaml_file.stem, maps_directory) == str(yaml_file)
 
-    for invalid in ('', 'arena.yaml', '../arena', '/tmp/arena'):
+    for invalid in ('', 'arena.yaml', '../arena', '/tmp/arena', 'arena_keepout'):
         try:
             module._resolve_map_file(invalid, maps_directory)
         except RuntimeError as error:
@@ -162,6 +164,40 @@ def test_map_names_resolve_without_paths_or_extensions():
         assert 'arena' in str(error)
     else:
         raise AssertionError('Nome de mapa inexistente foi aceito.')
+
+
+def test_navigation_requires_a_mask_matching_the_selected_map(tmp_path):
+    module = _load_processing_module()
+    maps_directory = PACKAGE_ROOT / 'maps'
+    for name in ('arena', 'arena2'):
+        assert module._resolve_keepout_file(name, maps_directory) == str(
+            maps_directory / f'{name}_keepout.yaml')
+
+    (tmp_path / 'new_map.yaml').write_text('image: new_map.pgm\n')
+    try:
+        module._resolve_keepout_file('new_map', tmp_path)
+    except RuntimeError as error:
+        assert 'Máscara keepout não encontrada' in str(error)
+    else:
+        raise AssertionError('Navegação aceitou mapa sem máscara keepout.')
+
+
+def test_keepout_masks_match_localization_map_geometry():
+    import yaml
+
+    maps_directory = PACKAGE_ROOT / 'maps'
+    for name in ('arena', 'arena2'):
+        map_yaml = yaml.safe_load((maps_directory / f'{name}.yaml').read_text())
+        mask_yaml = yaml.safe_load(
+            (maps_directory / f'{name}_keepout.yaml').read_text())
+        assert mask_yaml['image'] == f'{name}_keepout.pgm'
+        for key in ('resolution', 'origin', 'mode', 'negate'):
+            assert mask_yaml[key] == map_yaml[key]
+        mask = (maps_directory / mask_yaml['image']).read_bytes()
+        header_end = mask.index(b'255\n') + 4
+        assert b'150 150' in mask[:header_end]
+        assert len(mask[header_end:]) == 150 * 150
+        assert set(mask[header_end:]) == {255}
 
 
 def test_maps_are_installed_with_the_bringup_package():

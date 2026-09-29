@@ -26,6 +26,45 @@ O mapa padrão é `arena`. A troca usa somente o nome instalado:
 ros2 launch bringup processing.launch.py map:=arena_nova3
 ```
 
+## Zonas proibidas do Nav2
+
+`processing.launch.py map:=arena` carrega `maps/arena_keepout.yaml`; com
+`map:=arena2`, carrega `maps/arena2_keepout.yaml`. As máscaras iniciais estão
+totalmente livres, portanto ainda não bloqueiam nenhum trecho da arena.
+O launch de navegação isolado usa `arena_keepout.yaml` por padrão; para outro
+mapa, passe `keepout_mask:=` com o caminho do YAML instalado correspondente.
+Se o mapa escolhido não tiver máscara, o perfil de processamento encerra com
+um erro explícito antes de iniciar a navegação.
+
+Para desenhar as paredes virtuais, edite o PGM `_keepout.pgm` correspondente
+sem alterar suas dimensões nem a geometria do YAML. No modo `trinary` usado
+pela arena, branco (255) é livre e preto (0) é proibido. A imagem deve manter
+150 × 150 pixels, resolução de 0,05 m/célula, origem `[-0.611, -0.555, 0]`
+e orientação zero. Se criar outro mapa, crie também `<nome>_keepout.pgm` e
+`<nome>_keepout.yaml` com dimensões, resolução e origem alinhadas a ele.
+`setup.py` já instala os arquivos PGM e YAML da pasta `maps`.
+
+O `KeepoutFilter` está ativo no costmap global (planejamento) e no local
+(controle). Em ambos, `keepout_inflation` roda depois do filtro e infla as
+áreas proibidas em 0,25 m, sem precisar aumentar o desenho da máscara. A
+`inflation_layer` comum, em `plugins`, atua antes dos filtros e não infla a
+máscara. A footprint atual mede 0,238 × 0,310 m, mais 0,02 m de
+`footprint_padding`; confira a margem, a incerteza de localização e os
+caminhos no RViz antes de testar com o robô em movimento.
+
+Após editar a máscara, reconstrua e reinicie o bringup:
+
+```bash
+colcon build --symlink-install --packages-select bringup
+source install/setup.bash
+ros2 launch bringup processing.launch.py map:=arena
+```
+
+No RViz, sobreponha `/keepout_filter_mask`, `/global_costmap/costmap` e
+`/local_costmap/costmap`. Os tópicos `/keepout_costmap_filter_info` e
+`/keepout_filter_mask` devem estar disponíveis. Um goal dentro da região
+proibida deve falhar; um goal além dela deve gerar um caminho ao redor.
+
 Sem argumentos, todos os componentes de processamento ficam ativos. Para
 retirar somente alguns deles, use `disable_components`:
 
