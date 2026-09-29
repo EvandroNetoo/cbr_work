@@ -1083,7 +1083,13 @@ def test_navigation_preparation_explicitly_reports_loaded_gripper():
     assert calls[0][1].gripper_loaded is True
 
 
-def test_table_place_searches_all_positions_then_uses_table_fallback():
+@pytest.mark.parametrize('previous_pick_positions', [
+    set(), {0, 250, -250},
+])
+@pytest.mark.parametrize('free_at_second_point', [False, True])
+def test_table_place_ignores_apriltag_visits_and_falls_back_after_search(
+    previous_pick_positions, free_at_second_point,
+):
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._world_state.commit_pick(5)
@@ -1092,6 +1098,7 @@ def test_table_place_searches_all_positions_then_uses_table_fallback():
     manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
+    manager._visited_search_positions = {'ws_1': previous_pick_positions}
     manager._place_table_client = object()
     manager._manipulation_timeout = lambda: 120.0
     manager._prepare_for_pick_observation = lambda: None
@@ -1110,7 +1117,11 @@ def test_table_place_searches_all_positions_then_uses_table_fallback():
 
     def call_action(client, goal, *_args, **_kwargs):
         action_calls.append((client, goal))
-        if goal.use_fallback_pose:
+        if (
+            goal.use_fallback_pose
+            or (free_at_second_point
+                and manager._current_lateral_position_mm == 250.0)
+        ):
             return _place_result(
                 PlaceOnTable,
                 ManipulationResult.SUCCESS,
@@ -1127,11 +1138,11 @@ def test_table_place_searches_all_positions_then_uses_table_fallback():
 
     manager._execute_manipulation(Step('place_table', 'place_on_table'))
 
-    assert travels == [250, -500]
-    assert [call[0] for call in action_calls].count(
-        manager._place_table_client) == 4
-    assert action_calls[-1][0] is manager._place_table_client
-    assert action_calls[-1][1].use_fallback_pose is True
+    assert travels == ([250] if free_at_second_point else [250, -500])
+    assert len(action_calls) == (2 if free_at_second_point else 4)
+    assert all(client is manager._place_table_client
+               for client, _ in action_calls)
+    assert action_calls[-1][1].use_fallback_pose is not free_at_second_point
     assert action_calls[-1][1].ws_height_cm == pytest.approx(12.5)
     assert all(
         not goal.use_fallback_pose for _, goal in action_calls[:-1]
@@ -1139,7 +1150,7 @@ def test_table_place_searches_all_positions_then_uses_table_fallback():
     assert manager._world_state.snapshot()[1] == EMPTY
 
 
-def test_container_place_retries_at_next_search_position_and_continues():
+def test_container_place_retries_after_apriltag_search():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._world_state.commit_pick(8)
@@ -1148,6 +1159,8 @@ def test_container_place_retries_at_next_search_position_and_continues():
     manager._ws_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
+    manager._visited_search_positions = {'ws_1': {0, 250, -250}}
+    manager._container_search_positions = {}
     manager._place_container_client = object()
     manager._manipulation_timeout = lambda: 120.0
     manager._prepare_for_pick_observation = lambda: None

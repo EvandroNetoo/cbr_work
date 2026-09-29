@@ -1020,8 +1020,10 @@ class MissionManager(Node):
             ):
                 visited.add(position)
 
-    def _current_search_position_visited(self) -> bool:
-        """Whether the current WS search point was analyzed earlier."""
+    def _current_search_position_visited(
+        self, positions_by_area: dict[str, set[int]] | None = None
+    ) -> bool:
+        """Whether the current WS point was analyzed for this detector."""
         if self._current_wall_distance_mm is None:
             return False
         config = self._arena.pickup_recovery
@@ -1029,7 +1031,9 @@ class MissionManager(Node):
         if (abs(area.alignment.distance_mm - self._current_wall_distance_mm)
                 > config.wall_tolerance_mm):
             return False
-        visited = getattr(self, '_visited_search_positions', {}).get(
+        if positions_by_area is None:
+            positions_by_area = getattr(self, '_visited_search_positions', {})
+        visited = positions_by_area.get(
             self._current_location, set())
         return any(
             position in visited
@@ -1348,9 +1352,13 @@ class MissionManager(Node):
         timeout: float,
     ) -> None:
         """Retry perception-based placement across table search points."""
-        visited: set[int] = set(
-            getattr(self, '_visited_search_positions', {}).get(
-                self._current_location, set())
+        # AprilTag observations do not analyze free table space. Table placement
+        # must try every configured point for this step. Container placement may
+        # reuse only positions where container detection actually ran.
+        visited: set[int] = (
+            set(getattr(self, '_container_search_positions', {}).get(
+                self._current_location, set()))
+            if step.action == 'place_in_container' else set()
         )
         positioned_from_memory = False
         if step.action == 'place_in_container':
@@ -1363,7 +1371,8 @@ class MissionManager(Node):
                 and not positioned_from_memory
                 and (
                     self._current_observation_excludes_container(color)
-                    or self._current_search_position_visited()
+                    or self._current_search_position_visited(
+                        getattr(self, '_container_search_positions', {}))
                 )
             ):
                 self.get_logger().info(
