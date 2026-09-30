@@ -847,6 +847,97 @@ def test_search_selects_nearest_unvisited_absolute_position():
     assert not manager._move_to_next_search_position(3)
 
 
+@pytest.mark.parametrize('message,traveled_mm,is_protection,blocked_destination', [
+    ('Obstaculo no lado direito a 8 mm do footprint; minimo solicitado: 10 mm.',
+     180.0, True, True),
+    ('Desalinhamento de 101 mm excede o limite de 100 mm.',
+     180.0, True, True),
+    ('Obstaculo no lado direito a 8 mm do footprint; minimo solicitado: 10 mm.',
+     245.0, True, False),
+    ('Desalinhamento de 101 mm excede o limite de 100 mm.',
+     260.0, True, False),
+    ('Parede e percurso lateral alcançados.', 180.0, False, False),
+])
+def test_blocked_pick_destination_is_shared_with_container_search(
+    message, traveled_mm, is_protection, blocked_destination
+):
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._visited_search_positions = {'ws_1': {0}}
+    manager._container_search_positions = {}
+    manager._blocked_search_positions = {}
+    manager._prepare_for_pick_observation = lambda: None
+    manager.get_logger = lambda: SimpleNamespace(
+        info=lambda *_args: None, warning=lambda *_args: None)
+
+    def control_wall(distance, *_args, **_kwargs):
+        result = FollowWall.Result()
+        result.has_valid_reading = True
+        result.has_valid_odometry = True
+        result.message = message
+        result.final_average_distance_mm = float(distance)
+        result.traveled_distance_mm = traveled_mm
+        if is_protection:
+            assert manager._accept_wall_control_abort(result)
+        return result
+
+    manager._control_wall = control_wall
+    assert manager._move_to_next_search_position(3)
+    assert manager._current_lateral_position_mm == traveled_mm
+    assert manager._visited_search_positions['ws_1'] == {0, 250}
+    assert manager._container_search_positions == {}
+    assert manager._blocked_search_positions == (
+        {'ws_1': {250}} if blocked_destination else {})
+
+    destinations = []
+    manager._move_to_table_position = (
+        lambda _wall, position, _description:
+        destinations.append(position) or True)
+    assert manager._move_to_next_place_search_position(
+        Step('place', 'place_in_container', container_color='red'),
+        {0}, manager._arena.pickup_recovery.search_positions_mm)
+    assert destinations == [-250 if blocked_destination else 250]
+
+    manager._current_lateral_position_mm = 0.0
+    manager._visited_search_positions = {'ws_1': {0}}
+    destinations.clear()
+    assert manager._move_to_next_search_position(4)
+    assert destinations == [-250 if blocked_destination else 250]
+
+
+def test_left_search_destination_is_blocked_after_protection_stop():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._blocked_search_positions = {}
+    manager._prepare_for_pick_observation = lambda: None
+    manager.get_logger = lambda: SimpleNamespace(
+        info=lambda *_args: None, warning=lambda *_args: None)
+
+    def control_wall(distance, *_args, **_kwargs):
+        result = FollowWall.Result()
+        result.has_valid_reading = True
+        result.has_valid_odometry = True
+        result.message = (
+            'Obstaculo no lado esquerdo a 8 mm do footprint; '
+            'minimo solicitado: 10 mm.')
+        result.final_average_distance_mm = float(distance)
+        result.traveled_distance_mm = -180.0
+        assert manager._accept_wall_control_abort(result)
+        return result
+
+    manager._control_wall = control_wall
+    manager._move_to_table_position(200, -250, 'busca à esquerda')
+
+    assert manager._current_lateral_position_mm == -180.0
+    assert manager._blocked_search_positions == {'ws_1': {-250}}
+
+
 def test_unknown_pick_skips_detection_at_last_observed_adjusted_position():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)

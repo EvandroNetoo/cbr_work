@@ -131,9 +131,12 @@ posições são coordenadas absolutas em milímetros, configuradas em
 `pickup_recovery.search_positions_mm`; o padrão da arena é `[0, 325, -325]`.
 Todas as posições de busca precisam estar dentro dos limites laterais.
 Cada destino é marcado como tentado depois que o movimento termina, inclusive
-quando `FollowWall` é interrompida por uma proteção tolerada. Assim, a busca
-avança para a próxima posição sem repetir indefinidamente um extremo bloqueado;
-a posição física interna continua usando somente o deslocamento medido.
+quando `FollowWall` é interrompida por uma proteção tolerada. Se a proteção
+impedir alcançar um destino lateral configurado, ele também é registrado como
+bloqueado para as buscas de AprilTag e contêiner na mesma área. Esse registro
+não afirma que o destino foi observado pela câmera: as observações de cada
+detector continuam separadas, e a posição física usa somente o deslocamento
+medido. Assim, a busca não volta a selecionar o extremo bloqueado.
 Em cada posição, todas as outras tags encontradas também atualizam a memória.
 Uma tag coletada é removida, sem apagar as demais observações. Se a próxima tag
 não apareceu na última análise e a base continua na mesma posição, essa análise
@@ -159,9 +162,10 @@ ou o contêiner solicitado, ou se a manipulação falhar antes de abrir a
 garra, o mission manager mantém o objeto na garra, move a base para a posição
 ainda não examinada mais próxima e repete a action semântica.
 `place_in_container` reutiliza também as posições em que uma análise anterior
-da missão já procurou containers: se a cor solicitada não apareceu na última
-observação da posição atual, não repete a mesma detecção. `place_on_table`
-mantém seu conjunto de busca independente.
+da missão já procurou containers e exclui destinos bloqueados durante a busca
+de AprilTag. Se a cor solicitada não apareceu na última observação da posição
+atual, não repete a mesma detecção. `place_on_table` mantém seu conjunto de
+busca independente.
 
 Depois de examinar todas as posições configuradas, o gerenciador chama
 `PlaceOnTable` em modo de fallback. Nesse modo, a percepção é ignorada e a

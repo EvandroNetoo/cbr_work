@@ -14,17 +14,17 @@ steps:
     action: pick
     tag_id: 1
 
-  - id: guardar_cubo_1_na_esquerda
+  - id: guardar_cubo_1_na_direita
     action: store
-    slot_id: left
+    slot_id: right
 
   - id: pegar_cubo_2
     action: pick
     tag_id: 2
 
-  - id: guardar_cubo_2_na_direita
+  - id: guardar_cubo_2_na_esquerda
     action: store
-    slot_id: right
+    slot_id: left
 
   - id: pegar_cubo_10
     action: pick
@@ -39,17 +39,25 @@ steps:
     action: place_in_container
     container_color: blue
 
-  - id: retirar_cubo_1_da_esquerda
+  - id: retirar_cubo_1_da_direita
     action: retrieve
-    slot_id: left
+    slot_id: right
 
   - id: depositar_cubo_1_no_container_vermelho_ws_2
     action: place_in_container
     container_color: red
 
-  - id: retirar_cubo_2_da_direita
-    action: retrieve
+  - id: pegar_cubo_4
+    action: pick
+    tag_id: 4
+
+  - id: guardar_cubo_4_na_direita
+    action: store
     slot_id: right
+
+  - id: retirar_cubo_2_da_esquerda
+    action: retrieve
+    slot_id: left
 
   - id: colocar_cubo_2_como_base_na_ws_2
     action: place_on_table
@@ -63,13 +71,6 @@ steps:
   #   action: stack
   #   support_tag_id: 2
 
-  - id: pegar_cubo_4
-    action: pick
-    tag_id: 4
-
-  - id: guardar_cubo_4_na_esquerda
-    action: store
-    slot_id: left
 
   - id: pegar_cubo_5
     action: pick
@@ -84,21 +85,15 @@ steps:
     action: place_in_container
     container_color: blue
 
-  - id: retirar_cubo_4_da_esquerda
-    action: retrieve
-    slot_id: left
-
-  - id: colocar_cubo_4_na_ws_3
-    action: place_on_table
-
-  # Ainda na WS 3: coleta os cubos 6, 11 e 12.
   - id: pegar_cubo_6
     action: pick
     tag_id: 6
 
-  - id: guardar_cubo_6_na_esquerda
-    action: store
-    slot_id: left
+  # - id: guardar_cubo_6_na_esquerda
+  #   action: store
+  #   slot_id: left
+
+  # Ainda na WS 3: coleta os cubos 6, 11 e 12.
 
   # - id: pegar_cubo_11
   #   action: pick
@@ -108,25 +103,27 @@ steps:
   #   action: store
   #   slot_id: right
 
-  - id: pegar_cubo_12
-    action: pick
-    tag_id: 12
+  # - id: pegar_cubo_12
+  #   action: pick
+  #   tag_id: 12
 
   # WS 4: cubo 12 no contêiner vermelho; cubo 11 empilhado sobre o cubo 6.
   - id: transportar_terceiro_lote_para_ws_4
     action: navigate
     target: ws_4
 
-  - id: depositar_cubo_12_no_container_vermelho_ws_4
+  - id: depositar_cubo_6_no_container_vermelho_ws_4
     action: place_in_container
     container_color: red
 
-  - id: retirar_cubo_6_da_esquerda
+  - id: retirar_cubo_4_da_direita
     action: retrieve
-    slot_id: left
+    slot_id: right
 
-  - id: colocar_cubo_6_como_base_na_ws_4
+  - id: colocar_cubo_4_na_ws_4
     action: place_on_table
+
+
 
   # - id: retirar_cubo_11_da_direita
   #   action: retrieve
@@ -141,11 +138,23 @@ steps:
     action: pick
     tag_id: 13
 
-  - id: transportar_cubo_13_para_ws_1
+  - id: depositar_cubo_13_no_container_vermelho_ws_4
+    action: place_in_container
+    container_color: red
+
+  - id: trasportar_quarto_lote_para_ws_1
     action: navigate
     target: ws_1
 
-  - id: depositar_cubo_13_na_mesa_ws_1
+  - id: pegar_cubo_12
+    action: pick
+    tag_id: 12
+
+  - id: trasportar_quinto_lote_para_ws_4
+    action: navigate
+    target: ws_4
+
+  - id: depositar_cubo_12_na_mesa_ws_1
     action: place_on_table
 
   - id: finalizar_missao

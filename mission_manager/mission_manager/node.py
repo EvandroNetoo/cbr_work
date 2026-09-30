@@ -143,6 +143,8 @@ class MissionManager(Node):
         ] = {}
         self._container_search_positions: dict[str, set[int]] = {}
         self._visited_search_positions: dict[str, set[int]] = {}
+        self._blocked_search_positions: dict[str, set[int]] = {}
+        self._last_wall_control_protection_stop = False
         self._last_table_observation: TableObservation | None = None
         self._active_child = None
         self._arena: Arena | None = None
@@ -499,6 +501,7 @@ class MissionManager(Node):
             and message.startswith(tolerated_prefixes)
         )
         if accepted:
+            self._last_wall_control_protection_stop = True
             self.get_logger().warning(
                 f'FollowWall interrompida por protecao; a missao continuara: '
                 f'{message} Resultado parcial: parede='
@@ -595,6 +598,7 @@ class MissionManager(Node):
             f'{ignore_alignment_sec:.1f} s, '
             f'timeout={timeout_s:.1f} s.'
         )
+        self._last_wall_control_protection_stop = False
         result = self._call_action(
             self._wall_control_client,
             goal,
@@ -985,6 +989,7 @@ class MissionManager(Node):
             f'percurso lateral solicitado={travel} mm.'
         )
         self._prepare_for_pick_observation()
+        self._last_wall_control_protection_stop = False
         follow_result = self._control_wall(
             wall,
             config.wall_tolerance_mm,
@@ -994,6 +999,31 @@ class MissionManager(Node):
             travel_tolerance_mm=config.travel_tolerance_mm,
         )
         self._update_table_position(follow_result)
+        destination_unreached = (
+            travel > 0
+            and self._current_lateral_position_mm
+            < bounded_lateral_position_mm - config.travel_tolerance_mm
+        ) or (
+            travel < 0
+            and self._current_lateral_position_mm
+            > bounded_lateral_position_mm + config.travel_tolerance_mm
+        )
+        if (
+            travel != 0
+            and self._last_wall_control_protection_stop
+            and destination_unreached
+            and bounded_lateral_position_mm in config.search_positions_mm
+        ):
+            blocked_by_area = getattr(self, '_blocked_search_positions', None)
+            if blocked_by_area is None:
+                blocked_by_area = {}
+                self._blocked_search_positions = blocked_by_area
+            blocked_by_area.setdefault(self._current_location, set()).add(
+                round(bounded_lateral_position_mm))
+            self.get_logger().warning(
+                f'Destino lateral {bounded_lateral_position_mm:.0f} mm '
+                f'bloqueado em {self._current_location} apos protecao; '
+                f'posicao medida={self._current_lateral_position_mm:.1f} mm.')
         self.get_logger().info(
             f'Estado da mesa atualizado ({description}): parede='
             f'{self._current_wall_distance_mm:.1f} mm, lateral='
@@ -1069,9 +1099,11 @@ class MissionManager(Node):
         visited = self._visited_search_positions.setdefault(
             self._current_location, set()
         )
+        blocked = getattr(self, '_blocked_search_positions', {}).get(
+            self._current_location, set())
         candidates = [
             position for position in config.search_positions_mm
-            if position not in visited
+            if position not in visited and position not in blocked
         ]
         if not candidates:
             return False
@@ -1148,9 +1180,14 @@ class MissionManager(Node):
     ) -> bool:
         """Move to the nearest untried table-search point for this step."""
         assert self._arena is not None
+        blocked = (
+            getattr(self, '_blocked_search_positions', {}).get(
+                self._current_location, set())
+            if step.action == 'place_in_container' else set()
+        )
         candidates = [
             position for position in positions
-            if position not in visited
+            if position not in visited and position not in blocked
         ]
         if not candidates:
             return False
@@ -1386,7 +1423,8 @@ class MissionManager(Node):
                     raise StepFailed(
                         f"passo '{step.step_id}' (pick) falhou: AprilTag "
                         f'{step.tag_id} não apareceu nas observações e '
-                        'todas as posições de busca já foram examinadas.'
+                        'todas as posições de busca já foram examinadas '
+                        'ou bloqueadas por proteção.'
                     )
         original_fallback_pending = original_observation is not None
         reposition_count = 0
@@ -1727,6 +1765,8 @@ class MissionManager(Node):
         self._container_observations.clear()
         self._container_search_positions.clear()
         self._visited_search_positions.clear()
+        self._blocked_search_positions.clear()
+        self._last_wall_control_protection_stop = False
         self._last_table_observation = None
         completed = 0
         failed_step = ''
