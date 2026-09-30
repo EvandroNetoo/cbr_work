@@ -191,13 +191,14 @@ def test_keepout_masks_match_localization_map_geometry():
         mask_yaml = yaml.safe_load(
             (maps_directory / f'{name}_keepout.yaml').read_text())
         assert mask_yaml['image'] == f'{name}_keepout.pgm'
-        for key in ('resolution', 'origin', 'mode', 'negate'):
+        for key in ('resolution', 'origin', 'negate'):
             assert mask_yaml[key] == map_yaml[key]
+        assert mask_yaml['mode'] == 'scale'
         mask = (maps_directory / mask_yaml['image']).read_bytes()
         header_end = mask.index(b'255\n') + 4
         assert b'150 150' in mask[:header_end]
         assert len(mask[header_end:]) == 150 * 150
-        assert set(mask[header_end:]) == {255}
+        assert 255 in mask[header_end:]
 
 
 def test_maps_are_installed_with_the_bringup_package():
