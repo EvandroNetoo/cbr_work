@@ -678,7 +678,7 @@ class VL53DistanceAction(Node):
 
             goal_handle.executing()
             self._activate_goal_resources(
-                lateral_safety_enabled=minimum_lateral_clearance_mm > 0)
+                lateral_safety_enabled=True)
             self._follow_wall_controller.reset()
             assert self._sensor_pair is not None
             self._sensor_pair.reset_filter()
@@ -1072,8 +1072,8 @@ class VL53DistanceAction(Node):
         feedback.elapsed = duration_message(elapsed)
         goal_handle.publish_feedback(feedback)
 
-    @staticmethod
     def _follow_wall_result(
+        self,
         sample: DistanceSample | None,
         has_valid_odometry: bool,
         traveled_mm: float,
@@ -1087,6 +1087,22 @@ class VL53DistanceAction(Node):
             result.final_left_distance_mm = sample.left_mm
             result.final_right_distance_mm = sample.right_mm
             result.final_average_distance_mm = sample.average_mm
+        with self._lock:
+            clearances = self._latest_lateral_clearances
+            updated = self._lateral_scan_updated
+        if (
+            clearances is not None
+            and time.monotonic() - updated <= self._lateral_scan_timeout
+        ):
+            result.has_fresh_lateral_scan = True
+            if clearances.left_mm is not None:
+                result.has_valid_left_lateral_clearance = True
+                result.final_left_lateral_clearance_mm = float(
+                    clearances.left_mm)
+            if clearances.right_mm is not None:
+                result.has_valid_right_lateral_clearance = True
+                result.final_right_lateral_clearance_mm = float(
+                    clearances.right_mm)
         result.traveled_distance_mm = float(traveled_mm)
         result.elapsed = duration_message(elapsed)
         result.message = message

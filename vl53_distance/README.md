@@ -18,6 +18,12 @@ executor monta seu wait set.
 ros2 launch vl53_distance vl53_distance.launch.py
 ```
 
+O resultado do `FollowWall` inclui as folgas laterais medidas pelo LiDAR,
+separadas para esquerda e direita, mesmo quando a proteção lateral do goal
+está desativada. `has_fresh_lateral_scan` sinaliza scan recente; cada
+`has_valid_*_lateral_clearance` sinaliza obstáculo detectado no lado. Sem
+cluster lateral dentro do alcance, a respectiva distância não tem valor válido.
+
 Para ficar a 50 mm da parede sem mudar de posição lateral:
 
 ```bash

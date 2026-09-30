@@ -638,3 +638,22 @@ def test_follow_wall_returns_laterally_and_aborts_after_recovery(monkeypatch):
     assert calls[2] == (290, 300, pytest.approx(100.0), 100)
     assert goal.feedback[0].alignment_error_mm == pytest.approx(101.0)
     assert not server._desired_valid
+
+
+def test_follow_wall_result_reports_fresh_lidar_clearances():
+    server = _bare_server(None)
+    server._latest_lateral_clearances = LateralClearances(
+        left_mm=75.0, right_mm=None)
+    server._lateral_scan_updated = time.monotonic()
+
+    result = server._follow_wall_result(None, False, 0.0, 0.0, 'teste')
+
+    assert result.has_fresh_lateral_scan
+    assert result.has_valid_left_lateral_clearance
+    assert result.final_left_lateral_clearance_mm == 75.0
+    assert not result.has_valid_right_lateral_clearance
+
+    server._lateral_scan_updated -= 1.0
+    stale = server._follow_wall_result(None, False, 0.0, 0.0, 'teste')
+    assert not stale.has_fresh_lateral_scan
+    assert not stale.has_valid_left_lateral_clearance

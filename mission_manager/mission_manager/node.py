@@ -77,6 +77,8 @@ class MissionManager(Node):
             'follow_wall.max_alignment_error_mm': 100,
             'follow_wall.alignment_recovery_distance_mm': 100,
             'follow_wall.minimum_lateral_clearance_mm': 10,
+            'deposit_lateral_retreat.threshold_mm': 100,
+            'deposit_lateral_retreat.distance_mm': 50,
             'prepare_action': '/manipulation/prepare',
             'pick_action': '/manipulation/pick',
             'store_action': '/manipulation/store',
@@ -104,6 +106,12 @@ class MissionManager(Node):
         self._wall_minimum_lateral_clearance_mm = (
             self._nonnegative_integer_parameter(
                 'follow_wall.minimum_lateral_clearance_mm'))
+        self._deposit_lateral_retreat_threshold_mm = (
+            self._nonnegative_integer_parameter(
+                'deposit_lateral_retreat.threshold_mm'))
+        self._deposit_lateral_retreat_distance_mm = (
+            self._nonnegative_integer_parameter(
+                'deposit_lateral_retreat.distance_mm'))
         if (
             self._wall_alignment_recovery_distance_mm > 0
             and self._wall_max_alignment_error_mm == 0
@@ -122,6 +130,8 @@ class MissionManager(Node):
         self._current_location = 'start'
         self._current_wall_distance_mm: float | None = None
         self._current_lateral_position_mm = 0.0
+        self._last_follow_wall_result: FollowWall.Result | None = None
+        self._last_lateral_travel_direction = 0
         self._tag_observations: dict[tuple[str, int], TagObservation] = {}
         self._container_observations: dict[
             tuple[str, int], ContainerObservation
@@ -524,6 +534,7 @@ class MissionManager(Node):
         max_alignment_error_mm: int | None = None,
         alignment_recovery_distance_mm: int | None = None,
         minimum_lateral_clearance_mm: int | None = None,
+        accept_safety_abort: bool = True,
     ) -> FollowWall.Result:
         goal = FollowWall.Goal()
         goal.wall_distance_mm = int(distance_mm)
@@ -568,14 +579,82 @@ class MissionManager(Node):
             description,
             timeout_s + 5.0,
             self._wall_control_failure,
-            accept_unsuccessful_result=self._accept_wall_control_abort,
+            accept_unsuccessful_result=(
+                self._accept_wall_control_abort if accept_safety_abort else None),
         )
+        self._last_follow_wall_result = result
+        if (
+            goal.travel_distance_mm != 0
+            and abs(float(result.traveled_distance_mm)) > 1.0
+        ):
+            self._last_lateral_travel_direction = (
+                1 if result.traveled_distance_mm > 0 else -1)
         self.get_logger().info(
             f'FollowWall finalizada ({description}): parede final='
             f'{result.final_average_distance_mm:.1f} mm, deslocamento lateral '
             f'efetivo={result.traveled_distance_mm:.1f} mm; {result.message}'
         )
         return result
+
+    def _retreat_from_lateral_wall_before_deposit(
+        self, *, storage_side: str | None = None
+    ) -> None:
+        """Afasta a base do lado da ultima manobra lateral, se necessario."""
+        direction = getattr(self, '_last_lateral_travel_direction', 0)
+        if direction == 0:
+            return
+        if storage_side is not None and storage_side != (
+            'right' if direction > 0 else 'left'
+        ):
+            return
+        result = self._last_follow_wall_result
+        threshold = self._deposit_lateral_retreat_threshold_mm
+        distance = self._deposit_lateral_retreat_distance_mm
+        if result is None or threshold == 0 or distance == 0:
+            return
+        if not result.has_fresh_lateral_scan:
+            raise StepFailed(
+                'LiDAR lateral indisponivel apos deslocamento; deposito '
+                'bloqueado porque nao foi possivel verificar a folga.')
+        if direction > 0:
+            valid = result.has_valid_right_lateral_clearance
+            clearance = result.final_right_lateral_clearance_mm
+            side = 'direito'
+        else:
+            valid = result.has_valid_left_lateral_clearance
+            clearance = result.final_left_lateral_clearance_mm
+            side = 'esquerdo'
+        if not valid or clearance >= threshold:
+            return
+        if self._current_wall_distance_mm is None:
+            raise StepFailed(
+                'Distancia frontal desconhecida para recuo lateral antes '
+                'do deposito.')
+        assert self._arena is not None
+        config = self._arena.pickup_recovery
+        requested_target = (
+            self._current_lateral_position_mm - direction * distance)
+        target = self._clamp_lateral_position(requested_target)
+        if target != requested_target:
+            raise StepFailed(
+                f'Folga no lado {side} de {clearance:.1f} mm, mas o '
+                'limite de posicao lateral impede o recuo completo antes '
+                'do deposito.')
+        travel = round(target - self._current_lateral_position_mm)
+        self.get_logger().warning(
+            f'Folga no lado {side} de {clearance:.1f} mm abaixo de '
+            f'{threshold} mm; recuando {abs(travel)} mm antes do deposito.')
+        retreat_result = self._control_wall(
+            round(self._current_wall_distance_mm),
+            config.wall_tolerance_mm,
+            config.timeout_s,
+            f'recuo lateral antes do deposito ({side})',
+            travel_distance_mm=travel,
+            travel_tolerance_mm=config.travel_tolerance_mm,
+            accept_safety_abort=False,
+        )
+        self._update_table_position(retreat_result)
+        self._last_lateral_travel_direction = 0
 
     def _navigation_timeout(self) -> float:
         return float(self.get_parameter('navigation_timeout_s').value)
@@ -1184,6 +1263,8 @@ class MissionManager(Node):
         )
         self._current_wall_distance_mm = None
         self._current_lateral_position_mm = 0.0
+        self._last_follow_wall_result = None
+        self._last_lateral_travel_direction = 0
         if target in self._arena.service_areas:
             if self._arena.service_areas[target].area_type == 'WS':
                 self._activate_ws_vision()
@@ -1395,6 +1476,7 @@ class MissionManager(Node):
                     continue
                 break
             positioned_from_memory = False
+            self._retreat_from_lateral_wall_before_deposit()
             result = self._call_manipulation_action(
                 client,
                 goal,
@@ -1443,6 +1525,7 @@ class MissionManager(Node):
             f"Nenhum destino utilizável para o passo '{step.step_id}' nas "
             'posições de busca; usando o fallback padrão de place_on_table.'
         )
+        self._retreat_from_lateral_wall_before_deposit()
         result = self._call_manipulation_action(
             self._place_table_client,
             fallback_goal,
@@ -1533,6 +1616,11 @@ class MissionManager(Node):
             )
             return
 
+        if transition == 'store':
+            self._retreat_from_lateral_wall_before_deposit(
+                storage_side=slot_id)
+        elif transition == 'place':
+            self._retreat_from_lateral_wall_before_deposit()
         result = self._call_manipulation_action(
             client,
             goal,
@@ -1618,6 +1706,8 @@ class MissionManager(Node):
         self._current_location = 'start'
         self._current_wall_distance_mm = None
         self._current_lateral_position_mm = 0.0
+        self._last_follow_wall_result = None
+        self._last_lateral_travel_direction = 0
         self._tag_observations.clear()
         self._container_observations.clear()
         self._container_search_positions.clear()

@@ -11,6 +11,8 @@ mission_manager:
     follow_wall.max_alignment_error_mm: 100
     follow_wall.alignment_recovery_distance_mm: 100
     follow_wall.minimum_lateral_clearance_mm: 10
+    deposit_lateral_retreat.threshold_mm: 100
+    deposit_lateral_retreat.distance_mm: 50
     prepare_action: /manipulation/prepare
     pick_action: /manipulation/pick
     store_action: /manipulation/store

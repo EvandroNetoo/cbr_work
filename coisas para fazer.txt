@@ -1,4 +1,3 @@
 nao bater na parede do lado ao guardar cubo
-se o chao for branco e o robo tiver do lado da mesa, ele pode depositar o cubo fora da mesa (limitar distancia para ir para o lado para depositar)
 
 pegar cubo em -90 quando obstaculo do lado (ou sempre em -90(junta pior))

@@ -1469,3 +1469,110 @@ def test_ws_vision_is_disabled_before_departure_alignment():
     manager._navigate('start')
 
     assert events == ['off', 'departure', 'navigate']
+
+
+@pytest.mark.parametrize('direction,side,expected_travel', [
+    (1, 'right', -50),
+    (-1, 'left', 50),
+])
+def test_deposit_retreat_uses_lidar_side_of_last_travel(
+    direction, side, expected_travel
+):
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_wall_distance_mm = 40.0
+    manager._current_lateral_position_mm = 0.0
+    manager._deposit_lateral_retreat_threshold_mm = 100
+    manager._deposit_lateral_retreat_distance_mm = 50
+    manager._last_lateral_travel_direction = direction
+    result = FollowWall.Result()
+    result.has_fresh_lateral_scan = True
+    setattr(result, f'has_valid_{side}_lateral_clearance', True)
+    setattr(result, f'final_{side}_lateral_clearance_mm', 80.0)
+    manager._last_follow_wall_result = result
+    manager.get_logger = lambda: SimpleNamespace(warning=lambda _text: None)
+    calls = []
+
+    def control_wall(*args, **kwargs):
+        calls.append((args, kwargs))
+        retreat = FollowWall.Result()
+        retreat.final_average_distance_mm = 40.0
+        retreat.traveled_distance_mm = float(expected_travel)
+        return retreat
+
+    manager._control_wall = control_wall
+    manager._retreat_from_lateral_wall_before_deposit()
+
+    assert len(calls) == 1
+    assert calls[0][1]['travel_distance_mm'] == expected_travel
+    assert calls[0][1]['accept_safety_abort'] is False
+    assert manager._current_lateral_position_mm == expected_travel
+    assert manager._last_lateral_travel_direction == 0
+
+
+@pytest.mark.parametrize('clearance,expected_calls', [(99.0, 1), (100.0, 0)])
+def test_deposit_retreat_threshold(clearance, expected_calls):
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_wall_distance_mm = 40.0
+    manager._current_lateral_position_mm = 0.0
+    manager._deposit_lateral_retreat_threshold_mm = 100
+    manager._deposit_lateral_retreat_distance_mm = 50
+    manager._last_lateral_travel_direction = 1
+    result = FollowWall.Result()
+    result.has_fresh_lateral_scan = True
+    result.has_valid_right_lateral_clearance = True
+    result.final_right_lateral_clearance_mm = clearance
+    manager._last_follow_wall_result = result
+    manager.get_logger = lambda: SimpleNamespace(warning=lambda _text: None)
+    calls = []
+    def control_wall(*args, **kwargs):
+        calls.append((args, kwargs))
+        retreat = FollowWall.Result()
+        retreat.final_average_distance_mm = 40.0
+        retreat.traveled_distance_mm = -50.0
+        return retreat
+    manager._control_wall = control_wall
+    manager._retreat_from_lateral_wall_before_deposit()
+    assert len(calls) == expected_calls
+
+
+def test_deposit_blocks_without_fresh_lidar_after_lateral_travel():
+    manager = MissionManager.__new__(MissionManager)
+    manager._last_lateral_travel_direction = 1
+    manager._last_follow_wall_result = FollowWall.Result()
+    manager._deposit_lateral_retreat_threshold_mm = 100
+    manager._deposit_lateral_retreat_distance_mm = 50
+    with pytest.raises(StepFailed, match='LiDAR lateral indisponivel'):
+        manager._retreat_from_lateral_wall_before_deposit()
+
+
+@pytest.mark.parametrize('storage_side,expected_calls', [
+    ('right', 1),
+    ('left', 0),
+])
+def test_storage_retreat_requires_matching_side(storage_side, expected_calls):
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_wall_distance_mm = 40.0
+    manager._current_lateral_position_mm = 0.0
+    manager._deposit_lateral_retreat_threshold_mm = 100
+    manager._deposit_lateral_retreat_distance_mm = 50
+    manager._last_lateral_travel_direction = 1
+    result = FollowWall.Result()
+    result.has_fresh_lateral_scan = True
+    result.has_valid_right_lateral_clearance = True
+    result.final_right_lateral_clearance_mm = 80.0
+    manager._last_follow_wall_result = result
+    manager.get_logger = lambda: SimpleNamespace(warning=lambda _text: None)
+    calls = []
+    def control_wall(*args, **kwargs):
+        calls.append((args, kwargs))
+        retreat = FollowWall.Result()
+        retreat.final_average_distance_mm = 40.0
+        retreat.traveled_distance_mm = -50.0
+        return retreat
+    manager._control_wall = control_wall
+    manager._retreat_from_lateral_wall_before_deposit(
+        storage_side=storage_side)
+    assert len(calls) == expected_calls

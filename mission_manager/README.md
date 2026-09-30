@@ -63,6 +63,25 @@ folga lateral bloqueia um goal que também corrige a distância frontal, o
 e então devolve o resultado parcial. Timeout, falha de sensores, odometria
 inválida e comunicação continuam encerrando a missão.
 
+## Recuo lateral antes do depósito
+
+Cada resultado do `FollowWall` inclui a folga lateral do LiDAR para os lados
+esquerdo e direito, medida desde o footprint. `has_fresh_lateral_scan` indica
+se houve um scan recente; os campos `has_valid_*_lateral_clearance` indicam
+se foi detectado obstáculo no respectivo lado. Sem obstáculo no alcance, o
+campo desse lado fica inválido e o recuo não é necessário.
+
+Antes de armazenar em um compartimento lateral ou iniciar uma action de
+depósito, o mission manager compara a folga do lado do último deslocamento
+lateral com `deposit_lateral_retreat.threshold_mm`. Se a
+folga for menor, envia um novo `FollowWall` no sentido oposto com percurso
+`deposit_lateral_retreat.distance_mm`. Para `StoreObject`, o recuo só é
+considerado quando o compartimento fica no lado do último deslocamento. Os
+padrões são 100 mm e 50 mm, respectivamente. A operação só começa depois de
+completar o recuo. Uma leitura
+obsoleta ou um limite de posição que impeça o recuo bloqueia o depósito.
+Definir qualquer um dos dois parâmetros como `0` desativa esse recuo.
+
 ## Recuperação de coleta fora do alcance
 
 Cada resultado de `PickObject`, bem-sucedido ou não, inclui todas as AprilTags

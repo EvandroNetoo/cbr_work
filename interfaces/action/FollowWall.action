@@ -15,6 +15,13 @@ bool has_valid_odometry
 int32 final_left_distance_mm
 int32 final_right_distance_mm
 float32 final_average_distance_mm
+# Folga entre o footprint e o obstaculo lateral detectado pelo LiDAR.
+# Cada valor so e valido quando o indicador correspondente for true.
+bool has_fresh_lateral_scan
+bool has_valid_left_lateral_clearance
+bool has_valid_right_lateral_clearance
+float32 final_left_lateral_clearance_mm
+float32 final_right_lateral_clearance_mm
 float32 traveled_distance_mm
 builtin_interfaces/Duration elapsed
 string message
