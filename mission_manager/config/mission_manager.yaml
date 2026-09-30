@@ -9,10 +9,11 @@ mission_manager:
     navigate_action: /navigate_to_pose
     wall_control_action: /vl53/follow_wall
     follow_wall.max_alignment_error_mm: 100
+    follow_wall.alignment_error_ignore_sec: 1.0
     follow_wall.alignment_recovery_distance_mm: 100
     follow_wall.minimum_lateral_clearance_mm: 10
     deposit_lateral_retreat.threshold_mm: 100
-    deposit_lateral_retreat.distance_mm: 50
+    deposit_lateral_retreat.distance_mm: 100
     prepare_action: /manipulation/prepare
     pick_action: /manipulation/pick
     store_action: /manipulation/store

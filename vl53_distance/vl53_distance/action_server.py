@@ -460,6 +460,8 @@ class VL53DistanceAction(Node):
         wall_tolerance = int(request.wall_tolerance_mm)
         travel_tolerance = int(request.travel_tolerance_mm)
         max_alignment_error = int(request.max_alignment_error_mm)
+        alignment_ignore_duration = duration_seconds(
+            request.alignment_error_ignore_duration)
         recovery_distance = int(request.alignment_recovery_distance_mm)
         minimum_lateral_clearance = int(
             request.minimum_lateral_clearance_mm)
@@ -479,6 +481,14 @@ class VL53DistanceAction(Node):
             self.get_logger().warning(
                 'Goal rejeitado: limite de desalinhamento não pode ser '
                 'negativo.')
+            return GoalResponse.REJECT
+        if (
+            not math.isfinite(alignment_ignore_duration)
+            or alignment_ignore_duration < 0.0
+        ):
+            self.get_logger().warning(
+                'Goal rejeitado: tempo de ignorar desalinhamento deve ser '
+                'nao negativo.')
             return GoalResponse.REJECT
         if recovery_distance < 0:
             self.get_logger().warning(
@@ -650,6 +660,19 @@ class VL53DistanceAction(Node):
                 self._sensor_pair = None
                 sensor_pair.close()
 
+    @staticmethod
+    def _alignment_outside_limit(
+        alignment_error_mm: int,
+        max_alignment_error_mm: int,
+        time_since_first_sample_s: float,
+        ignore_duration_s: float,
+    ) -> bool:
+        return (
+            max_alignment_error_mm > 0
+            and time_since_first_sample_s >= ignore_duration_s
+            and abs(alignment_error_mm) > max_alignment_error_mm
+        )
+
     def _execute_follow_wall_goal(self, goal_handle):
         started = time.monotonic()
         last_iteration = started
@@ -662,6 +685,9 @@ class VL53DistanceAction(Node):
         lateral_blocked_since: float | None = None
         lateral_blocked_message: str | None = None
         recovery_target_mm: float | None = None
+        first_valid_sample_at: float | None = None
+        alignment_ignore_duration = duration_seconds(
+            goal_handle.request.alignment_error_ignore_duration)
         recovery_distance_mm = int(
             goal_handle.request.alignment_recovery_distance_mm)
         minimum_lateral_clearance_mm = int(
@@ -794,13 +820,23 @@ class VL53DistanceAction(Node):
                     elapsed = now - started
                     if elapsed >= duration_seconds(goal_handle.request.timeout):
                         continue
+                    if first_valid_sample_at is None:
+                        first_valid_sample_at = now
                     max_alignment_error = int(
                         goal_handle.request.max_alignment_error_mm)
                     alignment_error = sample.right_mm - sample.left_mm
-                    alignment_outside = (
+                    alignment_exceeds_limit = (
                         max_alignment_error > 0
                         and abs(alignment_error) > max_alignment_error
                     )
+                    alignment_outside = self._alignment_outside_limit(
+                        alignment_error,
+                        max_alignment_error,
+                        now - first_valid_sample_at,
+                        alignment_ignore_duration,
+                    )
+                    ignored_misalignment = (
+                        alignment_exceeds_limit and not alignment_outside)
                     if recovery_target_mm is None and alignment_outside:
                         if recovery_distance_mm == 0:
                             self._follow_wall_controller.reset()
@@ -836,8 +872,10 @@ class VL53DistanceAction(Node):
                             f'{recovery_target_mm:.1f} mm de odometria.')
 
                     dt = max(now - last_iteration, 1.0 / self._control_rate_hz)
-                    use_sensor_alignment = (
-                        recovery_target_mm is None or not alignment_outside)
+                    # Mesmo na janela inicial, manter o percurso lateral
+                    # por odometria quando os VL53 discordam demais. O limite
+                    # so pode iniciar recuperacao ou aborto apos a janela.
+                    use_sensor_alignment = not alignment_exceeds_limit
                     control_left_mm = (
                         sample.left_mm
                         if use_sensor_alignment
@@ -916,6 +954,7 @@ class VL53DistanceAction(Node):
                     if (
                         not lateral_safety_handled
                         and command.inside_tolerance
+                        and not ignored_misalignment
                     ):
                         self._follow_wall_controller.reset()
                         self._set_desired_command(0.0, 0.0, 0.0)

@@ -134,6 +134,7 @@ def test_wall_control_uses_zero_travel_for_alignment():
     manager.get_logger = lambda: SimpleNamespace(info=lambda text: logs.append(text))
     manager._wall_control_client = object()
     manager._wall_max_alignment_error_mm = 100
+    manager._wall_alignment_error_ignore_sec = 2.0
     manager._wall_alignment_recovery_distance_mm = 100
     manager._wall_minimum_lateral_clearance_mm = 10
     manager._duration = lambda seconds: seconds
@@ -153,6 +154,7 @@ def test_wall_control_uses_zero_travel_for_alignment():
     assert goal.travel_tolerance_mm == 5
     # Protecoes de alinhamento sao exclusivas do deslocamento lateral.
     assert goal.max_alignment_error_mm == 0
+    assert goal.alignment_error_ignore_duration == 0.0
     assert goal.alignment_recovery_distance_mm == 0
     assert goal.minimum_lateral_clearance_mm == 10
     assert calls[0][3]['accept_unsuccessful_result'] == (
@@ -167,6 +169,7 @@ def test_wall_control_uses_configured_recovery_for_lateral_travel():
     manager.get_logger = lambda: SimpleNamespace(info=lambda _text: None)
     manager._wall_control_client = object()
     manager._wall_max_alignment_error_mm = 100
+    manager._wall_alignment_error_ignore_sec = 2.0
     manager._wall_alignment_recovery_distance_mm = 100
     manager._wall_minimum_lateral_clearance_mm = 10
     manager._duration = lambda seconds: seconds
@@ -183,6 +186,7 @@ def test_wall_control_uses_configured_recovery_for_lateral_travel():
     )
 
     assert goals[0].max_alignment_error_mm == 100
+    assert goals[0].alignment_error_ignore_duration == 2.0
     assert goals[0].alignment_recovery_distance_mm == 100
     assert goals[0].minimum_lateral_clearance_mm == 10
 
@@ -192,6 +196,7 @@ def test_wall_control_accepts_recovery_override_for_departure():
     manager.get_logger = lambda: SimpleNamespace(info=lambda _text: None)
     manager._wall_control_client = object()
     manager._wall_max_alignment_error_mm = 100
+    manager._wall_alignment_error_ignore_sec = 2.0
     manager._wall_alignment_recovery_distance_mm = 100
     manager._wall_minimum_lateral_clearance_mm = 10
     manager._duration = lambda seconds: seconds
@@ -211,6 +216,7 @@ def test_wall_control_accepts_recovery_override_for_departure():
     )
 
     assert goals[0].max_alignment_error_mm == 75
+    assert goals[0].alignment_error_ignore_duration == 2.0
     assert goals[0].alignment_recovery_distance_mm == 50
     assert goals[0].minimum_lateral_clearance_mm == 25
 

@@ -12,16 +12,18 @@ steps:
     action: pick
     tag_id: 1
 
-  - id: depositar_cubo_1_no_container
-    action: place_on_table
+  - id: guardar_cubo_1_na_esquerda
+    action: store
+    slot_id: left
 
   - id: pegar_cubo_2
     action: pick
     tag_id: 2
 
-  - id: depositar_cubo_2_no_container
-    action: place_in_container
-    container_color: red
+
+  - id: guardar_cubo_2_na_esquerda
+    action: store
+    slot_id: right
 
   - id: navigate_to_ws_2
     action: navigate

@@ -52,9 +52,13 @@ pois a recuperação é uma manobra ao longo da parede.
 
 Os limites `follow_wall.max_alignment_error_mm` e
 `follow_wall.alignment_recovery_distance_mm` do `mission_manager.yaml` são
-usados nos demais goals com deslocamento lateral. Durante o alinhamento
-frontal de chegada, ambos são enviados como `0`; no recuo de uma mesa são
-usados os valores do bloco `departure` quando houver retorno lateral. Aborto
+usados nos demais goals com deslocamento lateral.
+`follow_wall.alignment_error_ignore_sec` define por quantos segundos, após a
+primeira leitura VL53 válida, o limite de desalinhamento fica suspenso nesses
+goals; o padrão é 2,0 s. Durante o alinhamento frontal de chegada, os três
+campos são enviados como `0`; no recuo de uma mesa, os limites do bloco
+`departure` são usados quando houver retorno lateral, com a mesma janela
+configurada no mission manager. Aborto
 durante o percurso lateral por desalinhamento, conclusão da
 recuperação ou obstáculo na folga lateral mínima é registrado como aviso e o
 fluxo da missão continua usando o deslocamento efetivamente medido. Quando a

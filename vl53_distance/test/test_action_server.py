@@ -64,6 +64,7 @@ class FakeFollowWallGoal(FakeGoal):
             wall_tolerance_mm=10,
             travel_tolerance_mm=10,
             max_alignment_error_mm=0,
+            alignment_error_ignore_duration=SimpleNamespace(sec=0, nanosec=0),
             alignment_recovery_distance_mm=0,
             minimum_lateral_clearance_mm=0,
             timeout=SimpleNamespace(sec=10, nanosec=0),
@@ -267,6 +268,7 @@ def _follow_request(
     wall_tolerance=10,
     travel_tolerance=10,
     max_alignment_error=0,
+    alignment_ignore_sec=0,
     recovery_distance=0,
     minimum_lateral_clearance=0,
     timeout=10,
@@ -277,6 +279,8 @@ def _follow_request(
         wall_tolerance_mm=wall_tolerance,
         travel_tolerance_mm=travel_tolerance,
         max_alignment_error_mm=max_alignment_error,
+        alignment_error_ignore_duration=SimpleNamespace(
+            sec=alignment_ignore_sec, nanosec=0),
         alignment_recovery_distance_mm=recovery_distance,
         minimum_lateral_clearance_mm=minimum_lateral_clearance,
         timeout=SimpleNamespace(sec=timeout, nanosec=0),
@@ -308,6 +312,10 @@ def test_follow_wall_goal_validation_and_single_goal_reservation():
     )).name == GoalResponse.REJECT.name
     assert server._follow_wall_goal_callback(
         _follow_request(max_alignment_error=-1)).name == GoalResponse.REJECT.name
+    assert server._follow_wall_goal_callback(_follow_request(
+        max_alignment_error=100,
+        alignment_ignore_sec=-1,
+    )).name == GoalResponse.REJECT.name
     assert server._follow_wall_goal_callback(_follow_request(
         max_alignment_error=100,
         recovery_distance=-1,
@@ -657,3 +665,97 @@ def test_follow_wall_result_reports_fresh_lidar_clearances():
     stale = server._follow_wall_result(None, False, 0.0, 0.0, 'teste')
     assert not stale.has_fresh_lateral_scan
     assert not stale.has_valid_left_lateral_clearance
+
+
+@pytest.mark.parametrize('elapsed,expected', [
+    (0.0, False),
+    (1.999, False),
+    (2.0, True),
+    (2.001, True),
+])
+def test_alignment_limit_starts_after_ignore_duration(elapsed, expected):
+    assert VL53DistanceAction._alignment_outside_limit(
+        101, 100, elapsed, 2.0) is expected
+    assert not VL53DistanceAction._alignment_outside_limit(
+        101, 0, elapsed, 2.0)
+    assert not VL53DistanceAction._alignment_outside_limit(
+        100, 100, elapsed, 2.0)
+
+
+@pytest.mark.parametrize('second_sample,second_control,expected_calls', [
+    (DistanceSample(400, 400, 250, 351), (300, 300), 4),
+    (DistanceSample(400, 400, 290, 300), (290, 300), 3),
+])
+def test_follow_wall_moves_during_ignored_alignment_error(
+    monkeypatch, second_sample, second_control, expected_calls
+):
+    outside = DistanceSample(400, 400, 250, 351)
+    aligned = DistanceSample(400, 400, 290, 300)
+    server = _bare_server(SequencePair([
+        outside, second_sample, aligned, aligned]))
+    control_inputs = []
+
+    class WindowController(FakeFollowWallController):
+        def calculate(self, left, right, wall, wall_tolerance, traveled,
+                      travel, travel_tolerance, dt):
+            control_inputs.append((left, right, travel))
+            return FollowWallCommand(
+                0.0, -0.04, 0.0, float(wall), 0.0, float(right - left),
+                traveled, travel - traveled, len(control_inputs) > 1)
+
+    server._follow_wall_controller = WindowController()
+    commands = []
+    set_command = server._set_desired_command
+
+    def record_command(linear_x, linear_y, angular_z):
+        commands.append((linear_x, linear_y, angular_z))
+        set_command(linear_x, linear_y, angular_z)
+
+    server._set_desired_command = record_command
+    pose = OdometryPose(0.0, 0.0, 0.0)
+    server._odometry_snapshot = lambda _now=None: (pose, True)
+    monkeypatch.setattr(action_module.rclpy, 'ok', lambda: True)
+    goal = FakeFollowWallGoal()
+    goal.request.max_alignment_error_mm = 100
+    goal.request.alignment_error_ignore_duration = SimpleNamespace(
+        sec=2, nanosec=0)
+
+    result = server._execute_follow_wall_goal(goal)
+
+    assert goal.terminal == 'succeeded'
+    assert result.has_valid_reading
+    assert control_inputs[0] == (300, 300, 500)
+    assert control_inputs[1][:2] == second_control
+    assert control_inputs[2][:2] == (290, 300)
+    assert len(control_inputs) == expected_calls
+    assert commands[0][1] == pytest.approx(-0.04)
+    assert goal.feedback[0].alignment_error_mm == pytest.approx(101.0)
+
+
+def test_follow_wall_restores_alignment_abort_after_ignore_window(monkeypatch):
+    outside = DistanceSample(400, 400, 250, 351)
+    clock = [0.0]
+
+    class TimedPair(SequencePair):
+        def read(self):
+            if self.read_count == 1:
+                clock[0] = 2.1
+            return super().read()
+
+    pair = TimedPair([outside, outside])
+    server = _bare_server(pair)
+    pose = OdometryPose(0.0, 0.0, 0.0)
+    server._odometry_snapshot = lambda _now=None: (pose, True)
+    monkeypatch.setattr(action_module.rclpy, 'ok', lambda: True)
+    monkeypatch.setattr(action_module.time, 'monotonic', lambda: clock[0])
+    goal = FakeFollowWallGoal()
+    goal.request.max_alignment_error_mm = 100
+    goal.request.alignment_error_ignore_duration = SimpleNamespace(
+        sec=2, nanosec=0)
+
+    result = server._execute_follow_wall_goal(goal)
+
+    assert pair.read_count == 2
+    assert goal.terminal == 'aborted'
+    assert 'Desalinhamento de 101 mm' in result.message
+    assert goal.feedback[0].linear_y_velocity_mps != 0.0

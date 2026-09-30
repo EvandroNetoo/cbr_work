@@ -59,9 +59,10 @@ class MissionManager(Node):
             or not hasattr(PickObject.Result(), 'scene_observation')
             or not hasattr(PrepareManipulator.Goal(), 'gripper_loaded')
             or not hasattr(PlaceOnTable.Goal(), 'use_fallback_pose')
+            or not hasattr(FollowWall.Goal(), 'alignment_error_ignore_duration')
         ):
             raise ConfigurationError(
-                'As interfaces de manipulação instaladas estão desatualizadas; '
+                'As interfaces instaladas estão desatualizadas; '
                 'recompile interfaces antes de iniciar o mission_manager.'
             )
         share = Path(get_package_share_directory('mission_manager'))
@@ -75,6 +76,7 @@ class MissionManager(Node):
             'navigate_action': '/navigate_to_pose',
             'wall_control_action': '/vl53/follow_wall',
             'follow_wall.max_alignment_error_mm': 100,
+            'follow_wall.alignment_error_ignore_sec': 2.0,
             'follow_wall.alignment_recovery_distance_mm': 100,
             'follow_wall.minimum_lateral_clearance_mm': 10,
             'deposit_lateral_retreat.threshold_mm': 100,
@@ -100,6 +102,9 @@ class MissionManager(Node):
         self._wall_max_alignment_error_mm = (
             self._nonnegative_integer_parameter(
                 'follow_wall.max_alignment_error_mm'))
+        self._wall_alignment_error_ignore_sec = (
+            self._nonnegative_float_parameter(
+                'follow_wall.alignment_error_ignore_sec'))
         self._wall_alignment_recovery_distance_mm = (
             self._nonnegative_integer_parameter(
                 'follow_wall.alignment_recovery_distance_mm'))
@@ -279,6 +284,15 @@ class MissionManager(Node):
             raise ConfigurationError(
                 f'{name} deve ser um inteiro nao negativo.')
         return int(value)
+
+    def _nonnegative_float_parameter(self, name: str) -> float:
+        raw = self.get_parameter(name).value
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise ConfigurationError(f'{name} deve ser nao negativo.')
+        value = float(raw)
+        if not math.isfinite(value) or value < 0.0:
+            raise ConfigurationError(f'{name} deve ser nao negativo.')
+        return value
 
     def _call_action(
         self,
@@ -558,6 +572,9 @@ class MissionManager(Node):
         )
         goal.max_alignment_error_mm = (
             configured_max_alignment_error if has_lateral_travel else 0)
+        goal.alignment_error_ignore_duration = self._duration(
+            self._wall_alignment_error_ignore_sec
+            if goal.max_alignment_error_mm > 0 else 0.0)
         goal.alignment_recovery_distance_mm = (
             configured_recovery_distance if has_lateral_travel else 0)
         goal.minimum_lateral_clearance_mm = (
@@ -566,12 +583,17 @@ class MissionManager(Node):
             else minimum_lateral_clearance_mm
         )
         goal.timeout = self._duration(timeout_s)
+        ignore_alignment_sec = (
+            self._wall_alignment_error_ignore_sec
+            if goal.max_alignment_error_mm > 0 else 0.0)
         self.get_logger().info(
             f'Iniciando FollowWall ({description}): parede alvo='
             f'{goal.wall_distance_mm}±{goal.wall_tolerance_mm} mm, '
             f'deslocamento lateral={goal.travel_distance_mm}±'
             f'{goal.travel_tolerance_mm} mm, folga lateral minima='
-            f'{goal.minimum_lateral_clearance_mm} mm, timeout={timeout_s:.1f} s.'
+            f'{goal.minimum_lateral_clearance_mm} mm, ignorar desalinhamento='
+            f'{ignore_alignment_sec:.1f} s, '
+            f'timeout={timeout_s:.1f} s.'
         )
         result = self._call_action(
             self._wall_control_client,

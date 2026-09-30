@@ -62,6 +62,7 @@ def test_follow_wall_safety_parameters_are_enabled_by_default():
     parameters = config['mission_manager']['ros__parameters']
 
     assert parameters['follow_wall.max_alignment_error_mm'] == 100
+    assert parameters['follow_wall.alignment_error_ignore_sec'] == 2.0
     assert parameters['follow_wall.alignment_recovery_distance_mm'] == 100
     assert parameters['follow_wall.minimum_lateral_clearance_mm'] == 10
     assert 'place_at_pose_action' not in parameters
