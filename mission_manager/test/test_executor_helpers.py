@@ -1396,6 +1396,9 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
         )
 
     manager._call_action = call_action
+    retreat_sides = []
+    manager._retreat_from_lateral_wall_before_store = (
+        lambda side: retreat_sides.append(side))
 
     manager._execute_manipulation(Step('pick', 'pick', tag_id=7))
     manager._execute_manipulation(Step('store', 'store', slot_id='left'))
@@ -1418,6 +1421,7 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
         Step('red_container', 'place_in_container', container_color='red')
     )
 
+    assert retreat_sides == ['left']
     assert calls[0][1].tag_id == 7
     assert calls[0][1].profile == ''
     assert calls[1][1].slot_id == 'left'
@@ -1481,7 +1485,7 @@ def test_ws_vision_is_disabled_before_departure_alignment():
     (1, 'right', -50),
     (-1, 'left', 50),
 ])
-def test_deposit_retreat_uses_lidar_side_of_last_travel(
+def test_store_retreat_uses_lidar_side_of_last_travel(
     direction, side, expected_travel
 ):
     manager = MissionManager.__new__(MissionManager)
@@ -1507,7 +1511,7 @@ def test_deposit_retreat_uses_lidar_side_of_last_travel(
         return retreat
 
     manager._control_wall = control_wall
-    manager._retreat_from_lateral_wall_before_deposit()
+    manager._retreat_from_lateral_wall_before_store(side)
 
     assert len(calls) == 1
     assert calls[0][1]['travel_distance_mm'] == expected_travel
@@ -1517,7 +1521,7 @@ def test_deposit_retreat_uses_lidar_side_of_last_travel(
 
 
 @pytest.mark.parametrize('clearance,expected_calls', [(99.0, 1), (100.0, 0)])
-def test_deposit_retreat_threshold(clearance, expected_calls):
+def test_store_retreat_threshold(clearance, expected_calls):
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_wall_distance_mm = 40.0
@@ -1539,18 +1543,18 @@ def test_deposit_retreat_threshold(clearance, expected_calls):
         retreat.traveled_distance_mm = -50.0
         return retreat
     manager._control_wall = control_wall
-    manager._retreat_from_lateral_wall_before_deposit()
+    manager._retreat_from_lateral_wall_before_store('right')
     assert len(calls) == expected_calls
 
 
-def test_deposit_blocks_without_fresh_lidar_after_lateral_travel():
+def test_store_blocks_without_fresh_lidar_after_lateral_travel():
     manager = MissionManager.__new__(MissionManager)
     manager._last_lateral_travel_direction = 1
     manager._last_follow_wall_result = FollowWall.Result()
     manager._deposit_lateral_retreat_threshold_mm = 100
     manager._deposit_lateral_retreat_distance_mm = 50
     with pytest.raises(StepFailed, match='LiDAR lateral indisponivel'):
-        manager._retreat_from_lateral_wall_before_deposit()
+        manager._retreat_from_lateral_wall_before_store('right')
 
 
 @pytest.mark.parametrize('storage_side,expected_calls', [
@@ -1579,6 +1583,5 @@ def test_storage_retreat_requires_matching_side(storage_side, expected_calls):
         retreat.traveled_distance_mm = -50.0
         return retreat
     manager._control_wall = control_wall
-    manager._retreat_from_lateral_wall_before_deposit(
-        storage_side=storage_side)
+    manager._retreat_from_lateral_wall_before_store(storage_side)
     assert len(calls) == expected_calls

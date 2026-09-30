@@ -14,7 +14,15 @@ steps:
 
   - id: guardar_cubo_1_na_esquerda
     action: store
-    slot_id: left
+    slot_id: right
+
+  - id: pegar_cubo_1_na_esquerda
+    action: retrieve
+    slot_id: right
+
+  - id: depositar_cubo_1_no_container_azul
+    action: place_in_container
+    container_color: red
 
   - id: pegar_cubo_2
     action: pick

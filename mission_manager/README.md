@@ -75,16 +75,18 @@ se houve um scan recente; os campos `has_valid_*_lateral_clearance` indicam
 se foi detectado obstáculo no respectivo lado. Sem obstáculo no alcance, o
 campo desse lado fica inválido e o recuo não é necessário.
 
-Antes de armazenar em um compartimento lateral ou iniciar uma action de
-depósito, o mission manager compara a folga do lado do último deslocamento
-lateral com `deposit_lateral_retreat.threshold_mm`. Se a
-folga for menor, envia um novo `FollowWall` no sentido oposto com percurso
-`deposit_lateral_retreat.distance_mm`. Para `StoreObject`, o recuo só é
-considerado quando o compartimento fica no lado do último deslocamento. Os
-padrões são 100 mm e 50 mm, respectivamente. A operação só começa depois de
-completar o recuo. Uma leitura
-obsoleta ou um limite de posição que impeça o recuo bloqueia o depósito.
-Definir qualquer um dos dois parâmetros como `0` desativa esse recuo.
+Antes de `StoreObject`, o mission manager compara a folga do LiDAR no lado
+do compartimento (`left` ou `right`) com
+`deposit_lateral_retreat.threshold_mm`, somente quando o último deslocamento
+lateral foi na direção desse compartimento. Se a folga for menor, envia um
+novo `FollowWall` no sentido oposto com percurso
+`deposit_lateral_retreat.distance_mm`. O armazenamento só começa depois de
+completar o recuo. Uma leitura obsoleta ou um limite de posição que impeça o
+recuo bloqueia o armazenamento. Os valores são definidos em
+`config/mission_manager.yaml`; configurar qualquer um como `0` desativa a
+regra.
+Essa verificação não se aplica a depósitos em mesa, contêiner ou prateleira,
+nem ao empilhamento.
 
 ## Recuperação de coleta fora do alcance
 
