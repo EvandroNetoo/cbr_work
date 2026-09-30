@@ -1,3 +1,5 @@
 nao bater na parede do lado ao guardar cubo
 
 pegar cubo em -90 quando obstaculo do lado (ou sempre em -90(junta pior))
+
+na parte de empilhar, tem que procurar na mesa toda o local de empilhar

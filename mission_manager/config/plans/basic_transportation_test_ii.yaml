@@ -1,0 +1,77 @@
+schema_version: 1
+plan_id: basic_transportation_test_ii
+
+# Teste de 8 minutos. Exemplo de cinco ATTCs e quatro destinos ativos.
+# Neste exemplo, a tag 5 começa na ws_2 e vai para ws_1; as tags 1 a 4
+# começam na ws_1 e vão para ws_2, ws_3 e ws_4. Ajuste cada coleta e
+# destino conforme a distribuição real e as AprilTags sorteadas.
+# Calibre em arena.yaml as alturas reais (5, 10 ou 15 cm), poses e mapa
+# de navegação após posicionar os dois obstáculos. O YAML não configura
+# obstáculos, desvios dinâmicos nem o prazo de 8 minutos.
+steps:
+  - id: ir_para_origem_do_attc_5
+    action: navigate
+    target: ws_2
+  - id: pegar_attc_5
+    action: pick
+    tag_id: 5
+  - id: levar_attc_5_para_ws_1
+    action: navigate
+    target: ws_1
+  - id: entregar_attc_5
+    action: place_on_table
+
+  - id: pegar_attc_1
+    action: pick
+    tag_id: 1
+  - id: guardar_attc_1
+    action: store
+    slot_id: left
+  - id: pegar_attc_2
+    action: pick
+    tag_id: 2
+  - id: guardar_attc_2
+    action: store
+    slot_id: right
+  - id: pegar_attc_3
+    action: pick
+    tag_id: 3
+
+  - id: levar_attcs_1_e_3_para_ws_2
+    action: navigate
+    target: ws_2
+  - id: entregar_attc_3
+    action: place_on_table
+  - id: retirar_attc_1
+    action: retrieve
+    slot_id: left
+  - id: entregar_attc_1
+    action: place_on_table
+
+  - id: levar_attc_2_para_ws_3
+    action: navigate
+    target: ws_3
+  - id: retirar_attc_2
+    action: retrieve
+    slot_id: right
+  - id: entregar_attc_2
+    action: place_on_table
+
+  - id: voltar_para_origem_do_attc_4
+    action: navigate
+    target: ws_1
+  - id: pegar_attc_4
+    action: pick
+    tag_id: 4
+  - id: levar_attc_4_para_ws_3
+    action: navigate
+    target: ws_3
+  - id: entregar_attc_4
+    action: place_on_table
+
+  - id: pegar_ponto_ws_4
+    action: navigate
+    target: ws_4
+
+  - id: finalizar
+    action: finish

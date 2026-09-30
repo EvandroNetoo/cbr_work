@@ -1,0 +1,101 @@
+schema_version: 1
+plan_id: advanced_transportation_test_i
+
+# Advanced Transportation Test I: limite de 14 minutos.
+# Exemplo de IDs e destinos: ajuste-os conforme os seis ATTCs sorteados.
+# As três distrações não aparecem em passos pick e não devem ser manipuladas.
+# A arena atual define apenas ws_1 a ws_4. Para a prova completa, cadastre
+# as seis áreas em arena.yaml com poses, lados e alturas reais; depois ajuste
+# os targets abaixo. O plano não impõe prazo nem escolhe IDs dinamicamente.
+# A entrega superior na prateleira permanece inteiramente comentada. Assim,
+# esta versão executável transporta cinco ATTCs e ainda não completa a prova.
+steps:
+  # Primeiro lote: três ATTCs coletados na ws_3 e entregues na ws_2.
+  - id: ir_para_coleta_do_primeiro_lote
+    action: navigate
+    target: ws_3
+
+  - id: pegar_attc_1_azul
+    action: pick
+    tag_id: 1
+  - id: guardar_attc_1
+    action: store
+    slot_id: left
+
+  - id: pegar_attc_2_vermelho
+    action: pick
+    tag_id: 2
+  - id: guardar_attc_2
+    action: store
+    slot_id: right
+
+  - id: pegar_attc_3_mesa
+    action: pick
+    tag_id: 3
+
+  - id: levar_primeiro_lote_para_ws_2
+    action: navigate
+    target: ws_2
+  - id: colocar_attc_3_na_mesa
+    action: place_on_table
+
+  - id: retirar_attc_2
+    action: retrieve
+    slot_id: right
+  - id: colocar_attc_2_no_vermelho
+    action: place_in_container
+    container_color: red
+
+  - id: retirar_attc_1
+    action: retrieve
+    slot_id: left
+  - id: colocar_attc_1_no_azul
+    action: place_in_container
+    container_color: blue
+
+  # Segundo lote: a tag 4 forma a base; a tag 5 é empilhada sobre ela.
+  - id: voltar_para_coleta_do_segundo_lote
+    action: navigate
+    target: ws_1
+  - id: pegar_attc_5_topo
+    action: pick
+    tag_id: 5
+  - id: guardar_attc_5
+    action: store
+    slot_id: left
+  - id: pegar_attc_4_base
+    action: pick
+    tag_id: 4
+
+  - id: levar_pilha_para_ws_4
+    action: navigate
+    target: ws_4
+
+  - id: empilhar_attc_4_sobre_attc_14
+    action: stack
+    support_tag_id: 14
+
+
+  - id: retirar_attc_5
+    action: retrieve
+    slot_id: left
+
+  - id: empilhar_attc_5_sobre_attc_4
+    action: stack
+    support_tag_id: 4
+
+  # Habilitar somente quando houver prateleira e área de destino cadastradas.
+  # - id: voltar_para_coleta_do_attc_6
+  #   action: navigate
+  #   target: ws_1
+  # - id: pegar_attc_6_prateleira
+  #   action: pick
+  #   tag_id: 6
+  # - id: levar_attc_6_para_prateleira
+  #   action: navigate
+  #   target: ws_5
+  # - id: colocar_attc_6_na_prateleira_superior
+  #   action: place_on_shelf
+
+  - id: finalizar
+    action: finish

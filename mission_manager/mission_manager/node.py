@@ -138,6 +138,7 @@ class MissionManager(Node):
         self._last_follow_wall_result: FollowWall.Result | None = None
         self._last_lateral_travel_direction = 0
         self._tag_observations: dict[tuple[str, int], TagObservation] = {}
+        self._placed_tag_viewpoints: dict[tuple[str, int], tuple[int, float]] = {}
         self._container_observations: dict[
             tuple[str, int], ContainerObservation
         ] = {}
@@ -874,6 +875,8 @@ class MissionManager(Node):
     def _forget_picked_tag(self, tag_id: int) -> None:
         for key in [key for key in self._tag_observations if key[1] == tag_id]:
             del self._tag_observations[key]
+        for key in [key for key in getattr(self, '_placed_tag_viewpoints', {}) if key[1] == tag_id]:
+            del self._placed_tag_viewpoints[key]
 
     def _clamp_lateral_position(self, position_mm: float) -> float:
         assert self._arena is not None
@@ -1052,6 +1055,35 @@ class MissionManager(Node):
             f'retorno à posição armazenada da AprilTag {tag_id}',
         )
         return observation
+
+    def _position_from_placed_tag_memory(self, tag_id: int) -> bool:
+        viewpoint = getattr(self, '_placed_tag_viewpoints', {}).get(
+            (self._current_location, tag_id))
+        if viewpoint is None:
+            return False
+        wall, lateral = viewpoint
+        self.get_logger().info(
+            f'AprilTag {tag_id} empilhada em {self._current_location}; '
+            f'retornando ao ponto de observação parede={wall} mm, '
+            f'lateral={lateral:.0f} mm.'
+        )
+        self._move_to_table_position(
+            wall, lateral, f'retorno ao empilhamento da AprilTag {tag_id}')
+        return True
+
+    def _remember_placed_tag_viewpoint(self, tag_id: int) -> None:
+        if self._current_wall_distance_mm is None:
+            return
+        memory = getattr(self, '_placed_tag_viewpoints', None)
+        if memory is None:
+            memory = {}
+            self._placed_tag_viewpoints = memory
+        memory[(self._current_location, tag_id)] = (
+            round(self._current_wall_distance_mm),
+            self._current_lateral_position_mm,
+        )
+        # A observação feita antes da soltura não localiza o cubo na mesa.
+        self._tag_observations.pop((self._current_location, tag_id), None)
 
     def _position_from_container_memory(self, color: int) -> bool:
         memory = getattr(self, '_container_observations', {})
@@ -1606,6 +1638,92 @@ class MissionManager(Node):
             f'{failure}'
         )
 
+    def _execute_stack_with_search(
+        self, step: Step, goal: StackObject.Goal, tag_id: int, timeout: float,
+    ) -> None:
+        """Use known tag locations, then search only unexamined viewpoints."""
+        assert self._arena is not None
+        support_tag_id = int(goal.support_tag_id)
+        config = self._arena.pickup_recovery
+        original_observation = None
+        if config.enabled:
+            placed_viewpoint = self._position_from_placed_tag_memory(
+                support_tag_id)
+            if not placed_viewpoint:
+                original_observation = self._position_from_memory(
+                    support_tag_id)
+            if (
+                not placed_viewpoint
+                and original_observation is None
+                and (
+                    self._current_observation_excludes(support_tag_id)
+                    or self._current_search_position_visited()
+                )
+            ):
+                self.get_logger().info(
+                    f'AprilTag {support_tag_id} não localizada nas '
+                    'observações da posição atual; evitando nova detecção '
+                    'no mesmo local.'
+                )
+                if not self._move_to_next_search_position(support_tag_id):
+                    raise StepFailed(
+                        f"passo '{step.step_id}' (stack) falhou: AprilTag "
+                        f'{support_tag_id} não apareceu nas observações e '
+                        'todas as posições de busca já foram examinadas '
+                        'ou bloqueadas por proteção.'
+                    )
+        original_fallback_pending = original_observation is not None
+        while True:
+            result = self._call_manipulation_action(
+                self._stack_client, goal,
+                f"passo '{step.step_id}' (stack)", timeout, 'place', tag_id,
+            )
+            failure = self._manipulation_failure(result)
+            if failure is None:
+                self._remember_placed_tag_viewpoint(tag_id)
+                return
+            if not result.outcome.effect_known:
+                raise StepFailed(
+                    f"passo '{step.step_id}' (stack) deixou o estado físico "
+                    f'incerto: {failure}'
+                )
+
+            known, gripper, _slots = self._world_state.snapshot()
+            if known and gripper == EMPTY:
+                self._remember_placed_tag_viewpoint(tag_id)
+                self.get_logger().warning(
+                    f"Passo '{step.step_id}' confirmou o empilhamento antes "
+                    f'de falhar durante a finalização: {failure}. O fluxo da '
+                    'missão continuará.'
+                )
+                return
+            if not known or gripper != tag_id:
+                raise StepFailed(
+                    f"passo '{step.step_id}' (stack) não pode ser repetido "
+                    f'com segurança: {failure}'
+                )
+            if (
+                config.enabled
+                and result.outcome.code == ManipulationResult.OBJECT_NOT_FOUND
+            ):
+                self._mark_current_search_position(
+                    self._visited_search_positions.setdefault(
+                        self._current_location, set()),
+                    config.search_positions_mm,
+                )
+                if original_fallback_pending:
+                    original_fallback_pending = False
+                    assert original_observation is not None
+                    if self._return_to_original_observation(
+                        support_tag_id, original_observation
+                    ):
+                        continue
+                if self._move_to_next_search_position(support_tag_id):
+                    continue
+            raise StepFailed(
+                f"passo '{step.step_id}' (stack) falhou: {failure}"
+            )
+
     def _execute_manipulation(self, step: Step) -> None:
         assert self._arena is not None
         area = self._arena.service_areas[self._current_location]
@@ -1670,6 +1788,10 @@ class MissionManager(Node):
             self._execute_place_with_recovery(
                 step, client, goal, tag_id, float(area.height_cm), timeout
             )
+            return
+
+        if step.action == 'stack':
+            self._execute_stack_with_search(step, goal, tag_id, timeout)
             return
 
         if transition == 'store':
@@ -1762,6 +1884,7 @@ class MissionManager(Node):
         self._last_follow_wall_result = None
         self._last_lateral_travel_direction = 0
         self._tag_observations.clear()
+        self._placed_tag_viewpoints.clear()
         self._container_observations.clear()
         self._container_search_positions.clear()
         self._visited_search_positions.clear()

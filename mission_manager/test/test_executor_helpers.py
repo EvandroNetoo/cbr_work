@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Time
 from interfaces.action import (
-    FollowWall, PickObject, PlaceInContainer, PlaceOnTable,
+    FollowWall, PickObject, PlaceInContainer, PlaceOnTable, StackObject,
     PrepareManipulator,
 )
 from interfaces.msg import (
@@ -1462,6 +1462,7 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     manager._place_container_client = object()
     manager._stack_client = object()
     manager._place_shelf_client = object()
+    manager.get_logger = lambda: SimpleNamespace(info=lambda _text: None)
     calls = []
 
     def call_action(client, goal, *_args, **_kwargs):
@@ -1504,6 +1505,8 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     ):
         manager._world_state.reset()
         manager._world_state.commit_pick(tag_id)
+        manager._visited_search_positions.clear()
+        manager._last_table_observation = None
         manager._execute_manipulation(step)
     manager._visited_search_positions.clear()
     manager._world_state.reset()
@@ -1676,3 +1679,221 @@ def test_storage_retreat_requires_matching_side(storage_side, expected_calls):
     manager._control_wall = control_wall
     manager._retreat_from_lateral_wall_before_store(storage_side)
     assert len(calls) == expected_calls
+
+
+def _stack_search_manager():
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._world_state.commit_pick(5)
+    arena = _arena()
+    manager._arena = replace(
+        arena,
+        pickup_recovery=replace(
+            arena.pickup_recovery,
+            minimum_lateral_position_mm=-350,
+            maximum_lateral_position_mm=350,
+            search_positions_mm=(0, 325, -325),
+        ),
+    )
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._visited_search_positions = {}
+    manager._tag_observations = {}
+    manager._placed_tag_viewpoints = {}
+    manager._blocked_search_positions = {}
+    manager._stack_client = object()
+    manager._manipulation_timeout = lambda: 120.0
+    manager._prepare_for_pick_observation = lambda: None
+    manager.get_logger = lambda: SimpleNamespace(
+        info=lambda _text: None, warning=lambda _text: None)
+    return manager
+
+
+def test_stack_searches_all_apriltag_positions_after_support_tag_is_missing():
+    manager = _stack_search_manager()
+    travels = []
+    goals = []
+
+    def control_wall(distance, *_args, **kwargs):
+        travel = kwargs['travel_distance_mm']
+        travels.append(travel)
+        result = FollowWall.Result()
+        result.has_valid_reading = True
+        result.has_valid_odometry = True
+        result.final_average_distance_mm = float(distance)
+        result.traveled_distance_mm = float(travel)
+        return result
+
+    def call_action(_client, goal, *_args, **_kwargs):
+        goals.append(goal)
+        return _place_result(
+            StackObject, ManipulationResult.OBJECT_NOT_FOUND,
+            'AprilTag 4 não encontrada',
+        )
+
+    manager._control_wall = control_wall
+    manager._call_action = call_action
+
+    with pytest.raises(StepFailed, match='AprilTag 4 não encontrada'):
+        manager._execute_manipulation(
+            Step('stack', 'stack', support_tag_id=4))
+
+    assert travels == [325, -650]
+    assert len(goals) == 3
+    assert all(goal.support_tag_id == 4 for goal in goals)
+    assert manager._world_state.snapshot()[1] == 5
+
+
+def test_stack_stops_search_when_support_tag_is_found():
+    manager = _stack_search_manager()
+    travels = []
+    codes = iter((
+        ManipulationResult.OBJECT_NOT_FOUND,
+        ManipulationResult.SUCCESS,
+    ))
+
+    def control_wall(distance, *_args, **kwargs):
+        travel = kwargs['travel_distance_mm']
+        travels.append(travel)
+        result = FollowWall.Result()
+        result.has_valid_reading = True
+        result.has_valid_odometry = True
+        result.final_average_distance_mm = float(distance)
+        result.traveled_distance_mm = float(travel)
+        return result
+
+    def call_action(_client, _goal, *_args, **_kwargs):
+        code = next(codes)
+        return _place_result(
+            StackObject, code, 'AprilTag 4 não encontrada'
+            if code == ManipulationResult.OBJECT_NOT_FOUND else '',
+            location=(
+                ManipulationResult.LOCATION_DESTINATION
+                if code == ManipulationResult.SUCCESS
+                else ManipulationResult.LOCATION_UNKNOWN
+            ),
+        )
+
+    manager._control_wall = control_wall
+    manager._call_action = call_action
+
+    manager._execute_manipulation(Step('stack', 'stack', support_tag_id=4))
+
+    assert travels == [325]
+    assert manager._world_state.snapshot()[1] == EMPTY
+
+
+def test_stack_does_not_search_after_motion_failure():
+    manager = _stack_search_manager()
+    manager._move_to_table_position = lambda *_args: pytest.fail(
+        'não deve mover a base após falha de movimento')
+    manager._call_action = lambda *_args, **_kwargs: _place_result(
+        StackObject, ManipulationResult.MOTION_FAILED, 'falha no braço')
+
+    with pytest.raises(StepFailed, match='falha no braço'):
+        manager._execute_manipulation(
+            Step('stack', 'stack', support_tag_id=4))
+
+    assert manager._world_state.snapshot()[1] == 5
+
+
+def test_stack_goes_to_remembered_apriltag_before_analyzing():
+    manager = _stack_search_manager()
+    manager._visited_search_positions = {'ws_1': {0, 325}}
+    manager._tag_observations[('ws_1', 4)] = TagObservation(
+        area_id='ws_1',
+        wall_distance_mm=200.0,
+        lateral_position_mm=325.0,
+        pickup_wall_distance_mm=200,
+        pickup_lateral_position_mm=325.0,
+        detection=_detection(4, 0.0, -0.22),
+    )
+    moves = []
+    calls = []
+
+    def move(wall, lateral, _description):
+        moves.append((wall, lateral))
+        manager._current_wall_distance_mm = float(wall)
+        manager._current_lateral_position_mm = float(lateral)
+        return True
+
+    manager._move_to_table_position = move
+    manager._call_action = lambda _client, goal, *_args, **_kwargs: (
+        calls.append(goal) or _place_result(
+            StackObject, ManipulationResult.SUCCESS,
+            location=ManipulationResult.LOCATION_DESTINATION,
+        )
+    )
+
+    manager._execute_manipulation(Step('stack', 'stack', support_tag_id=4))
+
+    assert moves == [(200, 325.0)]
+    assert len(calls) == 1
+    assert manager._placed_tag_viewpoints[('ws_1', 5)] == (200, 325.0)
+
+
+def test_stack_skips_positions_already_analyzed_without_tag():
+    manager = _stack_search_manager()
+    manager._visited_search_positions = {'ws_1': {0, 325}}
+    moves = []
+    calls = []
+
+    def move(wall, lateral, _description):
+        moves.append((wall, lateral))
+        manager._current_wall_distance_mm = float(wall)
+        manager._current_lateral_position_mm = float(lateral)
+        return True
+
+    manager._move_to_table_position = move
+    manager._call_action = lambda _client, goal, *_args, **_kwargs: (
+        calls.append(goal) or _place_result(
+            StackObject, ManipulationResult.OBJECT_NOT_FOUND,
+            'AprilTag 4 não encontrada',
+        )
+    )
+
+    with pytest.raises(StepFailed, match='AprilTag 4 não encontrada'):
+        manager._execute_manipulation(
+            Step('stack', 'stack', support_tag_id=4))
+
+    assert moves == [(200, -325)]
+    assert len(calls) == 1
+
+
+def test_second_stack_uses_first_stacks_placement_viewpoint():
+    manager = _stack_search_manager()
+    manager._call_action = lambda _client, _goal, *_args, **_kwargs: (
+        _place_result(
+            StackObject, ManipulationResult.SUCCESS,
+            location=ManipulationResult.LOCATION_DESTINATION,
+        )
+    )
+    manager._execute_manipulation(
+        Step('stack_6', 'stack', support_tag_id=14))
+    assert manager._placed_tag_viewpoints[('ws_1', 5)] == (200, 0.0)
+
+    manager._world_state.commit_pick(11)
+    manager._current_lateral_position_mm = 325.0
+    manager._visited_search_positions = {'ws_1': {0, 325, -325}}
+    manager._tag_observations[('ws_1', 5)] = TagObservation(
+        area_id='ws_1',
+        wall_distance_mm=200.0,
+        lateral_position_mm=325.0,
+        pickup_wall_distance_mm=200,
+        pickup_lateral_position_mm=325.0,
+        detection=_detection(5, 0.0, -0.22),
+    )
+    moves = []
+
+    def move(wall, lateral, _description):
+        moves.append((wall, lateral))
+        manager._current_wall_distance_mm = float(wall)
+        manager._current_lateral_position_mm = float(lateral)
+        return True
+
+    manager._move_to_table_position = move
+    manager._execute_manipulation(
+        Step('stack_11', 'stack', support_tag_id=5))
+
+    assert moves == [(200, 0.0)]

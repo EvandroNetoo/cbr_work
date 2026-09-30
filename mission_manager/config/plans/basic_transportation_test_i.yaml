@@ -1,0 +1,53 @@
+schema_version: 1
+plan_id: basic_transportation_test_i
+
+# Teste de 6 minutos. Exemplo: tags 1, 2 e 3 na ws_1, destinadas,
+# respectivamente, às ws_2, ws_3.
+# Ajuste IDs, origem e destinos após o sorteio. Calibre as três áreas ativas
+# em arena.yaml para as alturas reais de 5 ou 10 cm antes de executar.
+# O formato atual do plano não recebe o sorteio nem impõe o prazo.
+steps:
+  - id: ir_para_mesa_de_coleta
+    action: navigate
+    target: ws_1
+
+  - id: pegar_attc_1
+    action: pick
+    tag_id: 1
+  - id: guardar_attc_1
+    action: store
+    slot_id: left
+
+  - id: pegar_attc_2
+    action: pick
+    tag_id: 2
+  - id: guardar_attc_2
+    action: store
+    slot_id: right
+
+  - id: pegar_attc_3
+    action: pick
+    tag_id: 3
+
+  - id: ir_para_destino_do_attc_3_2
+    action: navigate
+    target: ws_4
+  - id: entregar_attc_3
+    action: place_on_table
+  - id: retirar_attc_2
+    action: retrieve
+    slot_id: right
+  - id: entregar_attc_2
+    action: place_on_table
+
+  - id: ir_para_destino_do_attc_1
+    action: navigate
+    target: ws_2
+  - id: retirar_attc_1
+    action: retrieve
+    slot_id: left
+  - id: entregar_attc_1
+    action: place_on_table
+
+  - id: finalizar
+    action: finish

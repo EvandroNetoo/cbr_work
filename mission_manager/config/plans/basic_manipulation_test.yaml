@@ -1,0 +1,51 @@
+schema_version: 1
+plan_id: basic_manipulation_test
+
+# Teste de 4 minutos. Exemplo: quatro ATTCs na mesa da ws_1; somente as
+# tags 1, 2 e 3 são solicitadas. A quarta tag não entra no plano.
+# Antes da prova, ajuste os IDs solicitados e seus destinos.
+# O formato atual do plano não recebe a solicitação nem impõe o prazo.
+steps:
+  - id: ir_para_mesa_de_coleta
+    action: navigate
+    target: ws_1
+
+  - id: pegar_attc_1
+    action: pick
+    tag_id: 1
+  - id: guardar_attc_1
+    action: store
+    slot_id: left
+
+  - id: pegar_attc_2
+    action: pick
+    tag_id: 2
+  - id: guardar_attc_2
+    action: store
+    slot_id: right
+
+  - id: pegar_attc_3
+    action: pick
+    tag_id: 3
+
+  - id: ir_para_destino_dos_attcs_1_2_3
+    action: navigate
+    target: ws_4
+
+  - id: entregar_attc_3
+    action: place_on_table
+
+  - id: retirar_attc_2
+    action: retrieve
+    slot_id: right
+  - id: entregar_attc_2
+    action: place_on_table
+
+  - id: retirar_attc_1
+    action: retrieve
+    slot_id: left
+  - id: entregar_attc_1
+    action: place_on_table
+
+  - id: finalizar
+    action: finish
