@@ -43,6 +43,10 @@ from tf2_ros import Buffer, TransformBroadcaster, TransformException, TransformL
 
 from .constants import APRILTAGS, CONTAINERS_HSV, TABLE_SURFACE
 from .container_pipeline import ContainerPipelineMixin
+from .cube_color import (
+    UNKNOWN, CubeColorCriteria, DEFAULT_CUBE_COLOR_CRITERIA,
+    classify_cube_color, confirmed_color,
+)
 from .debug_images import ContainerDebugFrame, DebugImagesMixin
 from .geometry import rotation_from_quaternion
 from .image_encoding import ImageEncodingMixin
@@ -161,6 +165,7 @@ class Session:
     frames_with_base_transform: int = 0
     best_camera: dict[int, AprilTagStampedDetection] = field(default_factory=dict)
     best_base: dict[int, AprilTagStampedDetection] = field(default_factory=dict)
+    cube_color_votes: dict[int, list[tuple[int, float]]] = field(default_factory=dict)
     latest_camera: list[AprilTagStampedDetection] = field(default_factory=list)
     latest_base: list[AprilTagStampedDetection] = field(default_factory=list)
     hsv_container_tracks: list[PixelTrack] = field(default_factory=list)
@@ -203,6 +208,12 @@ class SceneAnalyzer(
         self.declare_parameter('tag_frame_prefix', 'apriltag')
         self.declare_parameter('family', 'tag36h11')
         self.declare_parameter('tag_size_m', 0.032)
+        self.declare_parameter('cube_color_min_band_pixels', 20)
+        self.declare_parameter('cube_color_min_colored_pixels', 12)
+        self.declare_parameter('cube_color_min_colored_fraction', 0.30)
+        self.declare_parameter('cube_color_min_dominance', 0.80)
+        self.declare_parameter('cube_color_min_confirmed_frames', 2)
+        self.declare_parameter('cube_color_min_vote_share', 0.75)
         self.declare_parameter('nthreads', 1)
         self.declare_parameter('quad_decimate', 1.0)
         self.declare_parameter('max_detection_rate_hz', 10.0)
@@ -269,6 +280,20 @@ class SceneAnalyzer(
         self.floor_frame = str(self.get_parameter('floor_frame').value)
         self.tag_frame_prefix = str(self.get_parameter('tag_frame_prefix').value)
         self.tag_size_m = float(self.get_parameter('tag_size_m').value)
+        self.cube_color_criteria = CubeColorCriteria(
+            min_band_pixels=int(self.get_parameter(
+                'cube_color_min_band_pixels').value),
+            min_colored_pixels=int(self.get_parameter(
+                'cube_color_min_colored_pixels').value),
+            min_colored_fraction=float(self.get_parameter(
+                'cube_color_min_colored_fraction').value),
+            min_dominance=float(self.get_parameter(
+                'cube_color_min_dominance').value),
+            min_confirmed_frames=int(self.get_parameter(
+                'cube_color_min_confirmed_frames').value),
+            min_vote_share=float(self.get_parameter(
+                'cube_color_min_vote_share').value),
+        )
         self.min_decision_margin = float(self.get_parameter('min_decision_margin').value)
         self.max_hamming = int(self.get_parameter('max_hamming').value)
         self.publish_debug_image = bool(
@@ -907,8 +932,12 @@ class SceneAnalyzer(
         # Image callbacks may still be adding observations on the executor
         # while the action worker builds its result.
         with self.sessions_lock:
-            apriltags_camera = list(session.best_camera.values())
-            apriltags_base = list(session.best_base.values())
+            apriltags_camera = [self.copy_stamped(item)
+                                for item in session.best_camera.values()]
+            apriltags_base = [self.copy_stamped(item)
+                              for item in session.best_base.values()]
+            color_votes = {tag_id: list(votes)
+                           for tag_id, votes in session.cube_color_votes.items()}
             hsv_tracks = [PixelTrack(
                 color=track.color, observations=list(track.observations))
                 for track in session.hsv_container_tracks]
@@ -917,6 +946,11 @@ class SceneAnalyzer(
             table_observations = list(session.table_cell_observations)
             table_confirmations = list(session.table_cell_confirmations)
         result = AnalyzeScene.Result()
+        color_criteria = getattr(
+            self, 'cube_color_criteria', DEFAULT_CUBE_COLOR_CRITERIA)
+        for item in (*apriltags_camera, *apriltags_base):
+            item.color, item.color_confidence, item.color_observation_count = (
+                confirmed_color(color_votes.get(item.id, []), color_criteria))
         result.best_apriltags_camera = apriltags_camera
         result.best_apriltags_base = apriltags_base
         camera, base = self._confirmed_hsv_container_results(hsv_tracks)
@@ -1061,6 +1095,7 @@ class SceneAnalyzer(
             [0.0, 0.0, 1.0],
         ], dtype=np.float64)
         detections = []
+        frame_color_votes: dict[int, tuple[int, float]] = {}
         camera_items: list[AprilTagStampedDetection] = []
         camera_poses: list[PoseStamped] = []
         transforms: list[TransformStamped] = []
@@ -1090,6 +1125,15 @@ class SceneAnalyzer(
                 item = self.to_stamped_detection(
                     detection, family, pose,
                     float(detection.pose_err), message.header)
+                color, confidence = classify_cube_color(
+                    bgr, detection.corners, self.red_ranges,
+                    self.blue_range, self.min_saturation, self.min_value,
+                    getattr(self, 'cube_color_criteria', DEFAULT_CUBE_COLOR_CRITERIA))
+                item.color = color
+                item.color_confidence = confidence
+                item.color_observation_count = int(color != UNKNOWN)
+                if color != UNKNOWN:
+                    frame_color_votes[item.id] = (color, confidence)
                 camera_items.append(item)
                 stamped = PoseStamped(header=item.header, pose=pose)
                 camera_poses.append(stamped)
@@ -1248,6 +1292,12 @@ class SceneAnalyzer(
                     session.table_cell_observations[index] += 1
                 if table_confirmed[index]:
                     session.table_cell_confirmations[index] += 1
+            for tag_id, vote in frame_color_votes.items():
+                votes = session.cube_color_votes.setdefault(tag_id, [])
+                votes.append(vote)
+                # A bounded window also keeps continuous sessions responsive
+                # when the robot moves and the lighting changes.
+                del votes[:-20]
             for item in camera_items:
                 self._update_best(session.best_camera, item)
             for item in base_items:
@@ -1290,7 +1340,7 @@ class SceneAnalyzer(
             if debug_detectors:
                 if debug_detectors & APRILTAGS:
                     self.publish_detection_debug_image(
-                        message, image, detections, session,
+                        message, bgr, detections, camera_items, session,
                         self._detector_observation_fps(session, APRILTAGS))
                 if debug_detectors & CONTAINERS_HSV:
                     self.publish_hsv_container_debug_image(
@@ -1349,6 +1399,9 @@ class SceneAnalyzer(
         result.hamming = item.hamming
         result.pose_error = item.pose_error
         result.pose = item.pose
+        result.color = item.color
+        result.color_confidence = item.color_confidence
+        result.color_observation_count = item.color_observation_count
         return result
 
     @staticmethod
@@ -1387,7 +1440,11 @@ class SceneAnalyzer(
             detection = AprilTagDetection(family=item.family, id=item.id,
                                           decision_margin=item.decision_margin,
                                           hamming=item.hamming, pose_error=item.pose_error,
-                                          pose=item.pose)
+                                          pose=item.pose,
+                                          color=item.color,
+                                          color_confidence=item.color_confidence,
+                                          color_observation_count=(
+                                              item.color_observation_count))
             output.detections.append(detection)
         return output
 

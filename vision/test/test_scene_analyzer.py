@@ -196,6 +196,13 @@ def test_profile_combines_apriltag_and_measured_bin3_parameters():
         (PACKAGE / 'config' / 'vision.yaml').read_text()
     )['scene_analyzer']['ros__parameters']
     assert parameters['tag_size_m'] == 0.032
+    from vision.cube_color import CubeColorCriteria
+    criteria = CubeColorCriteria(**{
+        field: parameters[f'cube_color_{field}']
+        for field in CubeColorCriteria.__dataclass_fields__
+    })
+    assert criteria.min_band_pixels > 0
+    assert criteria.min_confirmed_frames > 0
     assert parameters['external_height_m'] == 0.073
     assert parameters['manage_camera_capture'] is True
     assert parameters['manage_vision_led'] is True
@@ -484,6 +491,31 @@ def test_best_apriltag_order_is_preserved():
     assert best[4].pose_error == 1.0
     SceneAnalyzer._update_best(best, _tag_item(4, 1.0, 30.0, 0, 30))
     assert best[4].decision_margin == 30.0
+
+
+def test_cube_color_votes_reach_scene_result_without_changing_best_pose():
+    analyzer = object.__new__(SceneAnalyzer)
+    analyzer.sessions_lock = threading.RLock()
+    analyzer.base_frame = 'base_link'
+    session = Session(goal_handle=SimpleNamespace(), duration=2.0,
+                      requested_detectors=AnalyzeScene.Goal.APRILTAGS)
+    camera = _tag_item(7, 0.4, 80.0)
+    base = _tag_item(7, 0.4, 80.0)
+    session.best_camera[7] = camera
+    session.best_base[7] = base
+    session.cube_color_votes[7] = [(RED, 0.9), (RED, 0.95)]
+
+    result = analyzer._result(session, 'done')
+
+    assert result.best_apriltags_camera[0].color == RED
+    assert result.best_apriltags_base[0].color == RED
+    assert result.best_apriltags_base[0].color_observation_count == 2
+    assert result.best_apriltags_base[0].pose_error == 0.4
+    assert session.best_base[7].color == 0
+    published = SceneAnalyzer.detection_array(
+        'base_link', Image(), result.best_apriltags_base)
+    assert published.detections[0].color == RED
+    assert published.detections[0].color_observation_count == 2
 
 
 def test_usb_camera_and_vision_led_lifecycle_helpers_are_preserved():

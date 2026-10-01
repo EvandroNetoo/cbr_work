@@ -10,6 +10,7 @@ from geometry_msgs.msg import Pose, PoseStamped, TransformStamped
 from interfaces.msg import AprilTagStampedDetection, TableSurfaceGrid
 from sensor_msgs.msg import Image
 from .constants import APRILTAGS, CONTAINERS_HSV, TABLE_SURFACE, COLOR_NAMES, DEBUG_COLORS
+from .cube_color import outer_edge_strips
 from .geometry import rotation_from_quaternion
 
 
@@ -209,7 +210,9 @@ class DebugImagesMixin:
             line_y += 14
             self._draw_debug_text(
                 debug,
-                f'  margin={item.decision_margin:.1f} h={item.hamming}',
+                f'  margin={item.decision_margin:.1f} h={item.hamming} '
+                f"cube={COLOR_NAMES.get(item.color, 'unknown')} "
+                f'({item.color_confidence:.2f}, n={item.color_observation_count})',
                 (5, line_y),
             )
             line_y += 17
@@ -356,10 +359,11 @@ class DebugImagesMixin:
             self._bgr_image_message(cached.header, debug))
 
     def publish_detection_debug_image(
-            self, source: Image, mono: np.ndarray, detections,
-            session: Session, fps: float) -> None:
-        """Publish the detector input annotated with raw AprilTag candidates."""
-        debug = cv2.cvtColor(mono, cv2.COLOR_GRAY2BGR)
+            self, source: Image, bgr: np.ndarray, detections,
+            camera_items, session: Session, fps: float) -> None:
+        """Publish tags and their sampled edge bands on the color image."""
+        debug = bgr.copy()
+        items_by_id = {item.id: item for item in camera_items}
         accepted = 0
         for detection in detections:
             is_accepted = (
@@ -374,8 +378,14 @@ class DebugImagesMixin:
             center = tuple(map(
                 int, np.rint(np.asarray(detection.center)).reshape(2)))
             cv2.circle(debug, center, 3, color, -1, cv2.LINE_AA)
+            item = items_by_id.get(int(detection.tag_id))
+            if item is not None:
+                for polygon in outer_edge_strips(detection.corners):
+                    cv2.polylines(debug, [polygon], True, (0, 255, 255), 1)
+            cube_color = (COLOR_NAMES.get(item.color, 'unknown')
+                          if item is not None else 'unknown')
             label = (
-                f'id={int(detection.tag_id)} '
+                f'id={int(detection.tag_id)} cube={cube_color} '
                 f'm={float(detection.decision_margin):.1f} '
                 f'h={int(detection.hamming)}'
             )

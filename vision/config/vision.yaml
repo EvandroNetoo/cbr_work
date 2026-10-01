@@ -25,6 +25,13 @@ scene_analyzer:
     table_surface_detection_rate_hz: 8.0
     min_decision_margin: 30.0
     max_hamming: 0
+    # Cube color acceptance in the four yellow strips around each tag.
+    cube_color_min_band_pixels: 1
+    cube_color_min_colored_pixels: 1
+    cube_color_min_colored_fraction: 0.001
+    cube_color_min_dominance: 0.80
+    cube_color_min_confirmed_frames: 1
+    cube_color_min_vote_share: 0.75
     # Publica a entrada mono do detector com candidatos e métricas desenhados.
     publish_debug_image: true
     # Drawing and serializing three full-size debug streams every frame is

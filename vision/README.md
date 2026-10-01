@@ -25,6 +25,35 @@ ros2 action send_goal /vision/analyze_scene interfaces/action/AnalyzeScene \
   "{requested_detectors: 8, duration: {sec: 2, nanosec: 0}, work_surface_height_m: 0.05}" --feedback
 ```
 
+## Tagged cube color
+
+The AprilTag detector reads narrow bands outside all four detected tag edges.
+The bands start at the detected edges of the 32 mm tag, include its white
+margin, and use small HSV crops of the rectified camera image. They come from
+the detected corners; no 3D cube projection or full-frame color pass is used.
+Bands with too few colored pixels or competing red and blue pixels are ignored
+or marked ambiguous. The final action result requires the number of
+matching frames configured by `cube_color_min_confirmed_frames`.
+`color=0` means unknown; `1` is red and `2` is blue.
+`color_confidence` and `color_observation_count` are carried on each AprilTag
+detection. Color is independent of pose ranking, so uncertain color does not
+reject a tag. The live AprilTag debug image outlines the sampled bands in
+yellow. Check those bands against real camera images before relying on color
+in a mission.
+
+Acceptance thresholds are set in `config/vision.yaml`:
+
+- `cube_color_min_band_pixels`: minimum pixels in one sampled band.
+- `cube_color_min_colored_pixels`: minimum red or blue pixels in that band.
+- `cube_color_min_colored_fraction`: minimum colored share of the band.
+- `cube_color_min_dominance`: minimum share of one color among colored pixels
+  in a band and across accepted bands.
+- `cube_color_min_confirmed_frames`: minimum matching frame votes.
+- `cube_color_min_vote_share`: minimum weighted share of that color among
+  frame votes.
+
+The HSV hue, saturation and value thresholds are shared with container color.
+
 ## HSV containers
 
 The detector thresholds red and blue in HSV, cleans each mask with an OpenCV
