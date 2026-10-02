@@ -61,6 +61,8 @@ class MissionManager(Node):
             or not hasattr(PickObject.Result(), 'scene_observation')
             or not hasattr(PickObject.Goal(), 'alignment_completed')
             or not hasattr(PickObject.Result, 'RECOVERY_ALIGNMENT_REQUIRED')
+            or not hasattr(StackObject.Goal(), 'require_alignment')
+            or not hasattr(StackObject.Result, 'RECOVERY_ALIGNMENT_REQUIRED')
             or not hasattr(PrepareManipulator.Goal(), 'gripper_loaded')
             or not hasattr(PlaceOnTable.Goal(), 'use_fallback_pose')
             or not hasattr(FollowWall.Goal(), 'alignment_error_ignore_duration')
@@ -137,6 +139,7 @@ class MissionManager(Node):
         self._active_world_operation = ''
         self._current_step_index = 0
         self._current_location = 'start'
+        self._stack_alignment = None
         self._current_wall_distance_mm: float | None = None
         self._current_lateral_position_mm = 0.0
         self._last_follow_wall_result: FollowWall.Result | None = None
@@ -731,6 +734,7 @@ class MissionManager(Node):
         )
 
     def _update_table_position(self, result: FollowWall.Result) -> None:
+        self._stack_alignment = None
         self._current_wall_distance_mm = float(
             result.final_average_distance_mm
         )
@@ -998,6 +1002,7 @@ class MissionManager(Node):
             )
             return False
 
+        self._stack_alignment = None
         self.get_logger().info(
             f'Reposicionamento de mesa ({description}): posição atual '
             f'parede={self._current_wall_distance_mm:.1f} mm, lateral='
@@ -1318,6 +1323,7 @@ class MissionManager(Node):
         self._service_area_vision_active = False
 
     def _navigate(self, target: str) -> None:
+        self._stack_alignment = None
         assert self._arena is not None
         pose = self._arena.pose_for(target)
         if (
@@ -1383,10 +1389,11 @@ class MissionManager(Node):
         self._current_location = target
 
     def _recover_pick(
-        self, result: PickObject.Result, step: Step, *, alignment_only: bool = False,
+        self, result: Any, step: Step, *, alignment_only: bool = False,
+        config: PickupRecoveryConfig | None = None,
     ) -> None:
         assert self._arena is not None
-        config = self._pickup_config()
+        config = config or self._pickup_config()
         if self._current_wall_distance_mm is None:
             raise StepFailed(
                 'Não há uma distância atual válida da parede para recuperar '
@@ -1421,12 +1428,13 @@ class MissionManager(Node):
             if alignment_only:
                 return
             raise StepFailed(
-                f"passo '{step.step_id}' (pick) continua fora do alcance, "
+                f"passo '{step.step_id}' ({step.action}) continua fora do alcance, "
                 'mas a correção calculada não produziria movimento dentro das '
                 'tolerâncias e dos limites configurados.'
             )
         self.get_logger().warning(
-            f'Coleta da AprilTag {step.tag_id} fora do alcance em '
+            f'Alinhamento para {step.action} da AprilTag '
+            f'{step.support_tag_id if step.action == "stack" else step.tag_id} em '
             f'x={pose.x:.3f}, y={pose.y:.3f} m. Reposicionando a base para '
             f'{target_wall} mm da parede e deslocando {bounded_travel} mm '
             f'(positivo=direita, negativo=esquerda).{lateral_limit_message}'
@@ -1438,7 +1446,7 @@ class MissionManager(Node):
         )
         if not moved and not alignment_only:
             raise StepFailed(
-                f"passo '{step.step_id}' (pick) não produziu um novo "
+                f"passo '{step.step_id}' ({step.action}) não produziu um novo "
                 'reposicionamento.'
             )
 
@@ -1673,15 +1681,39 @@ class MissionManager(Node):
             f'{failure}'
         )
 
+    def _stack_is_aligned(self, support_tag_id: int) -> bool:
+        """Reuse alignment only for the next cube on this stack at the same base pose."""
+        alignment = getattr(self, '_stack_alignment', None)
+        return alignment is not None and (
+            alignment[0] == self._current_location
+            and support_tag_id in alignment[1]
+            and alignment[2:] == (
+                self._current_wall_distance_mm, self._current_lateral_position_mm,
+            )
+        )
+
+    def _remember_stack_alignment(self, tag_id: int, support_tag_id: int) -> None:
+        supports = {support_tag_id, tag_id}
+        if self._stack_is_aligned(support_tag_id):
+            supports.update(self._stack_alignment[1])
+        self._stack_alignment = (
+            self._current_location, frozenset(supports),
+            self._current_wall_distance_mm, self._current_lateral_position_mm,
+        )
+
     def _execute_stack_with_search(
         self, step: Step, goal: StackObject.Goal, tag_id: int, timeout: float,
     ) -> None:
         """Use known tag locations, then search only unexamined viewpoints."""
         assert self._arena is not None
         support_tag_id = int(goal.support_tag_id)
-        config = self._arena.pickup_recovery
+        config = replace(
+            self._arena.pickup_recovery,
+            preferred_tag_x_m=self._arena.pickup_recovery.stack_preferred_tag_x_m,
+            preferred_tag_y_m=self._arena.pickup_recovery.stack_preferred_tag_y_m,
+        )
         original_observation = None
-        if config.enabled:
+        if config.enabled and not self._stack_is_aligned(support_tag_id):
             placed_viewpoint = self._position_from_placed_tag_memory(
                 support_tag_id)
             if not placed_viewpoint:
@@ -1708,7 +1740,9 @@ class MissionManager(Node):
                         'ou bloqueadas por proteção.'
                     )
         original_fallback_pending = original_observation is not None
+        alignment_completed = self._stack_is_aligned(support_tag_id)
         while True:
+            goal.require_alignment = not alignment_completed
             result = self._call_manipulation_action(
                 self._stack_client, goal,
                 f"passo '{step.step_id}' (stack)", timeout, 'place', tag_id,
@@ -1716,6 +1750,7 @@ class MissionManager(Node):
             failure = self._manipulation_failure(result)
             if failure is None:
                 self._remember_placed_tag_viewpoint(tag_id)
+                self._remember_stack_alignment(tag_id, support_tag_id)
                 return
             if not result.outcome.effect_known:
                 raise StepFailed(
@@ -1726,6 +1761,7 @@ class MissionManager(Node):
             known, gripper, _slots = self._world_state.snapshot()
             if known and gripper == EMPTY:
                 self._remember_placed_tag_viewpoint(tag_id)
+                self._remember_stack_alignment(tag_id, support_tag_id)
                 self.get_logger().warning(
                     f"Passo '{step.step_id}' confirmou o empilhamento antes "
                     f'de falhar durante a finalização: {failure}. O fluxo da '
@@ -1737,6 +1773,12 @@ class MissionManager(Node):
                     f"passo '{step.step_id}' (stack) não pode ser repetido "
                     f'com segurança: {failure}'
                 )
+            if result.recovery_reason == StackObject.Result.RECOVERY_ALIGNMENT_REQUIRED:
+                if alignment_completed or not result.has_detected_pose:
+                    raise StepFailed('Solicitação de alinhamento do stack sem pose válida ou repetida.')
+                self._recover_pick(result, step, alignment_only=True, config=config)
+                alignment_completed = True
+                continue
             if (
                 config.enabled
                 and result.outcome.code == ManipulationResult.OBJECT_NOT_FOUND
@@ -1752,8 +1794,10 @@ class MissionManager(Node):
                     if self._return_to_original_observation(
                         support_tag_id, original_observation
                     ):
+                        alignment_completed = False
                         continue
                 if self._move_to_next_search_position(support_tag_id):
+                    alignment_completed = False
                     continue
             raise StepFailed(
                 f"passo '{step.step_id}' (stack) falhou: {failure}"
@@ -1781,6 +1825,8 @@ class MissionManager(Node):
             raise StepFailed('Distância de alinhamento para depósito na SH não confirmada.')
 
     def _execute_manipulation(self, step: Step) -> None:
+        if step.action not in {'stack', 'retrieve', 'store'}:
+            self._stack_alignment = None
         assert self._arena is not None
         area = self._arena.service_areas[self._current_location]
         timeout = self._manipulation_timeout()
@@ -1840,7 +1886,7 @@ class MissionManager(Node):
                 f'{error}'
             ) from error
 
-        if transition == 'place' and area.area_type == 'SH':
+        if transition == 'place' and area.area_type == 'SH' and step.action != 'stack':
             self._align_for_shelf_placement(area)
 
         if step.action in {'place_on_table', 'place_in_container'}:
@@ -1871,6 +1917,8 @@ class MissionManager(Node):
             )
 
     def _execute_step(self, step: Step) -> None:
+        if step.action in {'navigate', 'finish'}:
+            self._stack_alignment = None
         if step.action == 'navigate':
             assert step.target is not None
             self._navigate(step.target)
@@ -1935,6 +1983,7 @@ class MissionManager(Node):
         return result
 
     def _execute_callback(self, goal_handle: Any) -> ExecuteMission.Result:
+        self._stack_alignment = None
         self._status = 'running'
         self._service_area_vision_active = False
         self._current_location = 'start'

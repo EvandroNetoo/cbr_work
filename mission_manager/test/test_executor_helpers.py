@@ -1833,6 +1833,120 @@ def _stack_search_manager():
     return manager
 
 
+@pytest.mark.parametrize('enabled', [False, True])
+@pytest.mark.parametrize('area_type', ['WS', 'SH'])
+def test_stack_aligns_first_cube_with_own_targets_and_reuses_alignment(enabled, area_type):
+    manager = _stack_search_manager()
+    manager._arena = replace(manager._arena, pickup_recovery=replace(
+        manager._arena.pickup_recovery, enabled=enabled,
+        stack_preferred_tag_x_m=0.02, stack_preferred_tag_y_m=-0.25,
+    ))
+    manager._arena.service_areas['ws_1'] = replace(
+        manager._arena.service_areas['ws_1'], area_type=area_type,
+    )
+    manager._align_for_shelf_placement = lambda *_args: pytest.fail('Stack alinha pela tag.')
+    goals = []
+    moves = []
+
+    def move(wall, lateral, _description):
+        if (wall, lateral) == (manager._current_wall_distance_mm, manager._current_lateral_position_mm):
+            return False
+        moves.append((wall, lateral))
+        manager._current_wall_distance_mm = float(wall)
+        manager._current_lateral_position_mm = float(lateral)
+        return True
+
+    def call(_client, goal, *_args, **_kwargs):
+        goals.append((goal.support_tag_id, goal.require_alignment))
+        if goal.require_alignment:
+            result = _place_result(StackObject, ManipulationResult.MOTION_FAILED)
+            result.recovery_reason = StackObject.Result.RECOVERY_ALIGNMENT_REQUIRED
+            result.has_detected_pose = True
+            result.detected_pose.pose.position.x = 0.04
+            result.detected_pose.pose.position.y = -0.30
+            return result
+        return _place_result(StackObject, ManipulationResult.SUCCESS,
+                             location=ManipulationResult.LOCATION_DESTINATION)
+
+    manager._move_to_table_position = move
+    manager._call_action = call
+    manager._execute_manipulation(Step('stack_5', 'stack', support_tag_id=4))
+    manager._position_from_placed_tag_memory = lambda *_args: pytest.fail('Pilha já alinhada.')
+    manager._position_from_memory = lambda *_args: pytest.fail('Pilha já alinhada.')
+    manager._world_state.commit_pick(11)  # Cubo seguinte retirado da carga.
+    manager._execute_manipulation(Step('stack_11', 'stack', support_tag_id=5))
+    manager._world_state.commit_pick(12)
+    manager._execute_manipulation(Step('stack_12', 'stack', support_tag_id=4))
+
+    assert goals == [(4, True), (4, False), (5, False), (4, False)]
+    assert moves == [(150, -20.0)]
+    assert manager._stack_is_aligned(12)
+    assert not manager._stack_is_aligned(99)
+
+
+@pytest.mark.parametrize('change', ['wall', 'lateral', 'area', 'navigation', 'pick'])
+def test_stack_alignment_is_invalidated_when_context_changes(change):
+    manager = _stack_search_manager()
+    manager._remember_stack_alignment(5, 4)
+    assert manager._stack_is_aligned(5)
+    if change == 'wall':
+        manager._current_wall_distance_mm += 1
+    elif change == 'lateral':
+        manager._current_lateral_position_mm += 1
+    elif change == 'area':
+        manager._current_location = 'ws_2'
+    elif change == 'navigation':
+        manager._navigate = lambda *_args: None
+        manager._execute_step(Step('move', 'navigate', target='ws_1'))
+    else:
+        manager._execute_pick = lambda *_args: None
+        manager._execute_manipulation(Step('pick', 'pick', tag_id=11))
+    assert not manager._stack_is_aligned(5)
+
+
+def test_stack_alignment_rejects_repeated_handshake():
+    manager = _stack_search_manager()
+    manager._arena = replace(manager._arena, pickup_recovery=replace(
+        manager._arena.pickup_recovery, enabled=False))
+    result = _place_result(StackObject, ManipulationResult.MOTION_FAILED)
+    result.recovery_reason = StackObject.Result.RECOVERY_ALIGNMENT_REQUIRED
+    result.has_detected_pose = True
+    manager._call_action = lambda *_args, **_kwargs: result
+    manager._recover_pick = lambda *_args, **_kwargs: None
+    with pytest.raises(StepFailed, match='repetida'):
+        manager._execute_manipulation(Step('stack', 'stack', support_tag_id=4))
+
+
+@pytest.mark.parametrize('failure', ['missing_pose', 'alignment_failure'])
+def test_stack_alignment_failure_preserves_the_loaded_cube(failure):
+    manager = _stack_search_manager()
+    manager._arena = replace(manager._arena, pickup_recovery=replace(
+        manager._arena.pickup_recovery, enabled=False))
+    result = _place_result(StackObject, ManipulationResult.MOTION_FAILED)
+    result.recovery_reason = StackObject.Result.RECOVERY_ALIGNMENT_REQUIRED
+    result.has_detected_pose = failure != 'missing_pose'
+    manager._call_action = lambda *_args, **_kwargs: result
+
+    def align(*_args, **_kwargs):
+        raise StepFailed('Alinhamento falhou.')
+
+    manager._recover_pick = align
+    with pytest.raises(StepFailed):
+        manager._execute_manipulation(Step('stack', 'stack', support_tag_id=4))
+    assert manager._world_state.snapshot()[0:2] == (True, 5)
+    assert not manager._stack_is_aligned(4)
+
+
+def test_base_update_invalidates_stack_alignment_even_after_returning_to_same_position():
+    manager = _stack_search_manager()
+    manager._remember_stack_alignment(5, 4)
+    result = FollowWall.Result()
+    result.final_average_distance_mm = 200
+    result.traveled_distance_mm = 0
+    manager._update_table_position(result)
+    assert not manager._stack_is_aligned(5)
+
+
 def test_stack_searches_all_apriltag_positions_after_support_tag_is_missing():
     manager = _stack_search_manager()
     travels = []

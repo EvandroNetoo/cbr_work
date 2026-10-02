@@ -99,11 +99,17 @@ placements:
     strategy: tag_relative
     # Offset calibrado do TCP em relação à tag do cubo de apoio.
     enabled: true
-    approach_height_m: 0.03
-    retreat_height_m: 0.08
+    # 0 pula a aproximação elevada e move diretamente à pose de soltura.
+    approach_height_m: 0.0
+    # 0 pula a elevação após soltar e retorna diretamente a detect_apriltags.
+    retreat_height_m: 0.0
     calibrated_reference: true
-    reference_offset_xyz: [0.0, 0.0, 0.01]
+    reference_offset_xyz: [0.0, 0.0, 0.02]
     yaw_offset_deg: 0.0
+    # Tolerância de inclinação na soltura, em graus, independente da coleta
+    # e dos outros depósitos. Ex.: 5.0. null mantém o padrão (~11.46 graus).
+    # A aproximação e a retirada mantêm a tolerância de 35 graus.
+    tilt_tolerance_deg: 30
 
   shelf:
     strategy: named_state

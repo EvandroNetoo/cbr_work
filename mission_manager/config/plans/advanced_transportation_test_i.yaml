@@ -70,7 +70,7 @@ steps:
 
   - id: empilhar_attc_4_sobre_attc_14
     action: stack
-    support_tag_id: 14
+    support_tag_id: 4
   - id: retirar_attc_5
     action: retrieve
     slot_id: left
@@ -91,11 +91,7 @@ steps:
     target: sh_1
   - id: colocar_attc_6_na_prateleira_superior
     action: place_on_shelf
-
-  # Retirar um objeto da SH e entregar em outra mesa.
-  - id: ir_para_coleta_do_attc_3_na_sh
-    action: navigate
-    target: sh_1
+    
   - id: pegar_attc_3_na_sh
     action: pick
     tag_id: 3

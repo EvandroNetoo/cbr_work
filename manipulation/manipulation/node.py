@@ -89,6 +89,8 @@ def _interfaces_are_compatible() -> bool:
         hasattr(PickObject.Result(), 'scene_observation'),
         hasattr(PickObject.Goal(), 'alignment_completed'),
         hasattr(PickObject.Result, 'RECOVERY_ALIGNMENT_REQUIRED'),
+        hasattr(StackObject.Goal(), 'require_alignment'),
+        hasattr(StackObject.Result, 'RECOVERY_ALIGNMENT_REQUIRED'),
         hasattr(PrepareManipulator.Goal(), 'gripper_loaded'),
         hasattr(SceneObservation, 'CONTAINERS_HSV'),
         hasattr(ContainerStampedDetection(), 'mask_area_px'),
@@ -500,11 +502,12 @@ class ManipulationServer(Node):
         result.outcome.message = message
         if placed_pose is not None and hasattr(result, 'placed_pose'):
             result.placed_pose = copy.deepcopy(placed_pose)
-        if action_type is PickObject and isinstance(failure, PickRecoveryRequired):
+        if action_type in (PickObject, StackObject) and isinstance(failure, PickRecoveryRequired):
             result.recovery_reason = failure.recovery_reason
             result.has_detected_pose = True
             result.detected_pose = copy.deepcopy(failure.detected_pose)
-            result.moveit_error_code = failure.moveit_error_code
+            if action_type is PickObject:
+                result.moveit_error_code = failure.moveit_error_code
         if action_type is PickObject and observed_detections is not None:
             result.observed_detections = copy.deepcopy(observed_detections)
         if scene_observation is not None and hasattr(result, 'scene_observation'):
@@ -1335,31 +1338,38 @@ class ManipulationServer(Node):
         destination: str,
     ) -> tuple[str, int, Any]:
         """Approach, release, retreat and return to observation."""
-        self._feedback(
-            goal_handle, action_type, ManipulationFeedback.APPROACHING,
-            0.40, f'Aproximando do destino: {destination}',
-        )
-        approach_pose = copy.deepcopy(release_pose)
-        approach_pose.pose.position.z += profile.approach_height_m
+        release_options = {}
+        if profile.tilt_tolerance_deg is not None:
+            release_options['tolerancia_de_inclinacao'] = math.radians(
+                profile.tilt_tolerance_deg
+            )
+        if profile.approach_height_m > 0.0:
+            self._feedback(
+                goal_handle, action_type, ManipulationFeedback.APPROACHING,
+                0.40, f'Aproximando do destino: {destination}',
+            )
+            approach_pose = copy.deepcopy(release_pose)
+            approach_pose.pose.position.z += profile.approach_height_m
+            self._motion.executar_objetivo(
+                GRUPO_BRACO, restricoes_de_pre_pegada(approach_pose),
+                VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
+            )
         self._motion.executar_objetivo(
-            GRUPO_BRACO, restricoes_de_pre_pegada(approach_pose),
-            VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
-        )
-        self._motion.executar_objetivo(
-            GRUPO_BRACO, restricoes_de_pegada(release_pose),
+            GRUPO_BRACO, restricoes_de_pegada(release_pose, **release_options),
             VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
         )
         self._open_for_placement(goal_handle, action_type, destination)
-        retreat_pose = copy.deepcopy(release_pose)
-        retreat_pose.pose.position.z += profile.retreat_height_m
-        self._feedback(
-            goal_handle, action_type, ManipulationFeedback.RETREATING,
-            0.86, 'Elevando o braço após o depósito',
-        )
-        self._motion.executar_objetivo(
-            GRUPO_BRACO, restricoes_de_pre_pegada(retreat_pose),
-            VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
-        )
+        if profile.retreat_height_m > 0.0:
+            retreat_pose = copy.deepcopy(release_pose)
+            retreat_pose.pose.position.z += profile.retreat_height_m
+            self._feedback(
+                goal_handle, action_type, ManipulationFeedback.RETREATING,
+                0.86, 'Elevando o braço após o depósito',
+            )
+            self._motion.executar_objetivo(
+                GRUPO_BRACO, restricoes_de_pre_pegada(retreat_pose),
+                VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
+            )
         self._return_after_placement()
         return (
             f'Objeto depositado: {destination}.',
@@ -1671,6 +1681,12 @@ class ManipulationServer(Node):
                     raise ObjectNotFound(str(error)) from error
                 raise
             dx, dy, dz = profile.reference_offset_xyz
+            if goal_handle.request.require_alignment:
+                raise PickRecoveryRequired(
+                    'Tag de apoio localizada; alinhamento da base solicitado antes do stack.',
+                    criar_pose(x, y, z, yaw),
+                    StackObject.Result.RECOVERY_ALIGNMENT_REQUIRED,
+                )
             release_pose = criar_pose(
                 x + dx,
                 y + dy,

@@ -88,6 +88,7 @@ class PlacementProfile:
     search_y_max_m: float | None = None
     search_step_m: float = 0.01
     link3_to_link4_max_deg: float = -10.0
+    tilt_tolerance_deg: float | None = None
 
 
 @dataclass(frozen=True)
@@ -294,6 +295,7 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 'search_x_min_m', 'search_x_max_m',
                 'search_y_min_m', 'search_y_max_m', 'search_step_m',
                 'link3_to_link4_max_deg',
+                'tilt_tolerance_deg',
             },
             f'placements.{name}',
         )
@@ -316,11 +318,11 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
             named_state=str(raw.get('named_state', '')),
             approach_height_m=_number(
                 raw.get('approach_height_m', 0.08),
-                f'placements.{name}.approach_height_m', positive=True,
+                f'placements.{name}.approach_height_m',
             ),
             retreat_height_m=_number(
                 raw.get('retreat_height_m', 0.08),
-                f'placements.{name}.retreat_height_m', positive=True,
+                f'placements.{name}.retreat_height_m',
             ),
             reference_offset_xyz=tuple(
                 _number(value, f'placements.{name}.reference_offset_xyz')
@@ -418,7 +420,26 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 raw.get('link3_to_link4_max_deg', -10.0),
                 f'placements.{name}.link3_to_link4_max_deg',
             ),
+            tilt_tolerance_deg=(
+                None if raw.get('tilt_tolerance_deg') is None
+                else _number(
+                    raw['tilt_tolerance_deg'],
+                    f'placements.{name}.tilt_tolerance_deg',
+                )
+            ),
         )
+        for field in ('approach_height_m', 'retreat_height_m'):
+            if getattr(profile, field) < 0.0:
+                raise ConfigurationError(
+                    f'placements.{name}.{field} deve ser maior ou igual a zero.'
+                )
+        if (
+            profile.tilt_tolerance_deg is not None
+            and not 0.0 <= profile.tilt_tolerance_deg <= 180.0
+        ):
+            raise ConfigurationError(
+                f'placements.{name}.tilt_tolerance_deg deve estar entre 0 e 180 graus.'
+            )
         if (
             not -180.0 < profile.link3_to_link4_max_deg < 180.0
         ):

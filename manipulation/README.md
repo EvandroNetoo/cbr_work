@@ -233,6 +233,28 @@ ros2 action send_goal manipulation/place_in_container \
 
 Empilhamento sobre o cubo cuja AprilTag é 5:
 
+O `mission_manager` usa `StackObject.require_alignment` para solicitar somente
+a localização do apoio antes de mover a base. A action retorna
+`RECOVERY_ALIGNMENT_REQUIRED` e a pose detectada, sem mover à soltura nem abrir
+a garra. Após o alinhamento, o gerenciador envia `require_alignment: false`, e a
+action detecta novamente antes de empilhar. Comandos diretos mantêm o padrão
+`require_alignment: false` e executam o stack normalmente.
+
+A tolerância de inclinação na soltura é configurada em
+`placements.stack.tilt_tolerance_deg` no `config/profiles.yaml`, em graus.
+Por exemplo, `5.0` permite até 5 graus de inclinação nos eixos X e Z da
+restrição de orientação. Omitir o campo ou usar `null` mantém o padrão
+de 0.20 radianos (aproximadamente 11.46 graus). O valor deve ficar entre 0 e 180.
+A aproximação e a retirada mantêm a tolerância de inclinação de 35 graus,
+e a tolerância de giro (yaw) permanece com o padrão global de 5 graus.
+
+Nos depósitos que usam aproximação e recuo por pose (`stack`, `table` e
+`explicit_pose`), `approach_height_m: 0` pula o movimento de aproximação
+elevada e segue diretamente à pose de soltura. `retreat_height_m: 0` pula a
+elevação após soltar e segue ao retorno para `detect_apriltags`. Cada campo
+pode ser zerado independentemente; as fases puladas não publicam feedback
+de aproximação ou elevação. Valores negativos não são aceitos.
+
 ```bash
 ros2 action send_goal manipulation/stack interfaces/action/StackObject \
   "{support_tag_id: 5, ws_height_cm: 12.5}" --feedback

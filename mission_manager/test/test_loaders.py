@@ -9,6 +9,30 @@ from mission_manager.loaders import load_arena, load_plan, validate_plan
 PACKAGE = Path(__file__).parents[1]
 
 
+def test_stack_alignment_targets_are_independent(tmp_path):
+    import yaml
+    raw = yaml.safe_load(VALID_ARENA)
+    raw['pickup_recovery'].update({
+        'stack_preferred_tag_x_m': 0.03, 'stack_preferred_tag_y_m': -0.27,
+        'shelf_preferred_tag_y_m': -0.32,
+    })
+    arena = load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
+    assert arena.pickup_recovery.stack_preferred_tag_x_m == pytest.approx(0.03)
+    assert arena.pickup_recovery.stack_preferred_tag_y_m == pytest.approx(-0.27)
+    assert arena.pickup_recovery.shelf_preferred_tag_y_m == pytest.approx(-0.32)
+    assert arena.pickup_recovery.preferred_tag_y_m == pytest.approx(-0.22)
+
+
+@pytest.mark.parametrize('field', ['stack_preferred_tag_x_m', 'stack_preferred_tag_y_m'])
+@pytest.mark.parametrize('value', [float('nan'), True, '0.1'])
+def test_stack_alignment_rejects_invalid_targets(tmp_path, field, value):
+    import yaml
+    raw = yaml.safe_load(VALID_ARENA)
+    raw['pickup_recovery'][field] = value
+    with pytest.raises(ConfigurationError, match=field):
+        load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
+
+
 VALID_ARENA = """
 schema_version: 1
 frame_id: map

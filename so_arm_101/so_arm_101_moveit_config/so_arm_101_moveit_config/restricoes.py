@@ -156,11 +156,19 @@ def restricoes_de_pre_pegada(posicao: PoseStamped) -> ListaDeRestricoes:
     return [restricoes]
 
 
-def restricoes_de_pegada(posicao: PoseStamped) -> ListaDeRestricoes:
+def restricoes_de_pegada(
+    posicao: PoseStamped,
+    *,
+    tolerancia_de_inclinacao: float = TOLERANCIA_DE_INCLINACAO,
+) -> ListaDeRestricoes:
     """Mantém a orientação mais precisa durante o contato com o objeto."""
     restricoes = Constraints()
     restricoes.position_constraints.append(_criar_restricao_de_posicao(posicao))
-    restricoes.orientation_constraints.append(_criar_restricao_de_orientacao(posicao))
+    restricoes.orientation_constraints.append(
+        _criar_restricao_de_orientacao(
+            posicao, tolerancia_de_inclinacao=tolerancia_de_inclinacao,
+        )
+    )
     return [restricoes]
 
 

@@ -233,6 +233,7 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
             'preferred_tag_y_m', 'wall_tolerance_mm', 'travel_tolerance_mm',
             'timeout_s', 'max_reposition_attempts', 'search_positions_mm',
             'shelf_preferred_tag_x_m', 'shelf_preferred_tag_y_m',
+            'stack_preferred_tag_x_m', 'stack_preferred_tag_y_m',
         },
         context,
     )
@@ -313,6 +314,12 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
     if wall_tolerance == 0 or travel_tolerance == 0:
         raise ConfigurationError(f'{context}.tolerâncias devem ser positivas.')
     return PickupRecoveryConfig(
+        stack_preferred_tag_x_m=_number(
+            raw.get('stack_preferred_tag_x_m', 0.0),
+            f'{context}.stack_preferred_tag_x_m'),
+        stack_preferred_tag_y_m=_number(
+            raw.get('stack_preferred_tag_y_m', -0.22),
+            f'{context}.stack_preferred_tag_y_m'),
         shelf_preferred_tag_x_m=_number(
             raw.get('shelf_preferred_tag_x_m', 0.0),
             f'{context}.shelf_preferred_tag_x_m'),

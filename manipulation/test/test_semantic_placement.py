@@ -1,8 +1,9 @@
 import math
+from dataclasses import replace
 from types import SimpleNamespace
 
 from geometry_msgs.msg import PoseStamped
-from interfaces.action import PlaceInContainer, PlaceOnShelf, PlaceOnTable
+from interfaces.action import PlaceInContainer, PlaceOnShelf, PlaceOnTable, StackObject
 from interfaces.msg import (
     AprilTagStampedDetection, ContainerStampedDetection,
     ManipulationFeedback, ManipulationResult, SceneObservation, TableSurfaceGrid,
@@ -14,10 +15,16 @@ from manipulation.errors import (
     NoFreeSpace,
     ObjectNotFound,
     PerceptionUnavailable,
+    PickRecoveryRequired,
 )
 from manipulation.node import ManipulationServer
 from manipulation.profiles import PlacementProfile
 import pytest
+from so_arm_101_moveit_config.configuracao import (
+    TOLERANCIA_DE_ANGULO,
+    TOLERANCIA_DE_INCLINACAO,
+    TOLERANCIA_DE_INCLINACAO_DA_PRE_PEGADA,
+)
 
 
 def _pose():
@@ -99,6 +106,119 @@ def _detection(tag_id, x, y):
     detection.pose.position.x = x
     detection.pose.position.y = y
     return detection
+
+
+@pytest.mark.parametrize('tolerance', [None, 0.0, 2.5, 15.0, 180.0])
+def test_stack_applies_its_tilt_tolerance_only_at_release(tolerance):
+    server = _operation_only_server()
+    server._profiles = SimpleNamespace(
+        placements={'stack': replace(
+            _cartesian_profile(), name='stack', strategy='tag_relative',
+            calibrated_reference=True, tilt_tolerance_deg=tolerance,
+        )},
+        pickup_profile=lambda _name: SimpleNamespace(observation_state='detect_apriltags'),
+    )
+    motions = []
+    server._arm_state = lambda *_args: None
+    server._analyze_for_operation = lambda *_args, **_kwargs: ([], [], None)
+    server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
+    server._motion = SimpleNamespace(
+        pose_da_april_tag=lambda *_args: (0.01, -0.22, 0.1, 20.0),
+        executar_objetivo=lambda _group, constraints, *_args: motions.append(constraints[0]),
+    )
+    server._open_for_placement = lambda *_args: None
+    server._return_after_placement = lambda: None
+    goal = StackObject.Goal()
+    goal.support_tag_id = 5
+
+    server._execute_stack(SimpleNamespace(request=goal))
+
+    release_tilt = TOLERANCIA_DE_INCLINACAO if tolerance is None else math.radians(tolerance)
+    assert len(motions) == 3
+    for constraints, tilt in zip(motions, (
+        TOLERANCIA_DE_INCLINACAO_DA_PRE_PEGADA,
+        release_tilt,
+        TOLERANCIA_DE_INCLINACAO_DA_PRE_PEGADA,
+    )):
+        orientation = constraints.orientation_constraints[0]
+        assert orientation.absolute_y_axis_tolerance == pytest.approx(TOLERANCIA_DE_ANGULO)
+        assert orientation.absolute_x_axis_tolerance == pytest.approx(tilt)
+        assert orientation.absolute_z_axis_tolerance == pytest.approx(tilt)
+
+
+@pytest.mark.parametrize('action', [StackObject, PlaceOnTable])
+@pytest.mark.parametrize('approach, retreat', [(0.0, 0.0), (0.0, 0.08), (0.03, 0.0), (0.03, 0.08)])
+def test_zero_placement_heights_skip_motion_and_feedback(action, approach, retreat):
+    server = ManipulationServer.__new__(ManipulationServer)
+    server._effect_known = True
+    server._effect_location = ManipulationResult.LOCATION_UNKNOWN
+    events = []
+    phases = []
+    server._feedback = lambda _handle, _action, phase, *_args: phases.append(phase)
+    server._gripper = lambda state, *_args: events.append(state)
+    server._transfer_state = lambda *_args: events.append('observation')
+
+    def move(_group, constraints, *_args):
+        pose = constraints[0].position_constraints[0].constraint_region.primitive_poses[0]
+        events.append(pose.position.z)
+
+    server._motion = SimpleNamespace(executar_objetivo=move)
+    profile = replace(
+        _cartesian_profile(), approach_height_m=approach, retreat_height_m=retreat,
+    )
+    target = _pose()
+    _message, location, result_pose = server._release_at_pose(
+        object(), action, target, profile, 'teste',
+    )
+
+    expected = ([0.1 + approach] if approach else []) + [0.1, 'open']
+    expected += ([0.1 + retreat] if retreat else []) + ['observation']
+    assert events == expected
+    assert (ManipulationFeedback.APPROACHING in phases) == bool(approach)
+    assert (ManipulationFeedback.RETREATING in phases) == bool(retreat)
+    assert phases.count(ManipulationFeedback.RELEASING) == 1
+    assert location == ManipulationResult.LOCATION_DESTINATION
+    assert server._effect_known is True
+    assert server._effect_location == ManipulationResult.LOCATION_DESTINATION
+    assert result_pose is target
+    assert target.pose.position.z == pytest.approx(0.1)
+
+
+def test_stack_alignment_request_returns_support_pose_without_releasing():
+    server = _operation_only_server()
+    server._profiles = SimpleNamespace(
+        placements={'stack': replace(
+            _cartesian_profile(), name='stack', strategy='tag_relative',
+            calibrated_reference=True,
+        )},
+        pickup_profile=lambda _name: SimpleNamespace(observation_state='detect_apriltags'),
+    )
+    server._arm_state = lambda *_args: None
+    server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
+    server._analyze_for_operation = lambda *_args, **_kwargs: ([], [], None)
+    server._motion = SimpleNamespace(pose_da_april_tag=lambda *_args: (0.04, -0.3, 0.15, 20.0))
+    server._release_at_pose = lambda *_args: pytest.fail('Não deve soltar antes de alinhar.')
+    goal = StackObject.Goal()
+    goal.support_tag_id = 5
+    goal.require_alignment = True
+
+    with pytest.raises(PickRecoveryRequired) as captured:
+        server._execute_stack(SimpleNamespace(request=goal))
+
+    assert captured.value.recovery_reason == StackObject.Result.RECOVERY_ALIGNMENT_REQUIRED
+    assert captured.value.detected_pose.pose.position.x == pytest.approx(0.04)
+    assert captured.value.detected_pose.pose.position.y == pytest.approx(-0.3)
+    server._effect_known = True
+    server._effect_location = ManipulationResult.LOCATION_UNKNOWN
+    result = server._make_result(
+        StackObject, SimpleNamespace(abort=lambda: None),
+        ManipulationResult.MOTION_FAILED, 'Alinhamento necessário', failure=captured.value,
+    )
+    assert result.has_detected_pose
+    assert result.recovery_reason == StackObject.Result.RECOVERY_ALIGNMENT_REQUIRED
+    assert result.detected_pose == captured.value.detected_pose
+    assert result.outcome.effect_known
+    assert result.outcome.final_object_location == ManipulationResult.LOCATION_UNKNOWN
 
 
 def test_common_release_reports_physical_effect_only_after_opening_gripper():

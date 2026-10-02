@@ -3,8 +3,16 @@ int32 support_tag_id
 # Work-surface height used when optional container perception needs to recover
 # a partially visible container pose.
 float32 ws_height_cm
+# Manager-only handshake: detect the support and request base alignment before
+# attempting placement. False preserves direct standalone stack commands.
+bool require_alignment
 ---
+uint8 RECOVERY_NONE=0
+uint8 RECOVERY_ALIGNMENT_REQUIRED=3
 interfaces/ManipulationResult outcome
+uint8 recovery_reason
+bool has_detected_pose
+geometry_msgs/PoseStamped detected_pose
 geometry_msgs/PoseStamped placed_pose
 interfaces/SceneObservation scene_observation
 ---

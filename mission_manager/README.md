@@ -109,6 +109,24 @@ nem ao empilhamento.
 
 ## Recuperação de coleta fora do alcance
 
+No `stack`, o gerenciador pede uma detecção da tag de apoio antes de qualquer
+soltura. Quando ela é encontrada, tenta alinhar a base com os alvos
+`pickup_recovery.stack_preferred_tag_x_m` e `stack_preferred_tag_y_m` de
+`config/arena.yaml`, independentemente dos alvos da coleta em SH. São posições
+da tag no referencial do braço, em metros; os limites de movimento e as
+tolerâncias continuam usando `pickup_recovery`. O alinhamento é tentado mesmo
+com `pickup_recovery.enabled: false`, que apenas desativa a busca de tags.
+Depois, o stack detecta novamente a tag e realiza o depósito.
+
+Empilhamentos seguintes na mesma pilha reutilizam esse alinhamento quando a
+base permanece na mesma posição, inclusive com `retrieve`/`store` entre eles.
+O apoio pode ser o cubo recém-depositado ou uma tag já pertencente à pilha.
+Navegação, reposicionamento da base, coleta, outro tipo de depósito, mudança
+de pilha ou uma nova missão exigem um novo alinhamento. Uma tentativa limitada
+pelas tolerâncias ou proteções segue a mesma regra do pick em SH: o alvo exato
+não precisa ser alcançado para prosseguir. Uma falha de comunicação ou estado
+físico incerto interrompe a operação.
+
 Antes de qualquer depósito em uma área `SH`, o gerenciador recolhe o braço
 com a carga e executa `FollowWall` para confirmar a distância frontal do VL53.
 `shelf_place_alignment_defaults` define o padrão de 40 mm, tolerância de 5 mm

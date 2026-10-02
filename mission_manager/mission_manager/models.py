@@ -53,6 +53,8 @@ class PickupRecoveryConfig:
     search_positions_mm: tuple[int, ...]
     shelf_preferred_tag_x_m: float = 0.0
     shelf_preferred_tag_y_m: float = -0.22
+    stack_preferred_tag_x_m: float = 0.0
+    stack_preferred_tag_y_m: float = -0.22
 
 
 @dataclass(frozen=True)
