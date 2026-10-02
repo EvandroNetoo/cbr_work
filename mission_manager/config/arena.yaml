@@ -98,14 +98,14 @@ service_areas:
     type: WS
 
   ws_5:
-    x_m: 3.922
+    x_m: 4.422
     y_m: 4.830
     yaw_rad: 1.570
     height_cm: 16.0
     type: WS
 
   ws_6:
-    x_m: 3.922
+    x_m: 4.422
     y_m: 6.100
     yaw_rad: -1.570
     height_cm: 16.0

@@ -248,9 +248,6 @@ class ManipulationServer(Node):
             profiles.transport_empty_state,
             profiles.transport_loaded_state,
             *(profile.observation_state for profile in profiles.pickup.values()),
-            *(profile.pre_grasp_state for profile in profiles.pickup.values()
-              if profile.strategy == 'front'),
-            *('home' for profile in profiles.pickup.values() if profile.strategy == 'front'),
             *(slot.store_state for slot in profiles.cargo_slots.values()),
             *(slot.safe_state for slot in profiles.cargo_slots.values()),
             *(slot.retrieve_state for slot in profiles.cargo_slots.values()),
@@ -260,6 +257,9 @@ class ManipulationServer(Node):
                 if profile.enabled and profile.strategy == 'named_state'
             ),
         }
+        for profile in profiles.pickup.values():
+            if profile.strategy == 'front':
+                required_arm.update({'home', profile.pre_grasp_state})
         missing = sorted(state for state in required_arm if state not in arm_states)
         if missing:
             raise ConfigurationError(
@@ -674,14 +674,6 @@ class ManipulationServer(Node):
                         approach_pose = criar_pose(
                             x, y, grasp_z + profile.approach_height_m, grasp_yaw)
 
-                    def target_constraints(pose, *, approach=False):
-                        if front:
-                            return restricoes_de_pegada_frontal(
-                                pose, profile.link3_to_link4_deg,
-                                profile.joint_tolerance_deg, profile.link4_to_link5_deg)
-                        return (restricoes_de_pre_pegada(pose) if approach
-                                else restricoes_de_pegada(pose))
-
                     self._feedback(
                         goal_handle, PickObject, ManipulationFeedback.APPROACHING,
                         0.40, 'Aproximando de frente na SH' if front
@@ -689,11 +681,18 @@ class ManipulationServer(Node):
                     )
                     if not front:
                         self._motion.executar_objetivo(
-                            GRUPO_BRACO, target_constraints(approach_pose, approach=True),
+                            GRUPO_BRACO, restricoes_de_pre_pegada(approach_pose),
                             VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
                         )
+                    grasp_constraints = (
+                        restricoes_de_pegada_frontal(
+                            grasp_pose, profile.link3_to_link4_deg,
+                            profile.joint_tolerance_deg, profile.link4_to_link5_deg,
+                        )
+                        if front else restricoes_de_pegada(grasp_pose)
+                    )
                     self._motion.executar_objetivo(
-                        GRUPO_BRACO, target_constraints(grasp_pose),
+                        GRUPO_BRACO, grasp_constraints,
                         VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
                     )
                     self._feedback(
@@ -717,7 +716,7 @@ class ManipulationServer(Node):
                         self._arm_state('home', 'Finalizando coleta da SH em home')
                     else:
                         self._motion.executar_objetivo(
-                            GRUPO_BRACO, target_constraints(approach_pose, approach=True),
+                            GRUPO_BRACO, restricoes_de_pre_pegada(approach_pose),
                             VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
                         )
                         self._transfer_state(
@@ -730,8 +729,6 @@ class ManipulationServer(Node):
                 except OperacaoCancelada:
                     if grasp_committed:
                         self._mark_effect_unknown()
-                    raise
-                except ObjectOutOfReach:
                     raise
                 except PickRecoveryRequired:
                     raise

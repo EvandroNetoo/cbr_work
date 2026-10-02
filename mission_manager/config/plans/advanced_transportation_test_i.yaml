@@ -2,15 +2,18 @@ schema_version: 1
 plan_id: advanced_transportation_test_i
 
 # Advanced Transportation Test I: limite de 14 minutos.
-# Exemplo de IDs e destinos: ajuste-os conforme os seis ATTCs sorteados.
+# Missão com as seis WS e a SH cadastradas em arena.yaml.
+# Distribuição inicial esperada:
+#   ws_3: tags 1 e 2; ws_1: tags 4 e 5; ws_6: suporte tag 14;
+#   sh_1: tag 3; ws_6: tag 6.
+# Destinos: tags 1 e 2 nos contêineres azul e vermelho da ws_2;
+#   tags 4 e 5 empilhadas sobre a tag 14 na ws_4;
+#   tag 3 na mesa ws_5; tag 6 na prateleira superior da sh_1.
+# Ajuste IDs e destinos conforme os seis ATTCs sorteados.
 # As três distrações não aparecem em passos pick e não devem ser manipuladas.
-# A arena atual define apenas ws_1 a ws_4. Para a prova completa, cadastre
-# as seis áreas em arena.yaml com poses, lados e alturas reais; depois ajuste
-# os targets abaixo. O plano não impõe prazo nem escolhe IDs dinamicamente.
-# A entrega superior na prateleira permanece inteiramente comentada. Assim,
-# esta versão executável transporta cinco ATTCs e ainda não completa a prova.
+# O plano não impõe prazo nem escolhe IDs dinamicamente.
 steps:
-  # Primeiro lote: três ATTCs coletados na ws_3 e entregues na ws_2.
+  # Primeiro lote: dois ATTCs coletados na ws_3 e entregues na ws_2.
   - id: ir_para_coleta_do_primeiro_lote
     action: navigate
     target: ws_3
@@ -25,23 +28,17 @@ steps:
   - id: pegar_attc_2_vermelho
     action: pick
     tag_id: 2
-  - id: guardar_attc_2
-    action: store
-    slot_id: right
-
-  - id: pegar_attc_3_mesa
-    action: pick
-    tag_id: 3
+  # - id: guardar_attc_2
+  #   action: store
+  #   slot_id: right
 
   - id: levar_primeiro_lote_para_ws_2
     action: navigate
     target: ws_2
-  - id: colocar_attc_3_na_mesa
-    action: place_on_table
 
-  - id: retirar_attc_2
-    action: retrieve
-    slot_id: right
+  # - id: retirar_attc_2
+  #   action: retrieve
+  #   slot_id: right
   - id: colocar_attc_2_no_vermelho
     action: place_in_container
     container_color: red
@@ -53,7 +50,7 @@ steps:
     action: place_in_container
     container_color: blue
 
-  # Segundo lote: a tag 4 forma a base; a tag 5 é empilhada sobre ela.
+  # Segundo lote: tag 4 sobre o suporte 14; tag 5 sobre a tag 4.
   - id: voltar_para_coleta_do_segundo_lote
     action: navigate
     target: ws_1
@@ -69,13 +66,11 @@ steps:
 
   - id: levar_pilha_para_ws_4
     action: navigate
-    target: ws_4
+    target: ws_5
 
   - id: empilhar_attc_4_sobre_attc_14
     action: stack
     support_tag_id: 14
-
-
   - id: retirar_attc_5
     action: retrieve
     slot_id: left
@@ -84,18 +79,33 @@ steps:
     action: stack
     support_tag_id: 4
 
-  # Habilitar somente quando houver prateleira e área de destino cadastradas.
-  # - id: voltar_para_coleta_do_attc_6
-  #   action: navigate
-  #   target: ws_1
-  # - id: pegar_attc_6_prateleira
-  #   action: pick
-  #   tag_id: 6
-  # - id: levar_attc_6_para_prateleira
-  #   action: navigate
-  #   target: ws_5
-  # - id: colocar_attc_6_na_prateleira_superior
-  #   action: place_on_shelf
+  # Coletar o sexto cubo na WS restante e depositar na SH.
+  - id: ir_para_coleta_do_attc_6
+    action: navigate
+    target: ws_6
+  - id: pegar_attc_6_prateleira
+    action: pick
+    tag_id: 6
+  - id: levar_attc_6_para_prateleira
+    action: navigate
+    target: sh_1
+  - id: colocar_attc_6_na_prateleira_superior
+    action: place_on_shelf
+
+  # Retirar um objeto da SH e entregar em outra mesa.
+  - id: ir_para_coleta_do_attc_3_na_sh
+    action: navigate
+    target: sh_1
+  - id: pegar_attc_3_na_sh
+    action: pick
+    tag_id: 3
+
+  - id: levar_attc_3_para_ws_1
+    action: navigate
+    target: ws_1
+  - id: colocar_attc_3_na_mesa
+    action: place_on_table
+
 
   - id: finalizar
     action: finish

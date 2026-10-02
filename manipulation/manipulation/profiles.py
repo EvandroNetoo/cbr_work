@@ -168,7 +168,7 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
             raise ConfigurationError(
                 f'pickup.{name}.reachability_filter_enabled deve ser booleano.'
             )
-        pickup[name] = PickupProfile(
+        profile = PickupProfile(
             name=name,
             observation_state=str(raw.get('observation_state', '')),
             approach_height_m=_number(
@@ -237,38 +237,38 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 else _number(raw['reach_y_max_m'], f'pickup.{name}.reach_y_max_m')
             ),
         )
-        if pickup[name].strategy not in {'top', 'front'}:
+        pickup[name] = profile
+        if profile.strategy not in {'top', 'front'}:
             raise ConfigurationError(f'pickup.{name}.strategy deve ser top ou front.')
-        if pickup[name].strategy == 'front' and not pickup[name].pre_grasp_state:
+        if profile.strategy == 'front' and not profile.pre_grasp_state:
             raise ConfigurationError(f'pickup.{name}.pre_grasp_state é obrigatório.')
-        if not -180.0 < pickup[name].link3_to_link4_deg < 180.0:
+        if not -180.0 < profile.link3_to_link4_deg < 180.0:
             raise ConfigurationError(f'pickup.{name}.link3_to_link4_deg inválido.')
-        if not -180.0 < pickup[name].link4_to_link5_deg < 180.0:
+        if not -180.0 < profile.link4_to_link5_deg < 180.0:
             raise ConfigurationError(f'pickup.{name}.link4_to_link5_deg inválido.')
-        if pickup[name].joint_tolerance_deg >= 90.0:
+        if profile.joint_tolerance_deg >= 90.0:
             raise ConfigurationError(f'pickup.{name}.joint_tolerance_deg deve ser menor que 90.')
-        if not pickup[name].observation_state:
+        if not profile.observation_state:
             raise ConfigurationError(f'pickup.{name}.observation_state não pode ser vazio.')
-        if pickup[name].reachability_filter_enabled:
-            reach = pickup[name]
+        if profile.reachability_filter_enabled:
             values = (
-                reach.reach_min_radius_m, reach.reach_max_radius_m,
-                reach.reach_x_min_m, reach.reach_x_max_m,
-                reach.reach_y_min_m, reach.reach_y_max_m,
+                profile.reach_min_radius_m, profile.reach_max_radius_m,
+                profile.reach_x_min_m, profile.reach_x_max_m,
+                profile.reach_y_min_m, profile.reach_y_max_m,
             )
             if any(value is None for value in values):
                 raise ConfigurationError(
                     f'pickup.{name} deve configurar os raios e os limites XY '
                     'quando reachability_filter_enabled estiver habilitada.'
                 )
-            if reach.reach_min_radius_m >= reach.reach_max_radius_m:
+            if profile.reach_min_radius_m >= profile.reach_max_radius_m:
                 raise ConfigurationError(
                     f'pickup.{name}.reach_min_radius_m deve ser menor que '
                     'reach_max_radius_m.'
                 )
             if (
-                reach.reach_x_min_m > reach.reach_x_max_m
-                or reach.reach_y_min_m > reach.reach_y_max_m
+                profile.reach_x_min_m > profile.reach_x_max_m
+                or profile.reach_y_min_m > profile.reach_y_max_m
             ):
                 raise ConfigurationError(
                     f'pickup.{name} possui limites XY de alcance inválidos.'

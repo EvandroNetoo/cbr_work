@@ -43,6 +43,7 @@ from .models import (
     ContainerObservation,
     PickupRecoveryConfig,
     Plan,
+    ServiceArea,
     Step,
     TableObservation,
     TagObservation,
@@ -1483,13 +1484,12 @@ class MissionManager(Node):
             goal.tag_id = int(step.tag_id)
             goal.profile = 'shelf_front' if shelf_pick else ''
             goal.alignment_completed = alignment_completed
+            # Keep compatibility metadata populated for existing action clients.
             goal.alignment_tag_x_m = config.preferred_tag_x_m
             goal.alignment_tag_y_m = config.preferred_tag_y_m
             goal.alignment_tolerance_x_m = config.travel_tolerance_mm / 1000.0
             goal.alignment_tolerance_y_m = config.wall_tolerance_mm / 1000.0
-            goal.ws_height_cm = float(
-                self._arena.service_areas[self._current_location].height_cm
-            )
+            goal.ws_height_cm = float(area.height_cm)
             result = self._call_manipulation_action(
                 self._pick_client,
                 goal,
@@ -1759,9 +1759,11 @@ class MissionManager(Node):
                 f"passo '{step.step_id}' (stack) falhou: {failure}"
             )
 
-    def _align_for_shelf_placement(self, area) -> None:
+    def _align_for_shelf_placement(self, area: ServiceArea) -> None:
         assert self._arena is not None
-        alignment = area.shelf_place_alignment or self._arena.shelf_place_alignment_defaults
+        alignment = (
+            area.shelf_place_alignment or self._arena.shelf_place_alignment_defaults
+        )
         self._prepare_for_navigation()
         result = self._control_wall(
             alignment.distance_mm, alignment.tolerance_mm, alignment.timeout_s,

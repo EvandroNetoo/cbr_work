@@ -4,9 +4,11 @@ string profile
 # Work-surface height used when optional container perception needs to recover
 # a partially visible container pose.
 float32 ws_height_cm
-# Set after the manager has attempted alignment; reaching the target is optional.
+# True after the manager has attempted alignment at the current base position.
+# Reaching the alignment target is optional; reset after repositioning the base.
 bool alignment_completed
-# Legacy alignment metadata; does not restrict the confirmed pick pose.
+# Compatibility metadata: ignored by manipulation. Alignment targets and
+# tolerances are applied by the manager; they do not gate the confirmed pick pose.
 float32 alignment_tag_x_m
 float32 alignment_tag_y_m
 float32 alignment_tolerance_x_m

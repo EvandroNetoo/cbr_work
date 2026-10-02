@@ -45,8 +45,8 @@
     <joint name="link4_to_link5" value="1.5707963267"/>
   </group_state>
 
-  <!-- SH: pose inicial ajustável, aproximadamente [0, 0, -90, 90, 0] graus.
-       O giro link4_to_link5 em 0 acompanha a orientação desejada da pegada. -->
+  <!-- SH: pose inicial ajustável, aproximadamente [0, 0, -90, 90, 90] graus.
+       Na coleta, link4_to_link5 é sobrescrito pelo giro configurado no perfil. -->
   <group_state name="pick_shelf_front_ready" group="arm">
     <joint name="base_link_to_link1" value="0.0"/>
     <joint name="link1_to_link2" value="0.0"/>

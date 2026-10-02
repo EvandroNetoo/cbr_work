@@ -165,27 +165,26 @@ def restricoes_de_pegada(posicao: PoseStamped) -> ListaDeRestricoes:
 
 
 def restricoes_de_pegada_frontal(
-    posicao: PoseStamped, link3_to_link4_deg: float = 90.0,
+    posicao: PoseStamped,
+    link3_to_link4_deg: float = 90.0,
     joint_tolerance_deg: float = 5.0,
     link4_to_link5_deg: float = 0.0,
 ) -> ListaDeRestricoes:
     """Restringe a posição do TCP, pitch e roll do punho apenas no alvo."""
     restricoes = Constraints()
     restricoes.position_constraints.append(_criar_restricao_de_posicao(posicao))
-    junta = JointConstraint()
-    junta.joint_name = 'link3_to_link4'
-    junta.position = math.radians(link3_to_link4_deg)
-    junta.tolerance_above = math.radians(joint_tolerance_deg)
-    junta.tolerance_below = math.radians(joint_tolerance_deg)
-    junta.weight = 1.0
-    restricoes.joint_constraints.append(junta)
-    giro = JointConstraint()
-    giro.joint_name = 'link4_to_link5'
-    giro.position = math.radians(link4_to_link5_deg)
-    giro.tolerance_above = math.radians(joint_tolerance_deg)
-    giro.tolerance_below = math.radians(joint_tolerance_deg)
-    giro.weight = 1.0
-    restricoes.joint_constraints.append(giro)
+    tolerancia = math.radians(joint_tolerance_deg)
+    for nome, angulo in (
+        ('link3_to_link4', link3_to_link4_deg),
+        ('link4_to_link5', link4_to_link5_deg),
+    ):
+        junta = JointConstraint()
+        junta.joint_name = nome
+        junta.position = math.radians(angulo)
+        junta.tolerance_above = tolerancia
+        junta.tolerance_below = tolerancia
+        junta.weight = 1.0
+        restricoes.joint_constraints.append(junta)
     return [restricoes]
 
 

@@ -53,10 +53,16 @@ def test_front_pick_requests_alignment_attempt_before_target_motion():
 
 @pytest.mark.parametrize('position', [(0.0, -0.22, 0.14), (0.01, -0.28, 0.14), (0.08, -0.35, 0.14)])
 @pytest.mark.parametrize('roll_deg', [0.0, 90.0])
-def test_front_pick_respects_roll_y_offset_and_returns_in_reverse_order(position, roll_deg):
+@pytest.mark.parametrize('pitch_deg', [85.0, 90.0])
+@pytest.mark.parametrize('tolerance_deg', [2.5, 5.0])
+def test_front_pick_respects_roll_y_offset_and_returns_in_reverse_order(
+    position, roll_deg, pitch_deg, tolerance_deg,
+):
     server, goal, events = _server(position)
     profile = replace(server._profiles.pickup['shelf_front'],
-                      link4_to_link5_deg=roll_deg, grasp_y_offset_m=0.015)
+                          link3_to_link4_deg=pitch_deg,
+                          joint_tolerance_deg=tolerance_deg,
+                          link4_to_link5_deg=roll_deg, grasp_y_offset_m=0.015)
     server._profiles = replace(server._profiles, pickup={
         **server._profiles.pickup, 'shelf_front': profile})
     goal.alignment_completed = True
@@ -80,14 +86,14 @@ def test_front_pick_respects_roll_y_offset_and_returns_in_reverse_order(position
         joint = motion[1].joint_constraints[0]
         assert len(motion[1].joint_constraints) == 2
         assert joint.joint_name == 'link3_to_link4'
-        assert joint.position == pytest.approx(math.pi / 2.0)
-        assert joint.tolerance_above == pytest.approx(math.radians(5.0))
-        assert joint.tolerance_below == pytest.approx(math.radians(5.0))
+        assert joint.position == pytest.approx(math.radians(pitch_deg))
+        assert joint.tolerance_above == pytest.approx(math.radians(tolerance_deg))
+        assert joint.tolerance_below == pytest.approx(math.radians(tolerance_deg))
         roll = motion[1].joint_constraints[1]
         assert roll.joint_name == 'link4_to_link5'
         assert roll.position == pytest.approx(math.radians(roll_deg))
-        assert roll.tolerance_above == pytest.approx(math.radians(5.0))
-        assert roll.tolerance_below == pytest.approx(math.radians(5.0))
+        assert roll.tolerance_above == pytest.approx(math.radians(tolerance_deg))
+        assert roll.tolerance_below == pytest.approx(math.radians(tolerance_deg))
         assert not motion[1].orientation_constraints
         assert not motion[2]
     closed_at = events.index(('gripper', 'grip'))
