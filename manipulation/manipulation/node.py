@@ -55,6 +55,7 @@ from so_arm_101_moveit_config.restricoes import (
     normalizar_angulo_de_pegada,
     restricoes_de_deposito_em_container,
     restricoes_de_pegada,
+    restricoes_de_pegada_frontal,
     restricoes_de_pre_pegada,
 )
 
@@ -86,6 +87,8 @@ def _interfaces_are_compatible() -> bool:
     return all((
         hasattr(PickObject.Result(), 'observed_detections'),
         hasattr(PickObject.Result(), 'scene_observation'),
+        hasattr(PickObject.Goal(), 'alignment_completed'),
+        hasattr(PickObject.Result, 'RECOVERY_ALIGNMENT_REQUIRED'),
         hasattr(PrepareManipulator.Goal(), 'gripper_loaded'),
         hasattr(SceneObservation, 'CONTAINERS_HSV'),
         hasattr(ContainerStampedDetection(), 'mask_area_px'),
@@ -245,6 +248,9 @@ class ManipulationServer(Node):
             profiles.transport_empty_state,
             profiles.transport_loaded_state,
             *(profile.observation_state for profile in profiles.pickup.values()),
+            *(profile.pre_grasp_state for profile in profiles.pickup.values()
+              if profile.strategy == 'front'),
+            *('home' for profile in profiles.pickup.values() if profile.strategy == 'front'),
             *(slot.store_state for slot in profiles.cargo_slots.values()),
             *(slot.safe_state for slot in profiles.cargo_slots.values()),
             *(slot.retrieve_state for slot in profiles.cargo_slots.values()),
@@ -310,6 +316,15 @@ class ManipulationServer(Node):
             tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
             velocidade=VELOCIDADE_MAXIMA,
             aceleracao=ACELERACAO_MAXIMA,
+        )
+
+    def _shelf_ready_state(self, profile: PickupProfile, description: str) -> None:
+        joints = dict(ESTADOS_DOS_GRUPOS[GRUPO_BRACO][profile.pre_grasp_state])
+        joints['link4_to_link5'] = math.radians(profile.link4_to_link5_deg)
+        self._motion.mover_para_posicoes_das_juntas(
+            GRUPO_BRACO, joints, description,
+            tolerancia=TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
+            velocidade=VELOCIDADE_MAXIMA, aceleracao=ACELERACAO_MAXIMA,
         )
 
     def _gripper(self, state: str, description: str) -> None:
@@ -591,7 +606,7 @@ class ManipulationServer(Node):
                 try:
                     self._feedback(
                         goal_handle, PickObject, ManipulationFeedback.PREPARING,
-                        0.05, f'Preparando coleta em mesa ({attempt}/{profile.attempts})',
+                        0.05, f'Preparando coleta {profile.name} ({attempt}/{profile.attempts})',
                     )
                     self._gripper('open', 'Abrindo a garra')
                     self._arm_state(profile.observation_state, 'Posicionando câmera sobre a mesa')
@@ -618,6 +633,11 @@ class ManipulationServer(Node):
                     finally:
                         remember(attempt_detections)
                     detected_pose = criar_pose(x, y, tag_z, yaw)
+                    request = goal_handle.request
+                    if profile.strategy == 'front' and not request.alignment_completed:
+                        raise PickRecoveryRequired(
+                            'Preparando tentativa de alinhamento da base para a coleta frontal.',
+                            detected_pose, PickObject.Result.RECOVERY_ALIGNMENT_REQUIRED)
                     if profile.reachability_filter_enabled:
                         reach_filter = self._pickup_reach_filter(profile)
                         if not reach_filter(x, y):
@@ -632,24 +652,48 @@ class ManipulationServer(Node):
                                 detected_pose,
                                 PickObject.Result.RECOVERY_OUT_OF_REACH,
                             )
-                    grasp_z = tag_z - profile.cube_size_m
-                    grasp_yaw = (
-                        normalizar_angulo_de_pegada(yaw) + profile.yaw_offset_deg
-                    )
-                    grasp_pose = criar_pose(x, y, grasp_z, grasp_yaw)
-                    approach_pose = criar_pose(
-                        x, y, grasp_z + profile.approach_height_m, grasp_yaw
-                    )
+                    front = profile.strategy == 'front'
+                    if front:
+                        if not profile.pre_grasp_state:
+                            raise ConfigurationError('Coleta frontal exige pre_grasp_state.')
+                        # A tag está no topo; o contato ocorre à meia altura.
+                        grasp_pose = PoseStamped()
+                        grasp_pose.header.frame_id = REFERENCIAL_BASE
+                        grasp_pose.pose.orientation.w = 1.0
+                        grasp_pose.pose.position.x = x
+                        grasp_pose.pose.position.y = y + profile.grasp_y_offset_m
+                        grasp_pose.pose.position.z = (
+                            tag_z - profile.cube_size_m / 2.0 + profile.grasp_z_offset_m)
+                        self._arm_state('home', 'Passando por home antes da pose de coleta da SH')
+                        self._shelf_ready_state(profile, 'Preparando pose baixa para SH')
+                    else:
+                        grasp_z = tag_z - profile.cube_size_m
+                        grasp_yaw = (
+                            normalizar_angulo_de_pegada(yaw) + profile.yaw_offset_deg)
+                        grasp_pose = criar_pose(x, y, grasp_z, grasp_yaw)
+                        approach_pose = criar_pose(
+                            x, y, grasp_z + profile.approach_height_m, grasp_yaw)
+
+                    def target_constraints(pose, *, approach=False):
+                        if front:
+                            return restricoes_de_pegada_frontal(
+                                pose, profile.link3_to_link4_deg,
+                                profile.joint_tolerance_deg, profile.link4_to_link5_deg)
+                        return (restricoes_de_pre_pegada(pose) if approach
+                                else restricoes_de_pegada(pose))
+
                     self._feedback(
                         goal_handle, PickObject, ManipulationFeedback.APPROACHING,
-                        0.40, 'Aproximando do objeto sobre a mesa',
+                        0.40, 'Aproximando de frente na SH' if front
+                        else 'Aproximando do objeto sobre a mesa',
                     )
+                    if not front:
+                        self._motion.executar_objetivo(
+                            GRUPO_BRACO, target_constraints(approach_pose, approach=True),
+                            VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
+                        )
                     self._motion.executar_objetivo(
-                        GRUPO_BRACO, restricoes_de_pre_pegada(approach_pose),
-                        VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
-                    )
-                    self._motion.executar_objetivo(
-                        GRUPO_BRACO, restricoes_de_pegada(grasp_pose),
+                        GRUPO_BRACO, target_constraints(grasp_pose),
                         VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
                     )
                     self._feedback(
@@ -665,17 +709,22 @@ class ManipulationServer(Node):
                     grasp_committed = True
                     self._feedback(
                         goal_handle, PickObject, ManipulationFeedback.RETREATING,
-                        0.82, 'Retirando o objeto da mesa',
+                        0.82, 'Recolhendo o objeto da SH' if front
+                        else 'Retirando o objeto da mesa',
                     )
-                    self._motion.executar_objetivo(
-                        GRUPO_BRACO, restricoes_de_pre_pegada(approach_pose),
-                        VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
-                    )
-                    self._transfer_state(
-                        'Retornando para detect_apriltags após a coleta'
-                    )
+                    if front:
+                        self._shelf_ready_state(profile, 'Recolhendo para a pose de aproximação da SH')
+                        self._arm_state('home', 'Finalizando coleta da SH em home')
+                    else:
+                        self._motion.executar_objetivo(
+                            GRUPO_BRACO, target_constraints(approach_pose, approach=True),
+                            VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
+                        )
+                        self._transfer_state(
+                            'Retornando para detect_apriltags após a coleta'
+                        )
                     return (
-                        f'Objeto {tag_id} coletado da mesa.',
+                        f'Objeto {tag_id} coletado com perfil {profile.name}.',
                         ManipulationResult.LOCATION_GRIPPER,
                     )
                 except OperacaoCancelada:
@@ -683,6 +732,8 @@ class ManipulationServer(Node):
                         self._mark_effect_unknown()
                     raise
                 except ObjectOutOfReach:
+                    raise
+                except PickRecoveryRequired:
                     raise
                 except FalhaDoMoveIt as error:
                     if (

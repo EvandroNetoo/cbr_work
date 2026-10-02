@@ -158,7 +158,7 @@ def test_pick_returns_to_approach_before_detection_pose():
 
     close_gripper = pick.index("self._gripper('grip'")
     return_approach = pick.index(
-        'restricoes_de_pre_pegada(approach_pose)', close_gripper
+        'target_constraints(approach_pose, approach=True)', close_gripper
     )
     return_detection = pick.index('self._transfer_state(', return_approach)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import math
 from pathlib import Path
 import threading
@@ -57,6 +58,8 @@ class MissionManager(Node):
         if (
             not hasattr(PickObject.Result(), 'observed_detections')
             or not hasattr(PickObject.Result(), 'scene_observation')
+            or not hasattr(PickObject.Goal(), 'alignment_completed')
+            or not hasattr(PickObject.Result, 'RECOVERY_ALIGNMENT_REQUIRED')
             or not hasattr(PrepareManipulator.Goal(), 'gripper_loaded')
             or not hasattr(PlaceOnTable.Goal(), 'use_fallback_pose')
             or not hasattr(FollowWall.Goal(), 'alignment_error_ignore_duration')
@@ -532,6 +535,16 @@ class MissionManager(Node):
             travel = 0
         return target_wall, travel
 
+    def _pickup_config(self) -> PickupRecoveryConfig:
+        assert self._arena is not None
+        config = self._arena.pickup_recovery
+        area = self._arena.service_areas.get(getattr(self, '_current_location', ''))
+        if area is not None and area.area_type == 'SH':
+            return replace(
+                config, preferred_tag_x_m=config.shelf_preferred_tag_x_m,
+                preferred_tag_y_m=config.shelf_preferred_tag_y_m)
+        return config
+
     def _duration(self, seconds: float):
         goal_duration = FollowWall.Goal().timeout
         total_nanoseconds = round(seconds * 1_000_000_000)
@@ -768,7 +781,7 @@ class MissionManager(Node):
                 )
             )
             container_observation_completed = False
-        config = arena.pickup_recovery
+        config = self._pickup_config()
         if apriltag_observation_completed or container_observation_completed:
             self._last_table_observation = TableObservation(
                 area_id=self._current_location,
@@ -1368,9 +1381,11 @@ class MissionManager(Node):
             self._current_lateral_position_mm = 0.0
         self._current_location = target
 
-    def _recover_pick(self, result: PickObject.Result, step: Step) -> None:
+    def _recover_pick(
+        self, result: PickObject.Result, step: Step, *, alignment_only: bool = False,
+    ) -> None:
         assert self._arena is not None
-        config = self._arena.pickup_recovery
+        config = self._pickup_config()
         if self._current_wall_distance_mm is None:
             raise StepFailed(
                 'Não há uma distância atual válida da parede para recuperar '
@@ -1402,6 +1417,8 @@ class MissionManager(Node):
             bounded_travel == 0
             and target_wall == round(self._current_wall_distance_mm)
         ):
+            if alignment_only:
+                return
             raise StepFailed(
                 f"passo '{step.step_id}' (pick) continua fora do alcance, "
                 'mas a correção calculada não produziria movimento dentro das '
@@ -1418,7 +1435,7 @@ class MissionManager(Node):
             target_lateral_position,
             f"reposicionamento para repetir o passo '{step.step_id}'",
         )
-        if not moved:
+        if not moved and not alignment_only:
             raise StepFailed(
                 f"passo '{step.step_id}' (pick) não produziu um novo "
                 'reposicionamento.'
@@ -1432,7 +1449,10 @@ class MissionManager(Node):
             raise StepFailed(
                 f"passo '{step.step_id}' (pick) bloqueado pelo estado: {error}"
             ) from error
-        config = self._arena.pickup_recovery
+        config = self._pickup_config()
+        area = self._arena.service_areas[self._current_location]
+        shelf_pick = area.area_type == 'SH'
+        alignment_completed = False
         original_observation = None
         if config.enabled:
             original_observation = self._position_from_memory(
@@ -1461,7 +1481,12 @@ class MissionManager(Node):
         while True:
             goal = PickObject.Goal()
             goal.tag_id = int(step.tag_id)
-            goal.profile = ''
+            goal.profile = 'shelf_front' if shelf_pick else ''
+            goal.alignment_completed = alignment_completed
+            goal.alignment_tag_x_m = config.preferred_tag_x_m
+            goal.alignment_tag_y_m = config.preferred_tag_y_m
+            goal.alignment_tolerance_x_m = config.travel_tolerance_mm / 1000.0
+            goal.alignment_tolerance_y_m = config.wall_tolerance_mm / 1000.0
             goal.ws_height_cm = float(
                 self._arena.service_areas[self._current_location].height_cm
             )
@@ -1482,6 +1507,15 @@ class MissionManager(Node):
                     f"passo '{step.step_id}' (pick) deixou o estado físico "
                     f'incerto: {failure}'
                 )
+            if (
+                shelf_pick
+                and result.recovery_reason == PickObject.Result.RECOVERY_ALIGNMENT_REQUIRED
+            ):
+                if not result.has_detected_pose:
+                    raise StepFailed('Não há pose detectada para tentar alinhar a base na SH.')
+                self._recover_pick(result, step, alignment_only=True)
+                alignment_completed = True
+                continue
             recoverable = (
                 config.enabled
                 and result.has_detected_pose
@@ -1493,6 +1527,7 @@ class MissionManager(Node):
                         f"passo '{step.step_id}' (pick) falhou: {failure}"
                     )
                 self._recover_pick(result, step)
+                alignment_completed = False
                 reposition_count += 1
                 continue
             if (
@@ -1505,8 +1540,10 @@ class MissionManager(Node):
                     if self._return_to_original_observation(
                         int(step.tag_id), original_observation
                     ):
+                        alignment_completed = False
                         continue
                 if self._move_to_next_search_position(int(step.tag_id)):
+                    alignment_completed = False
                     continue
             raise StepFailed(
                 f"passo '{step.step_id}' (pick) falhou: {failure}"
@@ -1722,6 +1759,25 @@ class MissionManager(Node):
                 f"passo '{step.step_id}' (stack) falhou: {failure}"
             )
 
+    def _align_for_shelf_placement(self, area) -> None:
+        assert self._arena is not None
+        alignment = area.shelf_place_alignment or self._arena.shelf_place_alignment_defaults
+        self._prepare_for_navigation()
+        result = self._control_wall(
+            alignment.distance_mm, alignment.tolerance_mm, alignment.timeout_s,
+            f'alinhamento antes do depósito em {area.area_id}',
+            accept_safety_abort=False,
+        )
+        self._update_table_position(result)
+        if (
+            not result.has_valid_reading
+            or self._current_wall_distance_mm is None
+            or not math.isfinite(self._current_wall_distance_mm)
+            or abs(self._current_wall_distance_mm - alignment.distance_mm)
+            > alignment.tolerance_mm
+        ):
+            raise StepFailed('Distância de alinhamento para depósito na SH não confirmada.')
+
     def _execute_manipulation(self, step: Step) -> None:
         assert self._arena is not None
         area = self._arena.service_areas[self._current_location]
@@ -1781,6 +1837,9 @@ class MissionManager(Node):
                 f"passo '{step.step_id}' ({step.action}) bloqueado pelo estado: "
                 f'{error}'
             ) from error
+
+        if transition == 'place' and area.area_type == 'SH':
+            self._align_for_shelf_placement(area)
 
         if step.action in {'place_on_table', 'place_in_container'}:
             self._execute_place_with_recovery(

@@ -51,6 +51,8 @@ class PickupRecoveryConfig:
     timeout_s: float
     max_reposition_attempts: int
     search_positions_mm: tuple[int, ...]
+    shelf_preferred_tag_x_m: float = 0.0
+    shelf_preferred_tag_y_m: float = -0.22
 
 
 @dataclass(frozen=True)
@@ -100,6 +102,7 @@ class ServiceArea:
     area_type: str
     alignment: AlignmentConfig
     departure: DepartureConfig
+    shelf_place_alignment: AlignmentConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -112,6 +115,7 @@ class Arena:
     pickup_recovery: PickupRecoveryConfig
     service_areas: dict[str, ServiceArea]
     table_place_search_positions_mm: tuple[int, ...] | None = None
+    shelf_place_alignment_defaults: AlignmentConfig = AlignmentConfig(40, 5, 10.0)
 
     def pose_for(self, target: str) -> MapPose:
         if target == 'start':

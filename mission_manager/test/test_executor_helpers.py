@@ -71,6 +71,53 @@ def _attach_world_state(manager):
     manager._publish_world_state = lambda: None
 
 
+@pytest.mark.parametrize('local_distance', [None, 80])
+@pytest.mark.parametrize('reached', [False, True])
+def test_shelf_deposit_aligns_before_action_and_blocks_incomplete_alignment(local_distance, reached):
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._world_state.commit_pick(1)
+    manager._arena = _arena()
+    manager._arena.service_areas['ws_1'] = replace(
+        manager._arena.service_areas['ws_1'], area_type='SH',
+        shelf_place_alignment=(AlignmentConfig(local_distance, 5, 10.0)
+                               if local_distance is not None else None))
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 150.0
+    manager._current_lateral_position_mm = 25.0
+    manager._manipulation_timeout = lambda: 120.0
+    manager._place_shelf_client = object()
+    events = []
+    manager._prepare_for_navigation = lambda: events.append('prepare')
+    target = local_distance or 40
+
+    def wall(distance, tolerance, timeout, _description, **kwargs):
+        assert (distance, tolerance, timeout) == (target, 5, 10.0)
+        assert kwargs['accept_safety_abort'] is False
+        events.append('align')
+        result = FollowWall.Result()
+        result.has_valid_reading = True
+        result.final_average_distance_mm = float(target if reached else target + 20)
+        return result
+
+    manager._control_wall = wall
+
+    def place(*_args):
+        events.append('place')
+        assert manager._current_wall_distance_mm == target
+        return _pick_result(ManipulationResult.SUCCESS)
+
+    manager._call_manipulation_action = place
+    if reached:
+        manager._execute_manipulation(Step('place_sh', 'place_on_shelf'))
+        assert events == ['prepare', 'align', 'place']
+    else:
+        with pytest.raises(StepFailed, match='Distância de alinhamento'):
+            manager._execute_manipulation(Step('place_sh', 'place_on_shelf'))
+        assert events == ['prepare', 'align']
+    assert manager._current_lateral_position_mm == 25.0
+
+
 def _pick_result(code, message=''):
     result = PickObject.Result()
     result.outcome.code = code
@@ -487,6 +534,70 @@ def _detection(tag_id, x, y):
     detection.pose.position.y = y
     detection.pose.position.z = 0.10
     return detection
+
+
+@pytest.mark.parametrize('recovery_enabled', [False, True])
+def test_shelf_pick_always_aligns_and_requests_a_second_detection(recovery_enabled):
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._arena = _arena()
+    manager._arena = replace(manager._arena, pickup_recovery=replace(
+        manager._arena.pickup_recovery, enabled=recovery_enabled,
+        shelf_preferred_tag_y_m=-0.25))
+    manager._arena.service_areas['ws_1'] = replace(
+        manager._arena.service_areas['ws_1'], area_type='SH')
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._service_area_vision_active = False
+    manager._tag_observations = {}
+    manager._visited_search_positions = {}
+    manager._pick_client = object()
+    alignment = _pick_result(ManipulationResult.MOTION_FAILED, 'centralizar')
+    alignment.has_detected_pose = True
+    alignment.recovery_reason = PickObject.Result.RECOVERY_ALIGNMENT_REQUIRED
+    results = iter((alignment, _pick_result(ManipulationResult.SUCCESS)))
+    goals, recoveries = [], []
+
+    def call(_client, goal, *_args, **_kwargs):
+        goals.append(goal)
+        return next(results)
+
+    manager._call_action = call
+    manager._recover_pick = lambda result, step, **kwargs: recoveries.append(kwargs)
+    manager._execute_pick(Step('pick_sh', 'pick', tag_id=1), 120.0)
+    assert [goal.profile for goal in goals] == ['shelf_front', 'shelf_front']
+    assert [goal.alignment_completed for goal in goals] == [False, True]
+    assert all(goal.alignment_tag_y_m == pytest.approx(-0.25) for goal in goals)
+    assert recoveries == [{'alignment_only': True}]
+
+
+def test_shelf_alignment_accepts_already_centered_tag_without_moving():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._move_to_table_position = lambda *_args: pytest.fail('já centralizado')
+    result = PickObject.Result()
+    result.detected_pose.pose.position.y = -0.22
+    manager._recover_pick(result, Step('pick_sh', 'pick', tag_id=1), alignment_only=True)
+
+
+@pytest.mark.parametrize('moved', [False, True])
+def test_shelf_alignment_accepts_incomplete_base_movement(moved):
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager.get_logger = lambda: SimpleNamespace(warning=lambda *_args: None)
+    # FollowWall reports a movement but remains short of the requested X correction.
+    manager._move_to_table_position = lambda *_args: moved
+    result = PickObject.Result()
+    result.detected_pose.pose.position.x = -0.1
+    result.detected_pose.pose.position.y = -0.22
+    manager._recover_pick(result, Step('pick_sh', 'pick', tag_id=1), alignment_only=True)
 
 
 @pytest.mark.parametrize(

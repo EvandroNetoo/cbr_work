@@ -30,17 +30,17 @@ steps:
   #   target: ws_6
 
 
-  - id: navigate_to_ws_1
-    action: navigate
-    target: ws_1
-
-  - id: coletar_tag_na_sh
-    action: pick
-    tag_id: 1
+  # - id: navigate_to_ws_1
+    # action: navigate
+    # target: ws_1
 
   - id: navigate_to_sh_1
     action: navigate
     target: sh_1
+
+  - id: coletar_tag_na_sh
+    action: pick
+    tag_id: 1
 
   - id: depositar_na_pose_alta_sh
     action: place_on_shelf

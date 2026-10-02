@@ -8,6 +8,13 @@ alignment_defaults:
   tolerance_mm: 5
   timeout_s: 10.0
 
+# Antes de qualquer depósito em uma SH: distância frontal medida pelo VL53.
+# Cada SH pode sobrescrever os campos em shelf_place_alignment.
+shelf_place_alignment_defaults:
+  distance_mm: 40
+  tolerance_mm: 5
+  timeout_s: 10.0
+
 # Distância segura da superfície antes de entregar novamente o movimento ao
 # Nav2. Cada área pode sobrescrever estes campos em um bloco `departure`.
 departure_defaults:
@@ -34,6 +41,10 @@ pickup_recovery:
   maximum_lateral_position_mm: 900
   preferred_tag_x_m: 0.0
   preferred_tag_y_m: -0.22
+  # SH: alinhamento obrigatório, mesmo quando a tag já está alcançável.
+  # Valores iniciais; calibrar separadamente da coleta superior.
+  shelf_preferred_tag_x_m: 0.0
+  shelf_preferred_tag_y_m: -0.32
   wall_tolerance_mm: 5
   travel_tolerance_mm: 10
   timeout_s: 15.0
@@ -119,6 +130,8 @@ service_areas:
   #   yaw_rad: 1.5707963268     # Orientação no mapa, em radianos.
   #   height_cm: 10.0           # Altura da superfície usada na coleta, em cm.
   #   type: SH                  # Valores aceitos: WS, SH ou PP.
+  #   shelf_place_alignment:    # Somente SH; herda shelf_place_alignment_defaults.
+  #     distance_mm: 40         # Distância frontal obrigatória antes do depósito.
   #   # Na SH, place_on_shelf usa a pose fixa do perfil shelf, não height_cm.
   #   alignment:
   #     distance_mm: 40         # Distância frontal desejada na chegada (> 0).

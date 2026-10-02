@@ -63,10 +63,41 @@ O mesmo resultado sempre inclui `observed_detections`, com a melhor observação
 de cada ID encontrado nas tentativas executadas sem movimentar a base. Isso
 também vale para coleta bem-sucedida e para alvo não encontrado.
 
-A coleta mantém o caminho `detect_apriltags` → `approach` → `grasp`. Depois de
+A coleta superior mantém o caminho `detect_apriltags` → `approach` → `grasp`. Depois de
 fechar a garra, o MoveIt planeja explicitamente o retorno primeiro para
 `approach` e depois para `detect_apriltags`. Não há ponto elevado adicional nem
 reprodução de trajetórias armazenadas.
+
+O perfil `pickup.shelf_front` usa pegada frontal.
+O filtro `reachability_filter_enabled` desse perfil fica desabilitado: depois
+da tentativa de alinhamento, a pose segue diretamente ao MoveIt, sem limites
+de raio ou XY da coleta. A primeira chamada retorna
+`RECOVERY_ALIGNMENT_REQUIRED` com a pose detectada, antes de mover ao cubo.
+Após tentar centralizar a base, o gerenciador envia `alignment_completed`.
+A ação detecta novamente e aceita essa posição, mesmo fora das tolerâncias
+de centralização. Então executa `home` → `pre_grasp_state`, vai diretamente à posição
+do cubo e fecha a garra. Depois retorna na ordem inversa da preparação:
+`pre_grasp_state` → `home`, encerrando o pick em `home`, sem pose adicional
+de retreat nem retorno a `detect_apriltags`.
+O Z do TCP é o topo da tag menos metade de `cube_size_m`, acrescido de
+`grasp_z_offset_m`. O Y do TCP é o Y detectado mais `grasp_y_offset_m`;
+um offset positivo traz o alvo para o lado do robô.
+O alvo de pegada restringe somente a posição do TCP e
+`link3_to_link4_deg` e `link4_to_link5_deg`, ambas com
+`joint_tolerance_deg`, sem orientação cartesiana obrigatória,
+ponto intermediário de aproximação ou restrições de trajeto. O MoveIt calcula
+livremente a rota até esses alvos. `yaw_offset_deg` não tem função na pegada
+frontal e foi removido de `pickup.shelf_front`; permanece na coleta superior,
+onde gira a orientação calculada a partir da tag. `approach_height_m` também
+é usado somente na estratégia superior.
+
+`pick_shelf_front_ready` no SRDF define a pose inicial ajustável da SH.
+Na ida e na volta, sua junta `link4_to_link5` é sobrescrita pelo valor de
+`pickup.shelf_front.link4_to_link5_deg`; as demais juntas mantêm os valores
+do SRDF. Essa cópia não altera a definição original do estado.
+Calibre essa pose e o offset Z no robô; o planejamento precisa
+encontrar soluções para os alvos. A prateleira precisa estar na Planning Scene para
+verificação de colisão de todos os elos. Nenhum teste físico foi executado.
 
 `place_on_table` sempre posiciona a câmera e solicita uma única sessão de
 `/vision/analyze_scene` com a superfície da mesa e, se a flag estiver ativa,

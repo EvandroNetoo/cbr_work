@@ -93,6 +93,35 @@ def test_arena_merges_partial_alignment_override(tmp_path):
     assert arena.pickup_recovery.search_positions_mm == (0, 250, -250)
 
 
+def test_shelf_place_alignment_has_independent_defaults_and_local_override(tmp_path):
+    import yaml
+
+    raw = yaml.safe_load(VALID_ARENA)
+    arena = load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
+    assert arena.service_areas['ws_3'].shelf_place_alignment.distance_mm == 40
+    raw['shelf_place_alignment_defaults'] = {'distance_mm': 65, 'tolerance_mm': 7}
+    arena = load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
+    assert arena.service_areas['ws_3'].shelf_place_alignment.distance_mm == 65
+    raw['service_areas']['ws_3']['shelf_place_alignment'] = {'distance_mm': 90}
+    arena = load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
+    alignment = arena.service_areas['ws_3'].shelf_place_alignment
+    assert alignment.distance_mm == 90
+    assert alignment.tolerance_mm == 7
+    assert alignment.timeout_s == 10.0
+    assert arena.service_areas['ws_3'].alignment.distance_mm == 180
+    assert arena.service_areas['ws_1'].shelf_place_alignment is None
+
+
+@pytest.mark.parametrize('distance', [0, -1])
+def test_shelf_place_alignment_rejects_invalid_distance(tmp_path, distance):
+    import yaml
+
+    raw = yaml.safe_load(VALID_ARENA)
+    raw['service_areas']['ws_3']['shelf_place_alignment'] = {'distance_mm': distance}
+    with pytest.raises(ConfigurationError):
+        load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
+
+
 
 def test_table_place_positions_are_separate_from_pickup_positions(tmp_path):
     source = VALID_ARENA.replace(

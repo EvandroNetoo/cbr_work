@@ -45,6 +45,16 @@
     <joint name="link4_to_link5" value="1.5707963267"/>
   </group_state>
 
+  <!-- SH: pose inicial ajustável, aproximadamente [0, 0, -90, 90, 0] graus.
+       O giro link4_to_link5 em 0 acompanha a orientação desejada da pegada. -->
+  <group_state name="pick_shelf_front_ready" group="arm">
+    <joint name="base_link_to_link1" value="0.0"/>
+    <joint name="link1_to_link2" value="0.0"/>
+    <joint name="link2_to_link3" value="-1.57"/>
+    <joint name="link3_to_link4" value="1.57"/>
+    <joint name="link4_to_link5" value="1.57"/>
+  </group_state>
+
   <!-- Espelho da posição de depósito direita, invertendo somente a primeira junta: [95, 46, -54, -89, 94]°. -->
   <group_state name="deposit_cube_left" group="arm">
     <joint name="base_link_to_link1" value="1.6580627894"/>

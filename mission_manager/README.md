@@ -109,6 +109,26 @@ nem ao empilhamento.
 
 ## Recuperação de coleta fora do alcance
 
+Antes de qualquer depósito em uma área `SH`, o gerenciador recolhe o braço
+com a carga e executa `FollowWall` para confirmar a distância frontal do VL53.
+`shelf_place_alignment_defaults` define o padrão de 40 mm, tolerância de 5 mm
+e timeout de 10 s. Cada SH pode sobrescrever apenas os campos desejados em
+`service_areas.<id>.shelf_place_alignment`, por exemplo `distance_mm: 80`.
+Essa distância é independente do alinhamento de chegada e da centralização
+da AprilTag. O alinhamento preserva a posição lateral e uma falha impede
+o envio da ação de depósito.
+
+Áreas `SH` selecionam automaticamente `shelf_front`. Antes de pegar, uma
+detecção solicita uma tentativa de alinhamento para
+`pickup_recovery.shelf_preferred_tag_x_m/y_m`, mesmo com a tag já alcançável
+e mesmo com `pickup_recovery.enabled: false`. Esse flag controla a recuperação
+opcional e a busca, não a tentativa inicial da SH. A base respeita os
+limites de parede e percurso existentes. Se já centralizada, não se move,
+mas repete a detecção para atualizar o alvo. Após essa tentativa, a posição
+alcançada é aceita mesmo fora das tolerâncias ou sem deslocamento. A nova
+pose detectada segue ao MoveIt sem exigir centralização exata. WS e PP usam
+`tabletop`.
+
 Cada resultado de `PickObject`, bem-sucedido ou não, inclui todas as AprilTags
 observadas enquanto a base permaneceu parada. O mission manager associa cada
 detecção à distância atual da parede e a uma coordenada lateral, cuja origem é

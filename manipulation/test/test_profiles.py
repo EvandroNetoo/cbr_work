@@ -16,9 +16,11 @@ def _profiles():
     )
 
 
-def test_pickup_has_only_tabletop_source():
+def test_pickup_has_tabletop_and_shelf_front_sources():
     profiles = _profiles()
-    assert set(profiles.pickup) == {'tabletop'}
+    assert set(profiles.pickup) == {'tabletop', 'shelf_front'}
+    assert profiles.pickup['shelf_front'].strategy == 'front'
+    assert profiles.pickup['shelf_front'].link3_to_link4_deg == 90.0
     assert profiles.pickup['tabletop'].cube_size_m == pytest.approx(0.042)
     pickup = profiles.pickup['tabletop']
     assert pickup.attempts == 1

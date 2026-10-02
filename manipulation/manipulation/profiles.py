@@ -42,6 +42,13 @@ class PickupProfile:
     cube_size_m: float
     yaw_offset_deg: float
     attempts: int
+    strategy: str = 'top'
+    pre_grasp_state: str = ''
+    grasp_z_offset_m: float = 0.0
+    grasp_y_offset_m: float = 0.0
+    link3_to_link4_deg: float = 90.0
+    link4_to_link5_deg: float = 0.0
+    joint_tolerance_deg: float = 5.0
     reachability_filter_enabled: bool = False
     reach_center_x_m: float = 0.0
     reach_center_y_m: float = 0.0
@@ -144,6 +151,10 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 'reach_min_radius_m', 'reach_max_radius_m',
                 'reach_x_min_m', 'reach_x_max_m',
                 'reach_y_min_m', 'reach_y_max_m',
+                'strategy', 'pre_grasp_state',
+                'grasp_z_offset_m', 'link3_to_link4_deg', 'joint_tolerance_deg',
+                'link4_to_link5_deg',
+                'grasp_y_offset_m',
             },
             f'pickup.{name}',
         )
@@ -170,6 +181,22 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 raw.get('yaw_offset_deg', 90.0), f'pickup.{name}.yaw_offset_deg'
             ),
             attempts=attempts,
+            strategy=str(raw.get('strategy', 'top')),
+            pre_grasp_state=str(raw.get('pre_grasp_state', '')),
+            grasp_z_offset_m=_number(
+                raw.get('grasp_z_offset_m', 0.0),
+                f'pickup.{name}.grasp_z_offset_m'),
+            grasp_y_offset_m=_number(
+                raw.get('grasp_y_offset_m', 0.0), f'pickup.{name}.grasp_y_offset_m'),
+            link3_to_link4_deg=_number(
+                raw.get('link3_to_link4_deg', 90.0),
+                f'pickup.{name}.link3_to_link4_deg'),
+            joint_tolerance_deg=_number(
+                raw.get('joint_tolerance_deg', 5.0),
+                f'pickup.{name}.joint_tolerance_deg', positive=True),
+            link4_to_link5_deg=_number(
+                raw.get('link4_to_link5_deg', 0.0),
+                f'pickup.{name}.link4_to_link5_deg'),
             reachability_filter_enabled=reachability_filter_enabled,
             reach_center_x_m=_number(
                 raw.get('reach_center_x_m', 0.0),
@@ -210,6 +237,16 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 else _number(raw['reach_y_max_m'], f'pickup.{name}.reach_y_max_m')
             ),
         )
+        if pickup[name].strategy not in {'top', 'front'}:
+            raise ConfigurationError(f'pickup.{name}.strategy deve ser top ou front.')
+        if pickup[name].strategy == 'front' and not pickup[name].pre_grasp_state:
+            raise ConfigurationError(f'pickup.{name}.pre_grasp_state é obrigatório.')
+        if not -180.0 < pickup[name].link3_to_link4_deg < 180.0:
+            raise ConfigurationError(f'pickup.{name}.link3_to_link4_deg inválido.')
+        if not -180.0 < pickup[name].link4_to_link5_deg < 180.0:
+            raise ConfigurationError(f'pickup.{name}.link4_to_link5_deg inválido.')
+        if pickup[name].joint_tolerance_deg >= 90.0:
+            raise ConfigurationError(f'pickup.{name}.joint_tolerance_deg deve ser menor que 90.')
         if not pickup[name].observation_state:
             raise ConfigurationError(f'pickup.{name}.observation_state não pode ser vazio.')
         if pickup[name].reachability_filter_enabled:

@@ -19,6 +19,32 @@ pickup:
     reach_y_min_m: -1
     reach_y_max_m: 0
 
+  shelf_front:
+    strategy: front
+    observation_state: detect_apriltags
+    # Pose padrão ilustrativa no SRDF; ajustar no robô antes da coleta.
+    pre_grasp_state: pick_shelf_front_ready
+    approach_height_m: 0.08
+    cube_size_m: 0.042
+    # Z do TCP = Z da tag (no topo) - metade do cubo + este ajuste.
+    grasp_z_offset_m: 0.0
+    # Y do TCP = Y detectado + offset; positivo aproxima o alvo do corpo.
+    grasp_y_offset_m: -0.03
+    link3_to_link4_deg: 90.0
+    link4_to_link5_deg: 90.0
+    joint_tolerance_deg: 5.0
+    attempts: 1
+    # SH: após confirmar o alinhamento, enviar diretamente ao MoveIt.
+    reachability_filter_enabled: false
+    reach_center_x_m: 0.0
+    reach_center_y_m: 0.0
+    reach_min_radius_m: 0.155
+    reach_max_radius_m: 0.28
+    reach_x_min_m: -1
+    reach_x_max_m: 1
+    reach_y_min_m: -1
+    reach_y_max_m: 0
+
 placements:
   table:
     strategy: perception

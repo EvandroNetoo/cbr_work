@@ -232,6 +232,7 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
             'maximum_lateral_position_mm', 'preferred_tag_x_m',
             'preferred_tag_y_m', 'wall_tolerance_mm', 'travel_tolerance_mm',
             'timeout_s', 'max_reposition_attempts', 'search_positions_mm',
+            'shelf_preferred_tag_x_m', 'shelf_preferred_tag_y_m',
         },
         context,
     )
@@ -312,6 +313,12 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
     if wall_tolerance == 0 or travel_tolerance == 0:
         raise ConfigurationError(f'{context}.tolerâncias devem ser positivas.')
     return PickupRecoveryConfig(
+        shelf_preferred_tag_x_m=_number(
+            raw.get('shelf_preferred_tag_x_m', 0.0),
+            f'{context}.shelf_preferred_tag_x_m'),
+        shelf_preferred_tag_y_m=_number(
+            raw.get('shelf_preferred_tag_y_m', -0.22),
+            f'{context}.shelf_preferred_tag_y_m'),
         enabled=_boolean(raw.get('enabled'), f'{context}.enabled'),
         minimum_wall_distance_mm=minimum,
         maximum_wall_distance_mm=maximum,
@@ -343,6 +350,7 @@ def load_arena(path: str | Path) -> Arena:
             'departure_defaults', 'pickup_recovery',
             'table_place_search_positions_mm',
             'start', 'finish', 'service_areas',
+            'shelf_place_alignment_defaults',
         },
         'arena',
     )
@@ -350,6 +358,9 @@ def load_arena(path: str | Path) -> Arena:
     defaults = _alignment(
         root.get('alignment_defaults'), 'arena.alignment_defaults'
     )
+    shelf_place_defaults = _alignment(
+        root.get('shelf_place_alignment_defaults', {}),
+        'arena.shelf_place_alignment_defaults', AlignmentConfig(40, 5, 10.0))
     departure_defaults = _departure(
         root.get('departure_defaults'), 'arena.departure_defaults'
     )
@@ -393,6 +404,7 @@ def load_arena(path: str | Path) -> Arena:
             {
                 'x_m', 'y_m', 'yaw_rad', 'height_cm', 'type',
                 'alignment', 'departure',
+                'shelf_place_alignment',
             },
             f'arena.service_areas.{area_name}',
         )
@@ -403,6 +415,9 @@ def load_arena(path: str | Path) -> Arena:
             raise ConfigurationError(
                 f"arena.service_areas.{area_name}.type deve ser WS, SH ou PP."
             )
+        if 'shelf_place_alignment' in raw and area_type != 'SH':
+            raise ConfigurationError(
+                f'arena.service_areas.{area_name}.shelf_place_alignment exige type: SH.')
         pose = _pose(
             {key: raw.get(key) for key in ('x_m', 'y_m', 'yaw_rad')},
             f'arena.service_areas.{area_name}',
@@ -415,6 +430,12 @@ def load_arena(path: str | Path) -> Arena:
                 f'arena.service_areas.{area_name}.height_cm',
             ),
             area_type=area_type,
+            shelf_place_alignment=(
+                _alignment(
+                    raw.get('shelf_place_alignment', {}),
+                    f'arena.service_areas.{area_name}.shelf_place_alignment',
+                    shelf_place_defaults)
+                if area_type == 'SH' else None),
             alignment=_alignment(
                 raw.get('alignment', {}),
                 f'arena.service_areas.{area_name}.alignment',
@@ -434,6 +455,7 @@ def load_arena(path: str | Path) -> Arena:
         departure_defaults=departure_defaults,
         pickup_recovery=pickup_recovery,
         service_areas=areas,
+        shelf_place_alignment_defaults=shelf_place_defaults,
         table_place_search_positions_mm=table_positions,
     )
 
