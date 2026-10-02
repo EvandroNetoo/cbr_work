@@ -741,6 +741,11 @@ class ManipulationServer(Node):
                         and detected_pose is not None
                         and error.error_code == 99999
                     ):
+                        if profile.strategy == 'front':
+                            self._arm_state(
+                                'home',
+                                'Retornando para home antes de recuperar a coleta da SH',
+                            )
                         raise PickRecoveryRequired(
                             f'{error} A base pode ser reposicionada usando a '
                             'pose detectada da AprilTag.',

@@ -79,6 +79,10 @@ de centralização. Então executa `home` → `pre_grasp_state`, vai diretamente
 do cubo e fecha a garra. Depois retorna na ordem inversa da preparação:
 `pre_grasp_state` → `home`, encerrando o pick em `home`, sem pose adicional
 de retreat nem retorno a `detect_apriltags`.
+Se o MoveIt falhar com código `99999` antes de fechar a garra, a coleta
+frontal retorna a `home` antes de solicitar a recuperação da base. Só depois
+desse retorno a missão pode preparar `detect_apriltags` e repetir a detecção.
+Se o retorno a `home` falhar, a recuperação é interrompida.
 O Z do TCP é o topo da tag menos metade de `cube_size_m`, acrescido de
 `grasp_z_offset_m`. O Y do TCP é o Y detectado mais `grasp_y_offset_m`;
 um offset positivo traz o alvo para o lado do robô.

@@ -8,6 +8,7 @@ from manipulation.errors import PickRecoveryRequired
 from manipulation.node import ManipulationServer
 from manipulation.profiles import load_profiles
 import pytest
+from so_arm_101_moveit_config.movimento import FalhaDoMoveIt
 
 
 def _server(position):
@@ -97,3 +98,50 @@ def test_front_pick_respects_roll_y_offset_and_returns_in_reverse_order(position
 def test_shelf_default_pose_is_known_to_moveit():
     server, _goal, _events = _server((0.0, -0.22, 0.14))
     server._validate_named_states(server._profiles)
+
+
+@pytest.mark.parametrize('failure_at', ['ready', 'grasp'])
+def test_front_pick_returns_home_before_requesting_moveit_recovery(failure_at):
+    server, goal, events = _server((0.0, -0.32, 0.14))
+    goal.alignment_completed = True
+
+    def fail(*_args, **_kwargs):
+        events.append(('failure', failure_at))
+        raise FalhaDoMoveIt('MoveIt falhou com código 99999.', 99999)
+
+    if failure_at == 'ready':
+        server._motion.mover_para_posicoes_das_juntas = fail
+    else:
+        server._motion.executar_objetivo = fail
+
+    with pytest.raises(PickRecoveryRequired) as captured:
+        server._execute_pick(SimpleNamespace(request=goal))
+
+    assert captured.value.recovery_reason == PickObject.Result.RECOVERY_MOVEIT_UNREACHABLE
+    assert captured.value.moveit_error_code == 99999
+    assert events[events.index(('failure', failure_at)) + 1:] == [('state', 'home')]
+    assert ('gripper', 'grip') not in events
+
+
+def test_front_pick_blocks_recovery_when_return_home_fails():
+    server, goal, events = _server((0.0, -0.32, 0.14))
+    goal.alignment_completed = True
+
+    def fail_grasp(*_args, **_kwargs):
+        events.append(('failure', 'grasp'))
+        raise FalhaDoMoveIt('MoveIt falhou com código 99999.', 99999)
+
+    original_arm_state = server._arm_state
+
+    def arm_state(state, *args):
+        original_arm_state(state, *args)
+        if state == 'home' and ('failure', 'grasp') in events:
+            raise FalhaDoMoveIt('Retorno a home falhou.', 99999)
+
+    server._motion.executar_objetivo = fail_grasp
+    server._arm_state = arm_state
+
+    with pytest.raises(FalhaDoMoveIt, match='Retorno a home falhou'):
+        server._execute_pick(SimpleNamespace(request=goal))
+
+    assert events[events.index(('failure', 'grasp')) + 1:] == [('state', 'home')]

@@ -118,6 +118,8 @@ service_areas:
     yaw_rad: -1.570
     height_cm: 10.0
     type: SH
+    alignment:
+      distance_mm: 80  
 
   # Exemplo completo de área de serviço (valores ilustrativos).
   # Para usar, descomente o bloco abaixo e ajuste o ID e os valores.
