@@ -67,6 +67,25 @@ folga lateral bloqueia um goal que também corrige a distância frontal, o
 e então devolve o resultado parcial. Timeout, falha de sensores, odometria
 inválida e comunicação continuam encerrando a missão.
 
+## Áreas de serviço e prateleira (SH)
+
+Câmera e LED são ativados na chegada a qualquer área `WS`, `SH` ou `PP`,
+antes do alinhamento. Também são ativados se `initial_location` for uma área
+de serviço. São desligados antes do recuo de saída e ao encerrar a missão,
+inclusive em cancelamento ou falha.
+
+Na SH, `pick` usa o mesmo fluxo AprilTag, busca lateral e recuperação da WS,
+com o `height_cm` da área de coleta. O depósito alto usa explicitamente
+`action: place_on_shelf` no plano: move o braço para a pose fixa configurada,
+abre a garra e retorna à posição segura. O tipo `SH` não troca a ação do plano
+automaticamente, e `height_cm` não define a altura desse depósito.
+
+O plano `example_shelf` demonstra coleta e depósito na `sh_1`. Os valores de
+`sh_1` em `config/arena.yaml` e as juntas de `place_on_shelf_high` no arquivo
+`so_arm_101_moveit_config/config/so_arm_101.srdf` são **fictícios** e devem ser
+substituídos pela calibração antes de executar no robô. O perfil `shelf` de
+`manipulation/config/profiles.yaml` já aponta para essa pose e está habilitado.
+
 ## Recuo lateral antes do depósito
 
 Cada resultado do `FollowWall` inclui a folga lateral do LiDAR para os lados

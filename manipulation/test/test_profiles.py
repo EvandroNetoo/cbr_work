@@ -34,7 +34,7 @@ def test_expected_placement_profiles_are_enabled():
     enabled = {
         name for name, profile in profiles.placements.items() if profile.enabled
     }
-    assert enabled == {'table', 'explicit_pose', 'container', 'stack'}
+    assert enabled == {'table', 'explicit_pose', 'container', 'stack', 'shelf'}
 
 
 def test_container_profile_keeps_xy_and_height_offsets_explicit():
@@ -184,3 +184,20 @@ def test_pickup_reachability_flag_must_be_boolean(tmp_path):
 
     with pytest.raises(ConfigurationError, match='deve ser booleano'):
         load_profiles(profile_path, PACKAGE / 'config' / 'cargo_slots.yaml')
+
+
+def test_shelf_profile_references_an_arm_state_with_all_joints():
+    import xml.etree.ElementTree as ET
+
+    profile = _profiles().placements['shelf']
+    assert profile.strategy == 'named_state'
+    srdf = ET.parse(
+        PACKAGE.parent / 'so_arm_101' / 'so_arm_101_moveit_config'
+        / 'config' / 'so_arm_101.srdf')
+    state = srdf.find(
+        f".//group_state[@name='{profile.named_state}'][@group='arm']")
+    assert state is not None
+    assert {joint.attrib['name'] for joint in state} == {
+        'base_link_to_link1', 'link1_to_link2', 'link2_to_link3',
+        'link3_to_link4', 'link4_to_link5',
+    }

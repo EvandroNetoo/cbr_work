@@ -314,3 +314,12 @@ steps:
 
     with pytest.raises(ConfigurationError, match='campos desconhecidos'):
         load_plan(plan_path)
+
+
+def test_example_shelf_plan_matches_configured_arena():
+    arena = load_arena(PACKAGE / 'config' / 'arena.yaml')
+    plan = load_plan(PACKAGE / 'config' / 'plans' / 'example_shelf.yaml')
+    validate_plan(plan, arena)
+    assert arena.service_areas['sh_1'].area_type == 'SH'
+    assert [step.action for step in plan.steps] == [
+        'navigate', 'pick', 'place_on_shelf', 'finish']

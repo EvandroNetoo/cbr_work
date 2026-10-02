@@ -149,7 +149,7 @@ class MissionManager(Node):
         self._last_table_observation: TableObservation | None = None
         self._active_child = None
         self._arena: Arena | None = None
-        self._ws_vision_active = False
+        self._service_area_vision_active = False
 
         slot_ids = [
             str(value) for value in self.get_parameter('cargo_slot_ids').value
@@ -1272,23 +1272,23 @@ class MissionManager(Node):
             message = response.message if response is not None else 'sem resposta'
             raise StepFailed(f'Falha ao controlar {name}: {message}')
 
-    def _activate_ws_vision(self) -> None:
-        if self._ws_vision_active:
+    def _activate_service_area_vision(self) -> None:
+        if self._service_area_vision_active:
             return
         # Mark active before the calls so a timeout still gets cleanup.
-        self._ws_vision_active = True
+        self._service_area_vision_active = True
         try:
             self._set_vision_resource(self._camera_capture_client, 'câmera', True)
             self._set_vision_resource(self._vision_led_client, 'LED', True)
         except Exception:
             try:
-                self._deactivate_ws_vision()
+                self._deactivate_service_area_vision()
             except StepFailed as error:
                 self.get_logger().error(str(error))
             raise
 
-    def _deactivate_ws_vision(self) -> None:
-        if not self._ws_vision_active:
+    def _deactivate_service_area_vision(self) -> None:
+        if not self._service_area_vision_active:
             return
         failures = []
         for client, name in (
@@ -1301,7 +1301,7 @@ class MissionManager(Node):
                 failures.append(str(error))
         if failures:
             raise StepFailed('; '.join(failures))
-        self._ws_vision_active = False
+        self._service_area_vision_active = False
 
     def _navigate(self, target: str) -> None:
         assert self._arena is not None
@@ -1310,8 +1310,7 @@ class MissionManager(Node):
             self._current_location in self._arena.service_areas
             and target != self._current_location
         ):
-            if self._arena.service_areas[self._current_location].area_type == 'WS':
-                self._deactivate_ws_vision()
+            self._deactivate_service_area_vision()
             departure = self._arena.service_areas[
                 self._current_location
             ].departure
@@ -1355,8 +1354,7 @@ class MissionManager(Node):
         self._last_follow_wall_result = None
         self._last_lateral_travel_direction = 0
         if target in self._arena.service_areas:
-            if self._arena.service_areas[target].area_type == 'WS':
-                self._activate_ws_vision()
+            self._activate_service_area_vision()
             alignment = self._arena.service_areas[target].alignment
             result = self._control_wall(
                 alignment.distance_mm,
@@ -1877,7 +1875,7 @@ class MissionManager(Node):
 
     def _execute_callback(self, goal_handle: Any) -> ExecuteMission.Result:
         self._status = 'running'
-        self._ws_vision_active = False
+        self._service_area_vision_active = False
         self._current_location = 'start'
         self._current_wall_distance_mm = None
         self._current_lateral_position_mm = 0.0
@@ -1897,9 +1895,8 @@ class MissionManager(Node):
             arena, plan = self._load_goal_files(str(goal_handle.request.plan_id))
             self._arena = arena
             self._current_location = plan.initial_location
-            if (self._current_location in arena.service_areas
-                    and arena.service_areas[self._current_location].area_type == 'WS'):
-                self._activate_ws_vision()
+            if self._current_location in arena.service_areas:
+                self._activate_service_area_vision()
             self._world_state.reset()
             self._publish_world_state()
             total = len(plan.steps)
@@ -1914,7 +1911,7 @@ class MissionManager(Node):
                 )
                 self._execute_step(step)
                 completed += 1
-            self._deactivate_ws_vision()
+            self._deactivate_service_area_vision()
             self._status = 'succeeded'
             return self._result(
                 goal_handle,
@@ -1962,7 +1959,7 @@ class MissionManager(Node):
             )
         finally:
             try:
-                self._deactivate_ws_vision()
+                self._deactivate_service_area_vision()
             except StepFailed as error:
                 self.get_logger().error(f'Falha ao desligar visão após missão: {error}')
             self._cancel_event.clear()

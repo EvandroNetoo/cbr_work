@@ -48,47 +48,89 @@ table_place_search_positions_mm: [0, 160, 325, -160, -325]
 
 # Preencher com poses medidas no mapa antes da primeira execução.
 start:
-  x_m: 0.0009
-  y_m: 0.1681
-  yaw_rad: -1.6412
+  x_m: 4.000
+  y_m: 3.000
+  yaw_rad: -3.14
 
 finish:
-  x_m: 4.162
-  y_m: 6.000
-  yaw_rad: 1.570
+  x_m: 4.000
+  y_m: 3.000
+  yaw_rad: 3.14
 
 service_areas:
   ws_1:
-    x_m: 4.40
-    y_m: 1.807
-    yaw_rad: -1.570
-    height_cm: 11
+    x_m: 2.2
+    y_m: 2.476
+    yaw_rad: 1.570
+    height_cm: 6
     type: WS
-    # departure:
-    #   distance_mm: 250
-    #   tolerance_mm: 25
-    #   timeout_s: 10.0
-    #   lateral_position_mm: 0
-    #   max_alignment_error_mm: 100
-    #   alignment_recovery_distance_mm: 100
 
   ws_2:
-    x_m: 1.436
-    y_m: 5.16
+    x_m: 2.2
+    y_m: 3.755
     yaw_rad: -1.570
-    height_cm: 16.2
+    height_cm: 6
     type: WS
 
   ws_3:
-    x_m: 1.436
-    y_m: 3.84
-    yaw_rad: 1.570
-    height_cm: 16.2
+    x_m: 2.77
+    y_m: 4.11
+    yaw_rad: 0.000
+    height_cm: 11
     type: WS
 
   ws_4:
-    x_m: 1.77
-    y_m: 3.10
-    yaw_rad: 0.0
-    height_cm: 5.5
+    x_m: 3.955
+    y_m: 4.11
+    yaw_rad: -3.14
+    height_cm: 11
     type: WS
+
+  ws_5:
+    x_m: 3.922
+    y_m: 4.830
+    yaw_rad: 1.570
+    height_cm: 16.0
+    type: WS
+
+  ws_6:
+    x_m: 3.922
+    y_m: 6.100
+    yaw_rad: -1.570
+    height_cm: 16.0
+    type: WS
+
+
+  sh_1:
+    x_m: 1.333
+    y_m: 1.414
+    yaw_rad: -1.570
+    height_cm: 10.0
+    type: SH
+
+  # Exemplo completo de área de serviço (valores ilustrativos).
+  # Para usar, descomente o bloco abaixo e ajuste o ID e os valores.
+  # Campos de alignment/departure omitidos herdam os respectivos defaults.
+  # pickup_recovery e table_place_search_positions_mm são globais;
+  # não podem ser configurados dentro de uma área de serviço.
+  # area_exemplo:
+  #   x_m: 1.0                  # Posição X no mapa, em metros.
+  #   y_m: 2.0                  # Posição Y no mapa, em metros.
+  #   yaw_rad: 1.5707963268     # Orientação no mapa, em radianos.
+  #   height_cm: 10.0           # Altura da superfície usada na coleta, em cm.
+  #   type: SH                  # Valores aceitos: WS, SH ou PP.
+  #   # Na SH, place_on_shelf usa a pose fixa do perfil shelf, não height_cm.
+  #   alignment:
+  #     distance_mm: 40         # Distância frontal desejada na chegada (> 0).
+  #     tolerance_mm: 5         # Tolerância da distância frontal (> 0).
+  #     timeout_s: 10.0         # Tempo limite do alinhamento, em segundos (> 0).
+  #   departure:
+  #     distance_mm: 250        # Distância frontal desejada antes de sair (> 0).
+  #     tolerance_mm: 25        # Tolerância da distância frontal (> 0).
+  #     timeout_s: 10.0         # Tempo limite do recuo, em segundos (> 0).
+  #     lateral_position_mm: 0  # Destino lateral absoluto relativo à chegada.
+  #     # Proteções aplicadas quando a saída inclui deslocamento lateral.
+  #     max_alignment_error_mm: 100          # Erro máximo; 0 desativa o limite.
+  #     alignment_recovery_distance_mm: 100  # Percurso de recuperação; 0 desativa.
+  #     # Recuperação > 0 exige max_alignment_error_mm > 0.
+  #     minimum_lateral_clearance_mm: 10     # Folga lateral mínima; 0 desativa.

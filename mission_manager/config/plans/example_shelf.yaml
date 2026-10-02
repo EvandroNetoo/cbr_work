@@ -1,0 +1,49 @@
+schema_version: 1
+plan_id: example_shelf
+
+# Exemplo com valores FICTÍCIOS. Calibrar sh_1 e place_on_shelf_high primeiro.
+# A coleta na SH segue o mesmo fluxo AprilTag da WS.
+steps:
+
+  # - id: navigate_to_ws_1
+  #   action: navigate
+  #   target: ws_1
+
+  # - id: navigate_to_ws_2
+  #   action: navigate
+  #   target: ws_2
+
+  # - id: navigate_to_ws_3
+  #   action: navigate
+  #   target: ws_3
+
+  # - id: navigate_to_ws_4
+  #   action: navigate
+  #   target: ws_4
+
+  # - id: navigate_to_ws_5
+  #   action: navigate
+  #   target: ws_5
+
+  # - id: navigate_to_ws_6
+  #   action: navigate
+  #   target: ws_6
+
+
+  - id: navigate_to_ws_1
+    action: navigate
+    target: ws_1
+
+  - id: coletar_tag_na_sh
+    action: pick
+    tag_id: 1
+
+  - id: navigate_to_sh_1
+    action: navigate
+    target: sh_1
+
+  - id: depositar_na_pose_alta_sh
+    action: place_on_shelf
+
+  - id: finalizar
+    action: finish

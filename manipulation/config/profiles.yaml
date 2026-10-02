@@ -81,9 +81,10 @@ placements:
 
   shelf:
     strategy: named_state
-    # Habilitar e preencher named_state após medir a pose fixa da prateleira.
-    enabled: false
-    named_state: ""
+    # Pose alta FICTÍCIA: substituir as juntas de place_on_shelf_high no SRDF
+    # após calibrar o depósito na SH, antes de executar no robô.
+    enabled: true
+    named_state: "place_on_shelf_high"
     approach_height_m: 0.08
     retreat_height_m: 0.10
     calibrated_reference: false

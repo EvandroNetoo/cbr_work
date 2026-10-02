@@ -1,17 +1,18 @@
 from dataclasses import replace
+import threading
 from types import SimpleNamespace
 
 from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Time
 from interfaces.action import (
-    FollowWall, PickObject, PlaceInContainer, PlaceOnTable, StackObject,
+    ExecuteMission, FollowWall, PickObject, PlaceInContainer, PlaceOnTable, StackObject,
     PrepareManipulator,
 )
 from interfaces.msg import (
     AprilTagStampedDetection, ContainerStampedDetection, ManipulationResult,
     SceneObservation,
 )
-from mission_manager.errors import StepFailed
+from mission_manager.errors import MissionCanceled, StepFailed
 from mission_manager.models import (
     AlignmentConfig,
     Arena,
@@ -357,7 +358,7 @@ def test_manager_blocks_store_before_sending_action_when_gripper_is_empty():
     _attach_world_state(manager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._manipulation_timeout = lambda: 120.0
     manager._call_action = lambda *_args, **_kwargs: pytest.fail(
         'action física não deveria ser enviada'
@@ -436,13 +437,16 @@ def test_pickup_recovery_stops_at_absolute_lateral_limit():
     assert 'limitada para 25 mm' in warnings[0]
 
 
-def test_pick_retries_after_one_recoverable_result():
+@pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP'])
+def test_pick_retries_after_one_recoverable_result(area_type):
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._arena = _arena()
+    manager._arena.service_areas['ws_1'] = replace(
+        manager._arena.service_areas['ws_1'], area_type=area_type)
     manager._pick_client = object()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._tag_observations = {}
@@ -468,6 +472,8 @@ def test_pick_retries_after_one_recoverable_result():
     manager._execute_pick(step, 120.0)
 
     assert len(calls) == 2
+    assert all(call[1].ws_height_cm == 12.5 for call in calls)
+    assert all(call[1].tag_id == 1 for call in calls)
     assert all(call[2]['allow_unsuccessful_status'] for call in calls)
     assert len(recoveries) == 1
     assert recoveries[0][1] == step
@@ -531,7 +537,7 @@ def test_remembered_pickup_position_respects_lateral_limit():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 250.0
     manager._tag_observations = {}
@@ -550,7 +556,7 @@ def test_pick_observations_are_updated_individually_and_survive_area_changes():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._tag_observations = {}
@@ -581,7 +587,7 @@ def test_scene_observation_keeps_best_container_memory_by_area_and_color():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 25.0
     manager._tag_observations = {}
@@ -673,7 +679,7 @@ def test_container_memory_only_repositions_and_still_calls_semantic_action():
     manager._world_state.commit_pick(5)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 100.0
     manager._container_observations = {
@@ -715,7 +721,7 @@ def test_container_absence_skips_repeated_analysis_at_same_position():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._tag_observations = {}
@@ -773,7 +779,7 @@ def test_container_search_skips_vision_when_base_did_not_move():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 100.0
     manager._container_observations = {}
@@ -1004,7 +1010,7 @@ def test_missing_tag_scans_every_position_once_and_then_fails():
     _attach_world_state(manager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._tag_observations = {}
@@ -1096,7 +1102,7 @@ def test_navigation_returns_to_departure_lateral_origin_while_backing_away(
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = current_lateral_position_mm
     manager._navigate_client = object()
@@ -1127,7 +1133,7 @@ def test_navigation_keeps_apriltag_memory_for_later_return():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 80.0
     marker = object()
@@ -1193,7 +1199,7 @@ def test_table_place_ignores_apriltag_visits_and_falls_back_after_search(
     manager._world_state.commit_pick(5)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._visited_search_positions = {'ws_1': previous_pick_positions}
@@ -1263,7 +1269,7 @@ def test_table_place_tries_five_configured_positions_before_fallback():
         table_place_search_positions_mm=(0, 160, 325, -160, -325),
     )
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._place_table_client = object()
@@ -1312,7 +1318,7 @@ def test_container_place_retries_after_apriltag_search():
     manager._world_state.commit_pick(8)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._visited_search_positions = {'ws_1': {0, 250, -250}}
@@ -1365,7 +1371,7 @@ def test_container_place_uses_table_fallback_after_all_search_positions():
     manager._world_state.commit_pick(8)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._place_container_client = object()
@@ -1420,7 +1426,7 @@ def test_place_does_not_retry_after_confirmed_release_cleanup_failure():
     manager._world_state.commit_pick(5)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._place_table_client = object()
@@ -1449,7 +1455,7 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     _attach_world_state(manager)
     manager._arena = _arena()
     manager._current_location = 'ws_1'
-    manager._ws_vision_active = False
+    manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._tag_observations = {}
@@ -1531,9 +1537,12 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     assert calls[5][1].ws_height_cm == 12.5
 
 
-def test_ws_vision_is_enabled_after_navigation_and_before_alignment():
+@pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP'])
+def test_service_area_vision_is_enabled_after_navigation_and_before_alignment(area_type):
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
+    manager._arena.service_areas['ws_1'] = replace(
+        manager._arena.service_areas['ws_1'], area_type=area_type)
     manager._current_location = 'start'
     manager._current_lateral_position_mm = 0.0
     manager._current_wall_distance_mm = None
@@ -1544,7 +1553,7 @@ def test_ws_vision_is_enabled_after_navigation_and_before_alignment():
         now=lambda: SimpleNamespace(to_msg=lambda: Time()))
     events = []
     manager._call_action = lambda *_args, **_kwargs: events.append('navigate')
-    manager._activate_ws_vision = lambda: events.append('on')
+    manager._activate_service_area_vision = lambda: events.append('on')
     manager._control_wall = lambda *_args, **_kwargs: (
         events.append('align') or FollowWall.Result())
 
@@ -1553,9 +1562,12 @@ def test_ws_vision_is_enabled_after_navigation_and_before_alignment():
     assert events == ['navigate', 'on', 'align']
 
 
-def test_ws_vision_is_disabled_before_departure_alignment():
+@pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP'])
+def test_service_area_vision_is_disabled_before_departure_alignment(area_type):
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
+    manager._arena.service_areas['ws_1'] = replace(
+        manager._arena.service_areas['ws_1'], area_type=area_type)
     manager._current_location = 'ws_1'
     manager._current_lateral_position_mm = 0.0
     manager._current_wall_distance_mm = 200.0
@@ -1565,7 +1577,7 @@ def test_ws_vision_is_disabled_before_departure_alignment():
     manager.get_clock = lambda: SimpleNamespace(
         now=lambda: SimpleNamespace(to_msg=lambda: Time()))
     events = []
-    manager._deactivate_ws_vision = lambda: events.append('off')
+    manager._deactivate_service_area_vision = lambda: events.append('off')
     manager._control_wall = lambda *_args, **_kwargs: (
         events.append('departure') or FollowWall.Result())
     manager._call_action = lambda *_args, **_kwargs: events.append('navigate')
@@ -1897,3 +1909,57 @@ def test_second_stack_uses_first_stacks_placement_viewpoint():
         Step('stack_11', 'stack', support_tag_id=5))
 
     assert moves == [(200, 0.0)]
+
+
+@pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP'])
+@pytest.mark.parametrize('ending', ['success', 'failure', 'cancel'])
+def test_initial_service_area_enables_vision_and_cleans_up(area_type, ending):
+    manager = MissionManager.__new__(MissionManager)
+    arena = _arena()
+    arena.service_areas['ws_1'] = replace(
+        arena.service_areas['ws_1'], area_type=area_type)
+    plan = SimpleNamespace(
+        initial_location='ws_1', plan_id='test',
+        steps=(Step('collect', 'pick', tag_id=1),))
+    manager._load_goal_files = lambda _plan_id: (arena, plan)
+    for attribute in (
+        '_tag_observations', '_placed_tag_viewpoints', '_container_observations',
+        '_container_search_positions', '_visited_search_positions',
+        '_blocked_search_positions',
+    ):
+        setattr(manager, attribute, {})
+    manager._cancel_event = threading.Event()
+    manager._lock = threading.Lock()
+    _attach_world_state(manager)
+    manager._feedback = lambda *_args: None
+    events = []
+    manager._camera_capture_client = object()
+    manager._vision_led_client = object()
+    manager._set_vision_resource = lambda _client, name, enabled: (
+        events.append((name, enabled)))
+
+    def execute(_step):
+        assert manager._service_area_vision_active
+        events.append(('pick', True))
+        if ending == 'failure':
+            raise StepFailed('test failure')
+        if ending == 'cancel':
+            raise MissionCanceled('test cancel')
+
+    manager._execute_step = execute
+    handle = SimpleNamespace(
+        request=SimpleNamespace(plan_id='test'),
+        succeed=lambda: None, abort=lambda: None, canceled=lambda: None)
+
+    result = manager._execute_callback(handle)
+
+    assert result.code == {
+        'success': ExecuteMission.Result.SUCCESS,
+        'failure': ExecuteMission.Result.STEP_FAILED,
+        'cancel': ExecuteMission.Result.CANCELED,
+    }[ending]
+    assert events == [
+        ('câmera', True), ('LED', True), ('pick', True),
+        ('câmera', False), ('LED', False),
+    ]
+    assert not manager._service_area_vision_active

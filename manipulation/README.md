@@ -22,7 +22,8 @@ Situação atual dos depósitos:
 
 - `place_at_pose`: funcional, para calibração, testes e poses explícitas;
 - `stack`: lógica implementada e habilitada com o offset configurado no perfil;
-- `place_on_shelf`: lógica implementada, bloqueada até medir a pose no SRDF;
+- `place_on_shelf`: habilitado com a pose alta fixa `place_on_shelf_high`;
+  as juntas no SRDF são fictícias e precisam ser calibradas antes do uso no robô;
 - `place_on_table`: depósito disponível após preencher yaw, offset e região;
   análise de obstáculos por AprilTags disponível após calibrar a região de busca;
 - `place_in_container`: habilitado para soltar no centro do contêiner detectado
@@ -209,6 +210,7 @@ ros2 action send_goal manipulation/place_on_shelf interfaces/action/PlaceOnShelf
   "{}" --feedback
 ```
 
-O pacote não contém valores inventados para destinos ainda não medidos. Os
-compartimentos internos `left` e `right` estão habilitados com poses existentes
-no SRDF.
+O perfil `shelf` está habilitado e usa `place_on_shelf_high` no SRDF. Essa
+pose contém valores **fictícios** em radianos: substitua-os pela calibração
+antes de executar no robô. A action não recebe altura nem pose de destino.
+Os compartimentos internos `left` e `right` mantêm suas poses medidas no SRDF.

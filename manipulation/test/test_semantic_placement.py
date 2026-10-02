@@ -2,7 +2,7 @@ import math
 from types import SimpleNamespace
 
 from geometry_msgs.msg import PoseStamped
-from interfaces.action import PlaceInContainer, PlaceOnTable
+from interfaces.action import PlaceInContainer, PlaceOnShelf, PlaceOnTable
 from interfaces.msg import (
     AprilTagStampedDetection, ContainerStampedDetection,
     ManipulationFeedback, ManipulationResult, SceneObservation, TableSurfaceGrid,
@@ -951,3 +951,29 @@ def test_hsv_partial_container_deposits_at_visible_center():
     assert pose.pose.position.y == pytest.approx(-0.23576)
     assert pose.pose.position.z == pytest.approx(0.096)  # top + profile offset
     assert any('centro da parte visível' in message for message in feedback)
+
+
+def test_shelf_deposit_uses_fixed_high_state_then_releases_and_returns_safe():
+    server = _operation_only_server()
+    profile = _cartesian_profile()
+    from dataclasses import replace
+    server._profiles = SimpleNamespace(placements={
+        'shelf': replace(
+            profile, name='shelf', strategy='named_state',
+            named_state='place_on_shelf_high'),
+    })
+    events = []
+    server._feedback = lambda *_args: None
+    server._arm_state = lambda state, _description: events.append(('arm', state))
+    server._gripper = lambda state, _description: events.append(('gripper', state))
+    server._record_effect = lambda location: events.append(('effect', location))
+    server._safe = lambda loaded: events.append(('safe', loaded))
+
+    message, location = server._execute_place_on_shelf(
+        SimpleNamespace(request=PlaceOnShelf.Goal()))
+
+    assert location == ManipulationResult.LOCATION_DESTINATION
+    assert events == [
+        ('arm', 'place_on_shelf_high'), ('gripper', 'open'),
+        ('effect', ManipulationResult.LOCATION_DESTINATION), ('safe', False),
+    ]
