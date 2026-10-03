@@ -54,3 +54,29 @@ def test_imu_data_frame_is_aligned_with_robot_axes(robot):
     assert imu_joint.find('parent').attrib['link'] == 'base_link'
     assert imu_joint.find('child').attrib['link'] == 'imu_link'
     assert imu_joint.find('origin').attrib['rpy'] == '0.0 0.0 0.0'
+
+
+def test_standalone_base_defaults_to_physical_hardware():
+    path = Path(__file__).parents[2] / 'base_description/urdf/base.urdf.xacro'
+    root = ET.fromstring(xacro.process_file(str(path)).toxml())
+    assert root.find('ros2_control/hardware/plugin').text.strip() == (
+        'base_hardware_interface/MariolaSystem')
+    assert root.findall('gazebo/sensor') == []
+
+
+def test_simulation_uses_gazebo_hardware_and_sensors(tmp_path):
+    path = Path(__file__).parents[1] / 'urdf/robot.urdf.xacro'
+    root = ET.fromstring(xacro.process_file(str(path), mappings={
+        'use_gz_ros2_control': 'true',
+        'use_real_ros2_control': 'false',
+        'hardware_plugin': 'gz_ros2_control/GazeboSimSystem',
+        'controllers_file': str(tmp_path / 'controllers.yaml'),
+    }).toxml())
+    assert [system.find('hardware/plugin').text.strip()
+            for system in root.findall('ros2_control')] == [
+        'gz_ros2_control/GazeboSimSystem',
+        'gz_ros2_control/GazeboSimSystem',
+    ]
+    assert {sensor.attrib['name'] for sensor in root.findall('gazebo/sensor')} == {
+        'front_lidar', 'imu', 'wrist_camera', 'vl53_left', 'vl53_right',
+    }

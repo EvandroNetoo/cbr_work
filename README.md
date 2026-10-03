@@ -27,6 +27,7 @@ baixo nível permanece operacional na Banana sem depender do laço de rede.
 - `apriltag`: detector AprilTag, usando tópicos de câmera externos.
 - `manipulation`: actions semânticas de coleta, carga e depósito.
 - `mission_manager`: execução sequencial de missões sobre Nav2 e manipulação.
+- `cbr_simulation`: arena e integração com Gazebo Sim; veja o [estado da simulação](cbr_simulation/README.md).
 
 ## Build
 

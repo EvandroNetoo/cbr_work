@@ -32,7 +32,7 @@ ros2 action send_goal /vl53/follow_wall interfaces/action/FollowWall \
 
   
 ros2 action send_goal /vision/analyze_scene interfaces/action/AnalyzeScene \
-  "{requested_detectors: 3, duration: {sec: 2, nanosec: 0}, work_surface_height_m: 0.0}" \
+"{requested_detectors: 3, duration: {sec: 2, nanosec: 0}, work_surface_height_m: 0.0}" \
   --feedback
 ros2 action send_goal /vision/analyze_scene interfaces/action/AnalyzeScene \
   "{requested_detectors: 4, duration: {sec: 2, nanosec: 0}, work_surface_height_m: 0.0, table_search_x_min_m: -0.27, table_search_x_max_m: 0.27, table_search_y_min_m: -0.35, table_search_y_max_m: -0.03, table_grid_resolution_m: 0.01}" \

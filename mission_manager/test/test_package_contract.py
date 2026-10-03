@@ -40,7 +40,8 @@ def test_launch_resolves_installed_arena_and_plan_directory():
     source = (PACKAGE / 'launch' / 'mission_manager.launch.py').read_text()
 
     assert "FindPackageShare('mission_manager')" in source
-    assert "'arena_file': arena" in source
+    assert "DeclareLaunchArgument('arena_file', default_value=arena)" in source
+    assert "'arena_file': LaunchConfiguration('arena_file')" in source
     assert "'plans_directory': plans" in source
 
 

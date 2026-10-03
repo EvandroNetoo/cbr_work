@@ -1,0 +1,93 @@
+scene_analyzer:
+  ros__parameters:
+    image_topic: /camera/image_rect
+    camera_info_topic: /camera/camera_info
+    base_frame: arm_base_link
+    # base_footprint is the floor reference on the mobile robot.
+    floor_frame: base_footprint
+    container_target_topic: /manipulation/container_release_target
+    tag_frame_prefix: apriltag
+    family: tag36h11
+    tag_size_m: 0.032
+    # pupil_apriltags releases the GIL and scales well across the four ARM
+    # cores. Leave one core available for ROS, TF and the OpenCV path.
+    nthreads: 3
+    opencv_threads: 2
+    quad_decimate: 1.0
+    # A câmera pode entregar 30 FPS, mas a manipulação não precisa detectar
+    # tags em todos eles. Frames intermediários são descartados antes de
+    # conversão OpenCV e pupil_apriltags.
+    max_detection_rate_hz: 15.0
+    # Independent budgets prevent the expensive table map from forcing tags
+    # and containers down to the same throughput in combined goals.
+    apriltag_detection_rate_hz: 15.0
+    hsv_container_detection_rate_hz: 12.0
+    table_surface_detection_rate_hz: 8.0
+    min_decision_margin: 30.0
+    max_hamming: 0
+    # Publica a entrada mono do detector com candidatos e métricas desenhados.
+    publish_debug_image: true
+    # Drawing and serializing three full-size debug streams every frame is
+    # expensive and is not part of detection. Final summaries are unaffected.
+    debug_image_rate_hz: 3.0
+    feedback_rate_hz: 5.0
+    suppress_native_pose_warning: true
+
+    # Mantém o processo carregado, mas para a captura USB quando não há ação.
+    manage_camera_capture: false
+    camera_capture_service: /camera/set_capture
+    camera_capture_timeout_sec: 5.0
+    # Pare a USB camera assim que a ação terminar; o detector remove suas
+    # assinaturas no mesmo ciclo do executor.
+    camera_idle_timeout_sec: 0.0
+    camera_capture_retry_sec: 1.0
+
+    # O base_hardware é o único dono da serial do brick. O detector apenas
+    # solicita iluminação no início e desligamento no fim de cada ação.
+    manage_vision_led: false
+    vision_led_service: /base_hardware/set_vision_led
+    vision_led_timeout_sec: 5.0
+
+    # Known container height above the work surface.
+    external_height_m: 0.073
+
+    # Initial HSV thresholds; calibrate with the real camera and vision LED.
+    min_saturation: 80
+    min_value: 30
+    red_hue_low_1: 0
+    red_hue_high_1: 15
+    red_hue_low_2: 140
+    red_hue_high_2: 179
+    blue_hue_low: 70
+    blue_hue_high: 138
+    morphology_kernel_px: 5
+    # Stabilizes edge classification against mask jitter between frames.
+    container_border_margin_px: 6
+    max_contour_area_fraction: 0.85
+    # Aguarda exposição/balanço de branco se estabilizarem após ligar câmera e LED.
+    # A janela solicitada pela action começa somente depois deste intervalo.
+    container_warmup_sec: 2.0
+    # HSV centroid detector. Pixel areas use the original rectified image.
+    # These are initial values to tune against recorded frames at each height.
+    hsv_container_min_area_le_7_5cm_px: 4000
+    hsv_container_min_area_le_12_5cm_px: 6500
+    hsv_container_min_area_gt_12_5cm_px: 9000
+    hsv_container_min_partial_area_le_5cm_px: 1800
+    hsv_container_min_partial_area_le_10cm_px: 2500
+    hsv_container_min_partial_area_gt_10cm_px: 3500
+    hsv_container_min_confirmed_frames: 3
+    hsv_container_center_tolerance_px: 12.0
+
+    # White-table free-space detector. Saturated and very dark pixels are
+    # unknown rather than white so loss of image information never creates a
+    # false free-space confirmation.
+    white_surface_max_saturation: 70
+    white_surface_min_value: 70
+    white_surface_max_value: 250
+    # Cada célula usa 9 amostras. Estes limites toleram uma amostra divergente
+    # por célula, mas duas ainda impedem que ela seja considerada livre.
+    white_surface_min_fraction: 0.88
+    white_surface_max_unknown_fraction: 0.20
+    white_surface_min_confirmed_frames: 2
+    # Tolera oscilações de exposição/sombra entre os frames da análise.
+    white_surface_min_confirmed_ratio: 0.60

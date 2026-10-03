@@ -1,6 +1,8 @@
 """Start the sequential mission manager with package-installed YAML files."""
 
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -12,13 +14,14 @@ def generate_launch_description() -> LaunchDescription:
     arena = PathJoinSubstitution([share, 'config', 'arena.yaml'])
     plans = PathJoinSubstitution([share, 'config', 'plans'])
     return LaunchDescription([
+        DeclareLaunchArgument('arena_file', default_value=arena),
         Node(
             package='mission_manager',
             executable='mission_manager_node',
             name='mission_manager',
             output='screen',
             parameters=[config, {
-                'arena_file': arena,
+                'arena_file': LaunchConfiguration('arena_file'),
                 'plans_directory': plans,
             }],
         ),
