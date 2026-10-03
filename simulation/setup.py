@@ -2,7 +2,7 @@ import os
 from glob import glob
 from setuptools import setup
 
-package_name = 'cbr_simulation'
+package_name = 'simulation'
 
 setup(
     name=package_name,
@@ -22,6 +22,6 @@ setup(
     description='CBR Gazebo Sim integration',
     license='GPL-3.0-only',
     entry_points={'console_scripts': [
-        'simulated_xv11 = cbr_simulation.scan_filter:main',
+        'simulated_xv11 = simulation.scan_filter:main',
     ]},
 )

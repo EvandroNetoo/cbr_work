@@ -179,7 +179,7 @@ def _launch_setup(context):
                 'use_sim_time': use_sim_time,
                 'simulation': 'true' if simulation else 'false',
                 'config_file': (str(Path(get_package_share_directory(
-                    'cbr_simulation')) / 'config/vision.yaml') if simulation
+                    'simulation')) / 'config/vision.yaml') if simulation
                     else str(Path(get_package_share_directory('vision'))
                              / 'config/vision.yaml')),
             }.items()))
@@ -188,7 +188,7 @@ def _launch_setup(context):
     if 'localization' in selected:
         map_file = _resolve_map_file(map_name)
         localization_params = PathJoinSubstitution([
-            FindPackageShare('cbr_simulation' if simulation else 'bringup'),
+            FindPackageShare('simulation' if simulation else 'bringup'),
             'config', 'amcl_localization.yaml'])
         actions.append(
             # Scope the include because it declares generic names such as
@@ -264,7 +264,7 @@ def _launch_setup(context):
                 'mission_manager.launch.py'])),
             launch_arguments={'arena_file': str(Path(
                 get_package_share_directory(
-                    'cbr_simulation' if simulation else 'mission_manager'))
+                    'simulation' if simulation else 'mission_manager'))
                 / 'config/arena.yaml')}.items()))
 
     return [GroupAction(actions=[

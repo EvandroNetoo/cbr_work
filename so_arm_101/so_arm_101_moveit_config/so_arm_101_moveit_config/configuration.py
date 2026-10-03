@@ -36,7 +36,7 @@ def get_combined_moveit_config(*, simulation=False):
         'use_gz_ros2_control': 'true',
         'use_real_ros2_control': 'false',
         'hardware_plugin': 'gz_ros2_control/GazeboSimSystem',
-        'controllers_file': (get_package_share_directory('cbr_simulation')
+        'controllers_file': (get_package_share_directory('simulation')
                              + '/config/controllers.yaml'),
     } if simulation else {})
     return (

@@ -13,9 +13,9 @@ dos pacotes do workspace. Na raiz do workspace:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install --packages-up-to cbr_simulation
+colcon build --symlink-install --packages-up-to simulation
 source install/setup.bash
-ros2 launch cbr_simulation simulation.launch.py gui:=true
+ros2 launch simulation simulation.launch.py gui:=true
 ```
 
 Use `gui:=false` para execução sem janela. A pose inicial padrão é
@@ -30,7 +30,7 @@ AMCL e missão até que as três poses sejam parametrizadas juntas.
 A cena é gerada por:
 
 ```bash
-/usr/bin/python3 src/cbr_work/cbr_simulation/scripts/generate_arena.py
+/usr/bin/python3 src/cbr_work/simulation/scripts/generate_arena.py
 ```
 
 O script lê `bringup/maps/arena.pgm` e

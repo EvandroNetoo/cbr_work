@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>cbr_simulation</name>
+  <name>simulation</name>
   <version>0.1.0</version>
   <description>Gazebo Sim world and ROS 2 integration for the CBR robot.</description>
   <maintainer email="todo@todo.com">author</maintainer>

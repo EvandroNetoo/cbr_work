@@ -46,7 +46,7 @@ def _check_runtime_packages(components):
 def _setup(context):
     _check_runtime_packages(
         LaunchConfiguration('processing_components').perform(context))
-    share = Path(get_package_share_directory('cbr_simulation'))
+    share = Path(get_package_share_directory('simulation'))
     robot_share = Path(get_package_share_directory('robot_description'))
     bringup_share = Path(get_package_share_directory('bringup'))
     vl53_share = Path(get_package_share_directory('vl53_distance'))
@@ -86,7 +86,7 @@ def _setup(context):
         parameters=[{'config_file': str(share / 'config/bridge.yaml'),
                      'use_sim_time': True}])
     scan_filter = Node(
-        package='cbr_simulation', executable='simulated_xv11',
+        package='simulation', executable='simulated_xv11',
         output='screen', parameters=[{'use_sim_time': True}])
     state_publisher = Node(
         package='robot_state_publisher', executable='robot_state_publisher',
