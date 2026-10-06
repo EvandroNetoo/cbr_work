@@ -1925,6 +1925,24 @@ class MissionManager(Node):
         ):
             raise StepFailed('Distância de alinhamento para depósito na SH não confirmada.')
 
+    def _restore_shelf_observation_distance(self, area: ServiceArea) -> None:
+        alignment = area.alignment
+        self._prepare_for_navigation()
+        result = self._control_wall(
+            alignment.distance_mm, alignment.tolerance_mm, alignment.timeout_s,
+            f'retorno à distância padrão após depósito em {area.area_id}',
+            accept_safety_abort=False,
+        )
+        self._update_table_position(result)
+        if (
+            not result.has_valid_reading
+            or self._current_wall_distance_mm is None
+            or not math.isfinite(self._current_wall_distance_mm)
+            or abs(self._current_wall_distance_mm - alignment.distance_mm)
+            > alignment.tolerance_mm
+        ):
+            raise StepFailed('Retorno à distância padrão da SH não confirmado.')
+
     def _execute_manipulation(self, step: Step) -> None:
         if step.action not in {'stack', 'retrieve', 'store'}:
             self._stack_alignment = None
@@ -2016,6 +2034,8 @@ class MissionManager(Node):
             raise StepFailed(
                 f"passo '{step.step_id}' ({step.action}) falhou: {failure}"
             )
+        if step.action == 'place_on_shelf' and area.area_type == 'SH':
+            self._restore_shelf_observation_distance(area)
 
     def _execute_step(self, step: Step) -> None:
         if step.action in {'navigate', 'finish'}:

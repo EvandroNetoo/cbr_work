@@ -73,7 +73,10 @@ def _attach_world_state(manager):
 
 @pytest.mark.parametrize('local_distance', [None, 80])
 @pytest.mark.parametrize('reached', [False, True])
-def test_shelf_deposit_aligns_before_action_and_blocks_incomplete_alignment(local_distance, reached):
+@pytest.mark.parametrize('return_reading', [200.0, 220.0, None, float('nan')])
+def test_shelf_deposit_aligns_and_restores_observation_distance(
+    local_distance, reached, return_reading
+):
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._world_state.commit_pick(1)
@@ -92,12 +95,18 @@ def test_shelf_deposit_aligns_before_action_and_blocks_incomplete_alignment(loca
     target = local_distance or 40
 
     def wall(distance, tolerance, timeout, _description, **kwargs):
-        assert (distance, tolerance, timeout) == (target, 5, 10.0)
         assert kwargs['accept_safety_abort'] is False
-        events.append('align')
         result = FollowWall.Result()
-        result.has_valid_reading = True
-        result.final_average_distance_mm = float(target if reached else target + 20)
+        if 'place' in events:
+            assert (distance, tolerance, timeout) == (200, 10, 10.0)
+            events.append('restore')
+            result.has_valid_reading = return_reading is not None
+            result.final_average_distance_mm = return_reading or 0.0
+        else:
+            assert (distance, tolerance, timeout) == (target, 5, 10.0)
+            events.append('align')
+            result.has_valid_reading = True
+            result.final_average_distance_mm = float(target if reached else target + 20)
         return result
 
     manager._control_wall = wall
@@ -109,8 +118,13 @@ def test_shelf_deposit_aligns_before_action_and_blocks_incomplete_alignment(loca
 
     manager._call_manipulation_action = place
     if reached:
-        manager._execute_manipulation(Step('place_sh', 'place_on_shelf'))
-        assert events == ['prepare', 'align', 'place']
+        if return_reading == 200.0:
+            manager._execute_manipulation(Step('place_sh', 'place_on_shelf'))
+            assert manager._current_wall_distance_mm == 200.0
+        else:
+            with pytest.raises(StepFailed, match='Retorno à distância padrão'):
+                manager._execute_manipulation(Step('place_sh', 'place_on_shelf'))
+        assert events == ['prepare', 'align', 'place', 'prepare', 'restore']
     else:
         with pytest.raises(StepFailed, match='Distância de alinhamento'):
             manager._execute_manipulation(Step('place_sh', 'place_on_shelf'))
