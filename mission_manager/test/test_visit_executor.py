@@ -95,7 +95,7 @@ def simulated_manager(plan, visible=None):
     manager._server_timeout = lambda: 1.0
     manager._manipulation_timeout = lambda: 1.0
     manager._duration = lambda seconds: Duration(sec=int(seconds))
-    manager._retreat_from_lateral_wall_before_store = lambda *_args: None
+    manager._retreat_from_lateral_wall_before_slot_access = lambda *_args: None
     manager.get_logger = lambda: SimpleNamespace(info=lambda *_args: None, warning=lambda *_args: None)
     scenes = {visit.target: {task.tag_id for task in visit.tasks if task.action == 'pick'}
               for visit in plan.visits}

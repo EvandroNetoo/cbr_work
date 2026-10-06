@@ -1620,8 +1620,8 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
 
     manager._call_action = call_action
     retreat_sides = []
-    manager._retreat_from_lateral_wall_before_store = (
-        lambda side: retreat_sides.append(side))
+    manager._retreat_from_lateral_wall_before_slot_access = (
+        lambda side, operation: retreat_sides.append((side, operation)))
 
     manager._execute_manipulation(Step('pick', 'pick', tag_id=7))
     manager._execute_manipulation(Step('store', 'store', slot_id='left'))
@@ -1646,7 +1646,7 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
         Step('red_container', 'place_in_container', container_color='red')
     )
 
-    assert retreat_sides == ['left']
+    assert retreat_sides == [('left', 'store'), ('left', 'retrieve')]
     assert calls[0][1].tag_id == 7
     assert calls[0][1].profile == ''
     assert calls[1][1].slot_id == 'left'
@@ -1742,7 +1742,7 @@ def test_store_retreat_uses_lidar_side_of_last_travel(
         return retreat
 
     manager._control_wall = control_wall
-    manager._retreat_from_lateral_wall_before_store(side)
+    manager._retreat_from_lateral_wall_before_slot_access(side, 'store')
 
     assert len(calls) == 1
     assert calls[0][1]['travel_distance_mm'] == expected_travel
@@ -1774,7 +1774,7 @@ def test_store_retreat_threshold(clearance, expected_calls):
         retreat.traveled_distance_mm = -50.0
         return retreat
     manager._control_wall = control_wall
-    manager._retreat_from_lateral_wall_before_store('right')
+    manager._retreat_from_lateral_wall_before_slot_access('right', 'store')
     assert len(calls) == expected_calls
 
 
@@ -1785,7 +1785,7 @@ def test_store_blocks_without_fresh_lidar_after_lateral_travel():
     manager._deposit_lateral_retreat_threshold_mm = 100
     manager._deposit_lateral_retreat_distance_mm = 50
     with pytest.raises(StepFailed, match='LiDAR lateral indisponivel'):
-        manager._retreat_from_lateral_wall_before_store('right')
+        manager._retreat_from_lateral_wall_before_slot_access('right', 'store')
 
 
 @pytest.mark.parametrize('storage_side,expected_calls', [
@@ -1814,8 +1814,98 @@ def test_storage_retreat_requires_matching_side(storage_side, expected_calls):
         retreat.traveled_distance_mm = -50.0
         return retreat
     manager._control_wall = control_wall
-    manager._retreat_from_lateral_wall_before_store(storage_side)
+    manager._retreat_from_lateral_wall_before_slot_access(storage_side, 'store')
     assert len(calls) == expected_calls
+
+
+@pytest.mark.parametrize('side,expected_travel', [('right', -50), ('left', 50)])
+@pytest.mark.parametrize('last_direction', [0, 1, -1])
+@pytest.mark.parametrize('clearance', [80.0, 100.0, None])
+def test_retrieve_uses_alignment_clearance_before_moving_arm(
+    side, expected_travel, last_direction, clearance
+):
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._world_state.commit_pick(7)
+    manager._world_state.commit_store(7, side)
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._deposit_lateral_retreat_threshold_mm = 100
+    manager._deposit_lateral_retreat_distance_mm = 50
+    manager._last_lateral_travel_direction = last_direction
+    alignment = FollowWall.Result()
+    alignment.has_fresh_lateral_scan = True
+    setattr(alignment, f'has_valid_{side}_lateral_clearance', clearance is not None)
+    setattr(alignment, f'final_{side}_lateral_clearance_mm', clearance or 0.0)
+    manager._last_follow_wall_result = alignment
+    manager._manipulation_timeout = lambda: 120.0
+    manager._retrieve_client = object()
+    manager.get_logger = lambda: SimpleNamespace(warning=lambda _text: None)
+    events = []
+
+    def control_wall(distance, *_args, **kwargs):
+        assert distance == 200
+        assert kwargs['travel_distance_mm'] == expected_travel
+        assert kwargs['accept_safety_abort'] is False
+        assert manager._world_state.require_slot_object(side) == 7
+        events.append('retreat')
+        result = FollowWall.Result()
+        result.final_average_distance_mm = 200.0
+        result.traveled_distance_mm = float(expected_travel)
+        return result
+
+    def retrieve(client, goal, *_args):
+        assert client is manager._retrieve_client
+        assert goal.slot_id == side
+        events.append('retrieve')
+        return _pick_result(ManipulationResult.SUCCESS)
+
+    manager._control_wall = control_wall
+    manager._call_manipulation_action = retrieve
+    manager._execute_manipulation(Step('retrieve', 'retrieve', slot_id=side))
+
+    needs_retreat = clearance is not None and clearance < 100
+    assert events == (['retreat', 'retrieve'] if needs_retreat else ['retrieve'])
+    assert manager._current_lateral_position_mm == (
+        expected_travel if needs_retreat else 0.0)
+
+
+@pytest.mark.parametrize('failure', ['stale_scan', 'position_limit', 'control_failed'])
+def test_retrieve_blocks_arm_when_retreat_is_unsafe_or_fails(failure):
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._world_state.commit_pick(7)
+    manager._world_state.commit_store(7, 'right')
+    manager._arena = _arena()
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = -275.0 if failure == 'position_limit' else 0.0
+    manager._deposit_lateral_retreat_threshold_mm = 100
+    manager._deposit_lateral_retreat_distance_mm = 50
+    manager._last_lateral_travel_direction = 0
+    alignment = FollowWall.Result()
+    alignment.has_fresh_lateral_scan = failure != 'stale_scan'
+    alignment.has_valid_right_lateral_clearance = True
+    alignment.final_right_lateral_clearance_mm = 80.0
+    manager._last_follow_wall_result = alignment
+    manager._manipulation_timeout = lambda: 120.0
+    manager._retrieve_client = object()
+    manager.get_logger = lambda: SimpleNamespace(warning=lambda _text: None)
+
+    def control_wall(*_args, **_kwargs):
+        assert failure == 'control_failed'
+        raise StepFailed('falha no recuo')
+
+    def retrieve(*_args):
+        pytest.fail('O braço não deve retirar o cubo antes de concluir o recuo.')
+
+    manager._control_wall = control_wall
+    manager._call_manipulation_action = retrieve
+    with pytest.raises(StepFailed):
+        manager._execute_manipulation(Step('retrieve', 'retrieve', slot_id='right'))
+    assert manager._world_state.require_slot_object('right') == 7
 
 
 def _stack_search_manager():

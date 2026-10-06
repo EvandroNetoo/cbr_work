@@ -176,7 +176,7 @@ O plano `example_shelf` demonstra coleta e depósito na `sh_1`. Os valores de
 substituídos pela calibração antes de executar no robô. O perfil `shelf` de
 `manipulation/config/profiles.yaml` já aponta para essa pose e está habilitado.
 
-## Recuo lateral antes do depósito
+## Recuo lateral antes de acessar o slot
 
 Cada resultado do `FollowWall` inclui a folga lateral do LiDAR para os lados
 esquerdo e direito, medida desde o footprint. `has_fresh_lateral_scan` indica
@@ -194,6 +194,12 @@ completar o recuo. Uma leitura obsoleta ou um limite de posição que impeça o
 recuo bloqueia o armazenamento. Os valores são definidos em
 `config/mission_manager.yaml`; configurar qualquer um como `0` desativa a
 regra.
+Antes de `RetrieveObject`, a mesma verificação usa a folga no lado do slot
+fornecida pelo último alinhamento, mesmo sem deslocamento lateral prévio ou
+quando o último deslocamento foi para o outro lado. Se estiver abaixo do
+mesmo limite, a base se afasta do lado do slot pelo mesmo percurso configurado
+antes de o braço retirar o cubo. Uma leitura obsoleta, um limite de posição
+que impeça o recuo completo ou uma falha no movimento bloqueia a retirada.
 Essa verificação não se aplica a depósitos em mesa, contêiner ou prateleira,
 nem ao empilhamento.
 

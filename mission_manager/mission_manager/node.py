@@ -654,15 +654,16 @@ class MissionManager(Node):
         )
         return result
 
-    def _retreat_from_lateral_wall_before_store(
-        self, storage_side: str
+    def _retreat_from_lateral_wall_before_slot_access(
+        self, slot_side: str, operation: str
     ) -> None:
-        """Afasta a base antes de armazenar no compartimento lateral."""
-        direction = getattr(self, '_last_lateral_travel_direction', 0)
-        if direction == 0:
-            return
-        if storage_side != ('right' if direction > 0 else 'left'):
-            return
+        """Usa a folga do último alinhamento antes de acessar o slot."""
+        direction = 1 if slot_side == 'right' else -1
+        if operation == 'store':
+            if direction != getattr(self, '_last_lateral_travel_direction', 0):
+                return
+        description = (
+            'armazenamento' if operation == 'store' else 'retirada do slot')
         result = self._last_follow_wall_result
         threshold = self._deposit_lateral_retreat_threshold_mm
         distance = self._deposit_lateral_retreat_distance_mm
@@ -670,7 +671,7 @@ class MissionManager(Node):
             return
         if not result.has_fresh_lateral_scan:
             raise StepFailed(
-                'LiDAR lateral indisponivel apos deslocamento; armazenamento '
+                f'LiDAR lateral indisponivel apos alinhamento; {description} '
                 'bloqueado porque nao foi possivel verificar a folga.')
         if direction > 0:
             valid = result.has_valid_right_lateral_clearance
@@ -685,7 +686,7 @@ class MissionManager(Node):
         if self._current_wall_distance_mm is None:
             raise StepFailed(
                 'Distancia frontal desconhecida para recuo lateral antes '
-                'do armazenamento.')
+                f'da operacao de {description}.')
         assert self._arena is not None
         config = self._arena.pickup_recovery
         requested_target = (
@@ -695,16 +696,16 @@ class MissionManager(Node):
             raise StepFailed(
                 f'Folga no lado {side} de {clearance:.1f} mm, mas o '
                 'limite de posicao lateral impede o recuo completo antes '
-                'do armazenamento.')
+                f'da operacao de {description}.')
         travel = round(target - self._current_lateral_position_mm)
         self.get_logger().warning(
             f'Folga no lado {side} de {clearance:.1f} mm abaixo de '
-            f'{threshold} mm; recuando {abs(travel)} mm antes do armazenamento.')
+            f'{threshold} mm; recuando {abs(travel)} mm antes de {description}.')
         retreat_result = self._control_wall(
             round(self._current_wall_distance_mm),
             config.wall_tolerance_mm,
             config.timeout_s,
-            f'recuo lateral antes do armazenamento ({side})',
+            f'recuo lateral antes de {description} ({side})',
             travel_distance_mm=travel,
             travel_tolerance_mm=config.travel_tolerance_mm,
             accept_safety_abort=False,
@@ -2090,8 +2091,8 @@ class MissionManager(Node):
             self._execute_stack_with_search(step, goal, tag_id, timeout)
             return
 
-        if transition == 'store':
-            self._retreat_from_lateral_wall_before_store(slot_id)
+        if transition in {'store', 'retrieve'}:
+            self._retreat_from_lateral_wall_before_slot_access(slot_id, transition)
         result = self._call_manipulation_action(
             client,
             goal,
