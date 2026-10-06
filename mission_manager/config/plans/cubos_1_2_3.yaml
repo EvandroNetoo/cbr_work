@@ -4,13 +4,10 @@ schema_version: 2
 plan_id: cubos_1_2_3
 finish: false
 visits:
-- id: navigate_to_ws_1
-  target: ws_1
+- target: ws_1
   tasks:
-  - id: pegar_cubo_11
-    action: pick
+  - action: pick
     tag_id: 2
-  - id: containerize_cubo_11
-    action: place_in_container
+  - action: place_in_container
     container_color: red
     tag_id: 2

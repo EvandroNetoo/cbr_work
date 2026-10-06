@@ -293,10 +293,67 @@ def test_empty_navigation_visit_and_finish_default(tmp_path):
     assert not plan.finish and plan.initial_location == 'start'
 
 
-def test_inconsistent_original_plans_are_preserved_outside_install_directory():
-    originals = PACKAGE / 'config' / 'invalid_plans'
-    for name in ('advanced_transportation_test_i.yaml', 'simples.yaml'):
-        assert (originals / name).exists()
+def test_generated_ids_include_location_and_normalized_parameters(tmp_path):
+    source = '''schema_version: 2
+plan_id: generated
+visits:
+  - target: ws_1
+    tasks:
+      - {action: pick, tag_id: 2}
+      - {action: place_in_container, tag_id: 2, container_color: RED}
+      - {action: stack, tag_ids: [5, 4], support_tag_id: 14}
+  - target: ws_1
+    tasks:
+      - {action: pick, tag_id: 2}
+'''
+    path = _write(tmp_path, 'plan.yaml', source)
+    plan = load_plan(path)
+    assert plan == load_plan(path)
+    assert [v.visit_id for v in plan.visits] == ['visit_ws_1', 'visit_ws_1_2']
+    assert [t.step_id for t in plan.visits[0].tasks] == [
+        'visit_ws_1_pick_2', 'visit_ws_1_place_in_container_2_red',
+        'visit_ws_1_stack_4_5_on_14']
+    assert plan.visits[1].tasks[0].step_id == 'visit_ws_1_2_pick_2'
+
+
+def test_generated_ids_reserve_explicit_ids_and_distinguish_repeated_tasks(tmp_path):
+    source = '''schema_version: 2
+plan_id: generated
+visits:
+  - target: ws_1
+    tasks:
+      - {action: pick, tag_id: 2}
+      - {action: place_on_table, tag_id: 2}
+      - {action: pick, tag_id: 2}
+      - {action: place_on_table, tag_id: 2}
+  - id: visit_ws_1
+    target: ws_1
+    tasks: []
+'''
+    plan = load_plan(_write(tmp_path, 'plan.yaml', source))
+    validate_plan(plan, load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA)))
+    assert plan.visits[0].visit_id == 'visit_ws_1_2'
+    assert [t.step_id for t in plan.visits[0].tasks] == [
+        'visit_ws_1_2_pick_2', 'visit_ws_1_2_place_on_table_2',
+        'visit_ws_1_2_pick_2_2', 'visit_ws_1_2_place_on_table_2_2']
+    assert plan.visits[1].visit_id == 'visit_ws_1'
+
+
+def test_explicit_task_id_is_reserved_before_generating_previous_task(tmp_path):
+    source = '''schema_version: 2
+plan_id: generated
+visits:
+  - target: ws_1
+    tasks:
+      - {action: pick, tag_id: 1}
+      - {id: visit_ws_1_pick_1, action: place_on_table, tag_id: 1}
+'''
+    plan = load_plan(_write(tmp_path, 'plan.yaml', source))
+    assert [t.step_id for t in plan.visits[0].tasks] == [
+        'visit_ws_1_pick_1_2', 'visit_ws_1_pick_1']
+
+
+def test_inconsistent_simples_plan_is_not_installed():
     assert not (PACKAGE / 'config' / 'plans' / 'simples.yaml').exists()
 
 

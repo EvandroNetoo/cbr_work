@@ -8,30 +8,21 @@ schema_version: 2
 plan_id: basic_transportation_test_i
 finish: true
 visits:
-- id: ir_para_mesa_de_coleta
-  target: ws_1
+- target: ws_1
   tasks:
-  - id: pegar_attc_1
-    action: pick
+  - action: pick
     tag_id: 1
-  - id: pegar_attc_2
-    action: pick
+  - action: pick
     tag_id: 2
-  - id: pegar_attc_3
-    action: pick
+  - action: pick
     tag_id: 3
-- id: ir_para_destino_do_attc_3_2
-  target: ws_4
+- target: ws_4
   tasks:
-  - id: entregar_attc_3
-    action: place_on_table
+  - action: place_on_table
     tag_id: 3
-  - id: entregar_attc_2
-    action: place_on_table
+  - action: place_on_table
     tag_id: 2
-- id: ir_para_destino_do_attc_1
-  target: ws_2
+- target: ws_2
   tasks:
-  - id: entregar_attc_1
-    action: place_on_table
+  - action: place_on_table
     tag_id: 1

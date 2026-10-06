@@ -6,74 +6,52 @@ schema_version: 2
 plan_id: transportar_container_empilhar
 finish: true
 visits:
-- id: navegar_para_ws_1
-  target: ws_1
+- target: ws_1
   tasks:
-  - id: pegar_cubo_1
-    action: pick
+  - action: pick
     tag_id: 1
-  - id: pegar_cubo_2
-    action: pick
+  - action: pick
     tag_id: 2
-  - id: pegar_cubo_10
-    action: pick
+  - action: pick
     tag_id: 10
-- id: transportar_primeiro_lote_para_ws_2
-  target: ws_2
+- target: ws_2
   tasks:
-  - id: depositar_cubo_10_no_container_azul_ws_2
-    action: place_in_container
+  - action: place_in_container
     container_color: blue
     tag_id: 10
-  - id: depositar_cubo_1_no_container_vermelho_ws_2
-    action: place_in_container
+  - action: place_in_container
     container_color: red
     tag_id: 1
-  - id: pegar_cubo_4
-    action: pick
+  - action: pick
     tag_id: 4
-  - id: colocar_cubo_2_como_base_na_ws_2
-    action: place_on_table
+  - action: place_on_table
     tag_id: 2
-  - id: pegar_cubo_5
-    action: pick
+  - action: pick
     tag_id: 5
-- id: transportar_segundo_lote_para_ws_3
-  target: ws_3
+- target: ws_3
   tasks:
-  - id: depositar_cubo_5_no_container_azul_ws_3
-    action: place_in_container
+  - action: place_in_container
     container_color: blue
     tag_id: 5
-  - id: pegar_cubo_6
-    action: pick
+  - action: pick
     tag_id: 6
-- id: transportar_terceiro_lote_para_ws_4
-  target: ws_4
+- target: ws_4
   tasks:
-  - id: depositar_cubo_6_no_container_vermelho_ws_4
-    action: place_in_container
+  - action: place_in_container
     container_color: red
     tag_id: 6
-  - id: colocar_cubo_4_na_ws_4
-    action: place_on_table
+  - action: place_on_table
     tag_id: 4
-  - id: pegar_cubo_13
-    action: pick
+  - action: pick
     tag_id: 13
-  - id: depositar_cubo_13_no_container_vermelho_ws_4
-    action: place_in_container
+  - action: place_in_container
     container_color: red
     tag_id: 13
-- id: trasportar_quarto_lote_para_ws_1
-  target: ws_1
+- target: ws_1
   tasks:
-  - id: pegar_cubo_12
-    action: pick
+  - action: pick
     tag_id: 12
-- id: trasportar_quinto_lote_para_ws_4
-  target: ws_4
+- target: ws_4
   tasks:
-  - id: depositar_cubo_12_na_mesa_ws_1
-    action: place_on_table
+  - action: place_on_table
     tag_id: 12

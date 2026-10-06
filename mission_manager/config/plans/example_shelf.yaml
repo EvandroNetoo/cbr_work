@@ -5,12 +5,9 @@ schema_version: 2
 plan_id: example_shelf
 finish: true
 visits:
-- id: navigate_to_sh_1
-  target: sh_1
+- target: sh_1
   tasks:
-  - id: coletar_tag_na_sh
-    action: pick
+  - action: pick
     tag_id: 1
-  - id: depositar_na_pose_alta_sh
-    action: place_on_shelf
+  - action: place_on_shelf
     tag_id: 1

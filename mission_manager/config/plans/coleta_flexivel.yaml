@@ -2,24 +2,23 @@ schema_version: 2
 plan_id: coleta_flexivel
 finish: true
 visits:
-  - id: coleta_ws4
-    target: ws_4
+  - target: ws_6
     tasks:
-      - {id: pegar_1, action: pick, tag_id: 1}
-      # - {id: pegar_2, action: pick, tag_id: 2}
-      # - {id: pegar_3, action: pick, tag_id: 3}
-  - id: entrega_ws5
-
-    target: ws_5
+      - {action: pick, tag_id: 1}
+      - {action: pick, tag_id: 2}
+      - {action: place_on_table, tag_id: 2}
+      # - {action: pick, tag_id: 3}
+  - target: ws_5
     tasks:
-      # - {id: entregar_1, action: place_on_table, tag_id: 1}
-      - {id: entregar_1, action: place_in_container, tag_id: 1, container_color: red}
-      # - {id: pegar_4, action: pick, tag_id: 4}
-      - {id: pegar_2, action: pick, tag_id: 2}
-      - {id: entregar_2, action: place_on_table, tag_id: 2}
-      # - {id: pegar_3, action: pick, tag_id: 3}
+      - {action: place_on_table, tag_id: 1}
+      # - {action: pick, tag_id: 1}
+      # - {action: place_in_container, tag_id: 1, container_color: red}
+      # - {action: pick, tag_id: 4}
+      # - {action: pick, tag_id: 2}
+      # - {action: place_on_table, tag_id: 2}
+      # - {action: pick, tag_id: 3}
   # - id: entrega_ws6
   #   target: ws_6
   #   tasks:
-  #     - {id: entregar_1, action: place_on_table, tag_id: 1}
-  #     - {id: entregar_3, action: place_on_table, tag_id: 3}
+  #     - {action: place_on_table, tag_id: 1}
+  #     - {action: place_on_table, tag_id: 3}

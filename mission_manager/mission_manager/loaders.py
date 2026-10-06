@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from pathlib import Path
 import re
 from typing import Any, Callable
@@ -506,7 +507,7 @@ def _task(raw_value: Any, context: str) -> Step:
     if action not in _TASK_FIELDS:
         raise ConfigurationError(f'{context}.action desconhecida: {action!r}.')
     _only_keys(raw, _TASK_FIELDS[action], context)
-    task_id = _identifier(raw.get('id'), f'{context}.id')
+    task_id = _identifier(raw['id'], f'{context}.id') if 'id' in raw else ''
     if action == 'stack':
         values = raw.get('tag_ids')
         if not isinstance(values, list) or not values:
@@ -533,22 +534,55 @@ def load_plan(path: str | Path) -> Plan:
     if not isinstance(raw_visits, list) or not raw_visits:
         raise ConfigurationError('plan.visits deve ser uma lista não vazia.')
     visits = []
+    # Reserve explicit IDs first so generated IDs cannot collide with later
+    # declarations. Explicit IDs remain supported for existing plans.
     ids = set()
     for index, value in enumerate(raw_visits):
         context = f'plan.visits[{index}]'
         raw = _mapping(value, context)
+        tasks = raw.get('tasks', [])
+        if not isinstance(tasks, list):
+            raise ConfigurationError(f'{context}.tasks deve ser uma lista.')
+        entries = [(raw, context)] + [(_mapping(task, f'{context}.tasks[{i}]'),
+                                      f'{context}.tasks[{i}]') for i, task in enumerate(tasks)]
+        for entry, entry_context in entries:
+            if 'id' in entry:
+                identifier = _identifier(entry['id'], f'{entry_context}.id')
+                if identifier in ids:
+                    raise ConfigurationError(f'plan contém IDs duplicados: {identifier}.')
+                ids.add(identifier)
+
+    def allocate(base: str) -> str:
+        identifier = base
+        suffix = 2
+        while identifier in ids:
+            identifier = f'{base}_{suffix}'
+            suffix += 1
+        ids.add(identifier)
+        return identifier
+
+    for index, value in enumerate(raw_visits):
+        context = f'plan.visits[{index}]'
+        raw = _mapping(value, context)
         _only_keys(raw, {'id', 'target', 'tasks'}, context)
-        visit_id = _identifier(raw.get('id'), f'{context}.id')
         target = _nonempty_string(raw.get('target'), f'{context}.target')
+        visit_id = (_identifier(raw['id'], f'{context}.id') if 'id' in raw else
+                    allocate('visit_' + re.sub(r'[^A-Za-z0-9_-]', '_', target)))
         values = raw.get('tasks', [])
         if not isinstance(values, list):
             raise ConfigurationError(f'{context}.tasks deve ser uma lista.')
-        tasks = tuple(_task(task, f'{context}.tasks[{i}]') for i, task in enumerate(values))
-        for identifier in (visit_id, *(task.step_id for task in tasks)):
-            if identifier in ids:
-                raise ConfigurationError(f'plan contém IDs duplicados: {identifier}.')
-            ids.add(identifier)
-        visits.append(Visit(visit_id, target, tasks))
+        tasks = []
+        for i, value in enumerate(values):
+            task = _task(value, f'{context}.tasks[{i}]')
+            if not task.step_id:
+                parameters = (f'{"_".join(str(tag) for tag in sorted(task.tag_ids))}'
+                              f'_on_{task.support_tag_id}' if task.action == 'stack'
+                              else str(task.tag_id))
+                if task.container_color:
+                    parameters += f'_{task.container_color}'
+                task = replace(task, step_id=allocate(f'{visit_id}_{task.action}_{parameters}'))
+            tasks.append(task)
+        visits.append(Visit(visit_id, target, tuple(tasks)))
     return Plan(plan_id, tuple(visits),
                 _nonempty_string(root.get('initial_location', 'start'), 'plan.initial_location'),
                 _boolean(root.get('finish', False), 'plan.finish'))

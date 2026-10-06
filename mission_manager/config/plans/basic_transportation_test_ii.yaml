@@ -10,54 +10,37 @@ schema_version: 2
 plan_id: basic_transportation_test_ii
 finish: true
 visits:
-- id: ir_para_origem_do_attc_5
-  target: ws_2
+- target: ws_2
   tasks:
-  - id: pegar_attc_5
-    action: pick
+  - action: pick
     tag_id: 5
-- id: levar_attc_5_para_ws_1
-  target: ws_1
+- target: ws_1
   tasks:
-  - id: entregar_attc_5
-    action: place_on_table
+  - action: place_on_table
     tag_id: 5
-  - id: pegar_attc_1
-    action: pick
+  - action: pick
     tag_id: 1
-  - id: pegar_attc_2
-    action: pick
+  - action: pick
     tag_id: 2
-  - id: pegar_attc_3
-    action: pick
+  - action: pick
     tag_id: 3
-- id: levar_attcs_1_e_3_para_ws_2
-  target: ws_2
+- target: ws_2
   tasks:
-  - id: entregar_attc_3
-    action: place_on_table
+  - action: place_on_table
     tag_id: 3
-  - id: entregar_attc_1
-    action: place_on_table
+  - action: place_on_table
     tag_id: 1
-- id: levar_attc_2_para_ws_3
-  target: ws_3
+- target: ws_3
   tasks:
-  - id: entregar_attc_2
-    action: place_on_table
+  - action: place_on_table
     tag_id: 2
-- id: voltar_para_origem_do_attc_4
-  target: ws_1
+- target: ws_1
   tasks:
-  - id: pegar_attc_4
-    action: pick
+  - action: pick
     tag_id: 4
-- id: levar_attc_4_para_ws_3
-  target: ws_3
+- target: ws_3
   tasks:
-  - id: entregar_attc_4
-    action: place_on_table
+  - action: place_on_table
     tag_id: 4
-- id: pegar_ponto_ws_4
-  target: ws_4
+- target: ws_4
   tasks: []

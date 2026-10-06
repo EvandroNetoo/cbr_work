@@ -27,26 +27,29 @@ schema_version: 2
 plan_id: coleta_flexivel
 finish: true
 visits:
-  - id: coleta_ws1
-    target: ws_1
+  - target: ws_1
     tasks:
-      - {id: pegar_1, action: pick, tag_id: 1}
-      - {id: pegar_2, action: pick, tag_id: 2}
-      - {id: pegar_3, action: pick, tag_id: 3}
-  - id: entrega_ws2
-    target: ws_2
+      - {action: pick, tag_id: 1}
+      - {action: pick, tag_id: 2}
+      - {action: pick, tag_id: 3}
+  - target: ws_2
     tasks:
-      - {id: entregar_1, action: place_on_table, tag_id: 1}
-      - {id: entregar_2, action: place_in_container, tag_id: 2, container_color: red}
-      - {id: pegar_4, action: pick, tag_id: 4}
-  - id: entrega_ws3
-    target: ws_3
+      - {action: place_on_table, tag_id: 1}
+      - {action: place_in_container, tag_id: 2, container_color: red}
+      - {action: pick, tag_id: 4}
+  - target: ws_3
     tasks:
-      - {id: entregar_3, action: place_on_table, tag_id: 3}
-      - {id: entregar_4, action: place_on_table, tag_id: 4}
+      - {action: place_on_table, tag_id: 3}
+      - {action: place_on_table, tag_id: 4}
 ```
 
-IDs de visitas e tarefas são obrigatórios e únicos na missão. `tasks: []` é
+IDs de visitas e tarefas são gerados automaticamente; não é necessário informar
+`id`. A visita usa o local (`visit_ws_1`); a tarefa acrescenta ação e parâmetros
+(`visit_ws_1_pick_1`, `visit_ws_2_place_in_container_2_red`,
+`visit_ws_4_stack_4_5_on_14`). Visitas repetidas e colisões recebem sufixos
+`_2`, `_3` etc. Os IDs aparecem no feedback e identificam falhas. IDs explícitos
+continuam aceitos e precisam ser únicos. `plan_id` continua obrigatório para
+selecionar a missão pela action ROS. `tasks: []` é
 permitido para visitas de navegação. `initial_location` tem padrão `start` e
 informa a localização física inicial; cada visita ainda executa sua navegação.
 `finish` tem padrão `false`; quando verdadeiro, navega ao ponto `finish` após
@@ -57,8 +60,7 @@ Cada coleta ou entrega informa `tag_id`. As entregas disponíveis são
 `place_on_shelf` e `stack`. Uma pilha sem ordem fixa é declarada assim:
 
 ```yaml
-- id: montar_pilha
-  action: stack
+- action: stack
   support_tag_id: 14
   tag_ids: [4, 5]
 ```
@@ -105,11 +107,10 @@ do contêiner e suporte quando aplicáveis.
 
 Planos v1 são rejeitados com orientação de migração. Os exemplos válidos foram
 migrados pelos passos ativos, preservando visitas repetidas, tags e destinos.
-`config/invalid_plans/` preserva os originais inconsistentes e os motivos; esses
-arquivos não são instalados como planos executáveis. O advanced tem uma versão
+Exemplos inconsistentes não são instalados como planos executáveis. O advanced tem uma versão
 v2 executável em `config/plans/advanced_transportation_test_i.yaml`, com a pilha
-de 4 e 5 sobre 14 na ws_5 e a entrega de 3 na ws_1. `simples` continua sem
-origem da carga declarada.
+de 4 e 5 sobre 14 na ws_5 e a entrega de 3 na ws_1. `simples` não está entre
+os planos instalados porque não declarava a origem da carga.
 
 ## Navegação
 
@@ -388,8 +389,7 @@ Para soltar o objeto que está na garra em um contêiner detectado na área atua
 use um passo como este em um plano YAML:
 
 ```yaml
-- id: depositar_no_azul
-  action: place_in_container
+- action: place_in_container
   tag_id: 1
   container_color: blue
 ```

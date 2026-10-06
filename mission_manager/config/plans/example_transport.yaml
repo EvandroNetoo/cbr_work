@@ -5,78 +5,53 @@ schema_version: 2
 plan_id: example_transport
 finish: true
 visits:
-- id: navigate_to_ws_1
-  target: ws_1
+- target: ws_1
   tasks:
-  - id: pick_tag_1
-    action: pick
+  - action: pick
     tag_id: 1
-  - id: pick_tag_2
-    action: pick
+  - action: pick
     tag_id: 2
-  - id: pick_tag_10
-    action: pick
+  - action: pick
     tag_id: 10
-- id: navigate_to_ws_2
-  target: ws_2
+- target: ws_2
   tasks:
-  - id: place_tag_10_at_ws_2
-    action: place_on_table
+  - action: place_on_table
     tag_id: 10
-  - id: place_left_slot_object_at_ws_2
-    action: place_on_table
+  - action: place_on_table
     tag_id: 1
-  - id: place_right_slot_object_at_ws_2
-    action: place_on_table
+  - action: place_on_table
     tag_id: 2
-  - id: pick_tag_3
-    action: pick
+  - action: pick
     tag_id: 3
-  - id: pick_tag_4
-    action: pick
+  - action: pick
     tag_id: 4
-  - id: pick_tag_5
-    action: pick
+  - action: pick
     tag_id: 5
-- id: navigate_to_ws_3
-  target: ws_3
+- target: ws_3
   tasks:
-  - id: place_tag_5_at_ws_3
-    action: place_on_table
+  - action: place_on_table
     tag_id: 5
-  - id: place_tag_4_at_ws_3
-    action: place_on_table
+  - action: place_on_table
     tag_id: 4
-  - id: place_tag_3_at_ws_3
-    action: place_on_table
+  - action: place_on_table
     tag_id: 3
-  - id: pick_tag_6
-    action: pick
+  - action: pick
     tag_id: 6
-  - id: pick_tag_11
-    action: pick
+  - action: pick
     tag_id: 11
-  - id: pick_tag_12
-    action: pick
+  - action: pick
     tag_id: 12
-- id: navigate_to_ws_4_with_tag_12
-  target: ws_4
+- target: ws_4
   tasks:
-  - id: place_tag_12_at_ws_4
-    action: place_on_table
+  - action: place_on_table
     tag_id: 12
-  - id: place_tag_11_at_ws_4
-    action: place_on_table
+  - action: place_on_table
     tag_id: 11
-  - id: place_tag_6_at_ws_4
-    action: place_on_table
+  - action: place_on_table
     tag_id: 6
-  - id: pick_tag_13
-    action: pick
+  - action: pick
     tag_id: 13
-- id: navigate_to_ws_4_with_tag_13
-  target: ws_1
+- target: ws_1
   tasks:
-  - id: place_tag_13_at_ws_4
-    action: place_on_table
+  - action: place_on_table
     tag_id: 13
