@@ -1,0 +1,44 @@
+schema_version: 2
+plan_id: advanced_transportation_test_i
+initial_location: start
+finish: true
+
+visits:
+  - id: ir_para_coleta_do_primeiro_lote
+    target: ws_3
+    tasks:
+      - {id: pegar_attc_1_azul, action: pick, tag_id: 1}
+      - {id: pegar_attc_2_vermelho, action: pick, tag_id: 2}
+
+  - id: levar_primeiro_lote_para_ws_2
+    target: ws_2
+    tasks:
+      - {id: colocar_attc_2_no_vermelho, action: place_in_container, tag_id: 2, container_color: red}
+      - {id: colocar_attc_1_no_azul, action: place_in_container, tag_id: 1, container_color: blue}
+
+  - id: voltar_para_coleta_do_segundo_lote
+    target: ws_1
+    tasks:
+      - {id: pegar_attc_5_topo, action: pick, tag_id: 5}
+      - {id: pegar_attc_4_base, action: pick, tag_id: 4}
+
+  - id: levar_pilha_para_ws_5
+    target: ws_5
+    tasks:
+      - {id: empilhar_attcs_4_e_5_sobre_attc_14, action: stack, support_tag_id: 14, tag_ids: [4, 5]}
+
+  - id: ir_para_coleta_do_attc_6
+    target: ws_6
+    tasks:
+      - {id: pegar_attc_6_prateleira, action: pick, tag_id: 6}
+
+  - id: levar_attc_6_para_prateleira
+    target: sh_1
+    tasks:
+      - {id: colocar_attc_6_na_prateleira_superior, action: place_on_shelf, tag_id: 6}
+      - {id: pegar_attc_3_na_sh, action: pick, tag_id: 3}
+
+  - id: levar_attc_3_para_ws_1
+    target: ws_1
+    tasks:
+      - {id: colocar_attc_3_na_mesa, action: place_on_table, tag_id: 3}

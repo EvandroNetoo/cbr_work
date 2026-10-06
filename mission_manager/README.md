@@ -106,8 +106,10 @@ do contêiner e suporte quando aplicáveis.
 Planos v1 são rejeitados com orientação de migração. Os exemplos válidos foram
 migrados pelos passos ativos, preservando visitas repetidas, tags e destinos.
 `config/invalid_plans/` preserva os originais inconsistentes e os motivos; esses
-arquivos não são instalados como planos executáveis. Em particular, o advanced
-original empilha a tag 4 sobre si mesma, e `simples` não declara a origem da carga.
+arquivos não são instalados como planos executáveis. O advanced tem uma versão
+v2 executável em `config/plans/advanced_transportation_test_i.yaml`, com a pilha
+de 4 e 5 sobre 14 na ws_5 e a entrega de 3 na ws_1. `simples` continua sem
+origem da carga declarada.
 
 ## Navegação
 

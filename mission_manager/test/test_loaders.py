@@ -297,7 +297,22 @@ def test_inconsistent_original_plans_are_preserved_outside_install_directory():
     originals = PACKAGE / 'config' / 'invalid_plans'
     for name in ('advanced_transportation_test_i.yaml', 'simples.yaml'):
         assert (originals / name).exists()
-        assert not (PACKAGE / 'config' / 'plans' / name).exists()
+    assert not (PACKAGE / 'config' / 'plans' / 'simples.yaml').exists()
+
+
+def test_advanced_transportation_v2_preserves_active_route_and_deliveries():
+    plan = load_plan(PACKAGE / 'config/plans/advanced_transportation_test_i.yaml')
+    validate_plan(plan, load_arena(PACKAGE / 'config/arena.yaml'))
+    assert [visit.target for visit in plan.visits] == [
+        'ws_3', 'ws_2', 'ws_1', 'ws_5', 'ws_6', 'sh_1', 'ws_1']
+    assert [(task.tag_id, task.container_color) for task in plan.visits[1].tasks] == [
+        (2, 'red'), (1, 'blue')]
+    stack, = plan.visits[3].tasks
+    assert stack.action == 'stack' and stack.support_tag_id == 14 and stack.tag_ids == (4, 5)
+    assert [(task.action, task.tag_id) for task in plan.visits[5].tasks] == [
+        ('place_on_shelf', 6), ('pick', 3)]
+    assert plan.visits[6].tasks[0].tag_id == 3
+    assert plan.finish and plan.total_steps == 20
 
 
 @pytest.mark.parametrize('positions,distance', [
