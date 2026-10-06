@@ -1,6 +1,11 @@
 # Pickup strategy is selected by profile (tabletop or shelf_front).
 int32 tag_id
 string profile
+# Optional detection for the immediate next action after fresh scene analysis.
+# Returning to a memorized viewpoint does not authorize reuse.
+# False preserves standalone perception. The server still checks profile reachability.
+bool use_observed_detection
+interfaces/AprilTagStampedDetection observed_detection
 # Work-surface height used when optional container perception needs to recover
 # a partially visible container pose.
 float32 ws_height_cm
@@ -19,6 +24,8 @@ uint8 RECOVERY_OUT_OF_REACH=1
 uint8 RECOVERY_MOVEIT_UNREACHABLE=2
 uint8 RECOVERY_ALIGNMENT_REQUIRED=3
 interfaces/ManipulationResult outcome
+# No fresh scene was captured when true; do not treat this result as a new snapshot.
+bool used_observed_detection
 uint8 recovery_reason
 # Best detection of every AprilTag observed while the base remained stationary.
 interfaces/AprilTagStampedDetection[] observed_detections

@@ -133,6 +133,7 @@ def test_retrieve_uses_explicit_waypoints_before_and_after_grasp():
     retrieve = source.split('def _execute_retrieve', 1)[1]
     retrieve = retrieve.split('def _validate_target_pose', 1)[0]
 
+    observation = retrieve.index('self._transfer_state(')
     approach_safe = retrieve.index('self._arm_state(slot.safe_state')
     pre_grip = retrieve.index("self._gripper('pre_grip'", approach_safe)
     retrieve_pose = retrieve.index(
@@ -144,9 +145,9 @@ def test_retrieve_uses_explicit_waypoints_before_and_after_grasp():
     )
 
     assert (
-        approach_safe < pre_grip < retrieve_pose < close_gripper < retreat_safe
+        observation < approach_safe < pre_grip < retrieve_pose < close_gripper < retreat_safe
     )
-    assert 'self._transfer_state(' not in retrieve
+    assert retrieve.count('self._transfer_state(') == 1
     assert 'slot.store_state' not in retrieve
     assert 'self._safe()' not in retrieve
 

@@ -1,4 +1,4 @@
-# Execute one validated sequential plan installed in mission_manager/config/plans.
+# Execute one validated visit-based plan installed in mission_manager/config/plans.
 string plan_id
 ---
 uint16 SUCCESS=0

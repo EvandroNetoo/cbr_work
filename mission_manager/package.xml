@@ -2,7 +2,7 @@
 <package format="3">
   <name>mission_manager</name>
   <version>0.1.0</version>
-  <description>Sequential mission orchestration for CBR RoboCup@Work.</description>
+  <description>Perception-ranked mission visits for CBR RoboCup@Work.</description>
   <maintainer email="todo@todo.com">author</maintainer>
   <license>GPL-3.0-only</license>
 

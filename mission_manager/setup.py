@@ -25,7 +25,7 @@ setup(
     zip_safe=True,
     maintainer='author',
     maintainer_email='todo@todo.com',
-    description='Sequential mission execution over Nav2 and manipulation actions.',
+    description='Perception-ranked mission visits over Nav2 and manipulation actions.',
     license='GPL-3.0-only',
     entry_points={
         'console_scripts': [

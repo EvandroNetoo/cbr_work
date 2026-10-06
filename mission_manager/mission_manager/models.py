@@ -141,10 +141,36 @@ class Step:
     slot_id: str | None = None
     container_color: str | None = None
     support_tag_id: int | None = None
+    tag_ids: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class Visit:
+    visit_id: str
+    target: str
+    tasks: tuple[Step, ...]
 
 
 @dataclass(frozen=True)
 class Plan:
     plan_id: str
-    steps: tuple[Step, ...]
+    visits: tuple[Visit, ...]
     initial_location: str = 'start'
+    finish: bool = False
+
+    @property
+    def total_steps(self) -> int:
+        return len(self.visits) + int(self.finish) + sum(
+            len(task.tag_ids) if task.action == 'stack' else 1
+            for visit in self.visits for task in visit.tasks)
+
+
+@dataclass(frozen=True)
+class DeliveryOutcome:
+    task_id: str
+    tag_id: int
+    area_id: str
+    requested_action: str
+    actual_action: str
+    container_color: str | None = None
+    support_tag_id: int | None = None

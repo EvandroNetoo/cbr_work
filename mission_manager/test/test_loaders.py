@@ -159,9 +159,10 @@ def test_table_place_positions_are_separate_from_pickup_positions(tmp_path):
     assert arena.pickup_recovery.search_positions_mm == (0, 250, -250)
 
 
-def test_package_arena_refuses_uncalibrated_poses():
+def test_arena_refuses_uncalibrated_poses(tmp_path):
+    source = VALID_ARENA.replace('x_m: 1.0', 'x_m: null')
     with pytest.raises(ConfigurationError, match='deve ser numérico'):
-        load_arena(PACKAGE / 'config' / 'arena.yaml')
+        load_arena(_write(tmp_path, 'arena.yaml', source))
 
 
 def test_arena_rejects_unknown_fields(tmp_path):
@@ -219,163 +220,84 @@ def test_arena_rejects_search_position_outside_lateral_limits(tmp_path):
         load_arena(_write(tmp_path, 'arena.yaml', source))
 
 
-def test_example_plan_loads_and_validates_with_calibrated_arena(tmp_path):
-    arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
-    plan = load_plan(PACKAGE / 'config' / 'plans' / 'example_transport.yaml')
+def _plan_yaml(task=''):
+    return f"""schema_version: 2
+plan_id: test
+initial_location: ws_1
+finish: false
+visits:
+  - id: visit_1
+    target: ws_1
+    tasks:
+      - {{id: collect, action: pick, tag_id: 1}}
+      - {{id: deliver, action: place_in_container, tag_id: 1, container_color: red}}
+{task}
+"""
 
+
+@pytest.mark.parametrize('path', sorted((PACKAGE / 'config' / 'plans').glob('*.yaml')))
+def test_installed_plans_are_complete_and_feasible(path):
+    arena = load_arena(PACKAGE / 'config' / 'arena.yaml')
+    plan = load_plan(path)
     validate_plan(plan, arena)
-    assert plan.plan_id == 'example_transport'
-    assert plan.steps[0].action == 'navigate'
-    assert plan.steps[-1].action == 'finish'
+    assert plan.visits
+    assert plan.total_steps >= len(plan.visits)
 
 
 @pytest.mark.parametrize('color', ['red', 'blue'])
 def test_plan_accepts_container_deposit_by_color(tmp_path, color):
     arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
-    plan = load_plan(_write(tmp_path, 'container.yaml', f'''
-schema_version: 1
-plan_id: container
-initial_location: ws_1
-steps:
-  - id: depositar
-    action: place_in_container
-    container_color: {color}
-'''))
-
+    plan = load_plan(_write(tmp_path, 'plan.yaml', _plan_yaml().replace('color: red', f'color: {color}')))
     validate_plan(plan, arena)
-    assert plan.steps[0].action == 'place_in_container'
-    assert plan.steps[0].container_color == color
+    assert plan.visits[0].tasks[1].container_color == color
 
 
-def test_plan_rejects_unknown_container_color(tmp_path):
-    plan_path = _write(tmp_path, 'container.yaml', '''
-schema_version: 1
-plan_id: container
-initial_location: ws_1
-steps:
-  - id: depositar
-    action: place_in_container
-    container_color: green
-''')
-
-    with pytest.raises(ConfigurationError, match='red ou blue'):
-        load_plan(plan_path)
+def test_plan_rejects_v1_with_migration_message(tmp_path):
+    with pytest.raises(ConfigurationError, match='Migre steps para visits'):
+        load_plan(_write(tmp_path, 'plan.yaml', 'schema_version: 1\nplan_id: old\nsteps: []'))
 
 
-def test_plan_rejects_unknown_target(tmp_path):
+@pytest.mark.parametrize('old,new,match', [
+    ('color: red', 'color: green', 'red ou blue'),
+    ('target: ws_1', 'target: missing', 'target desconhecido'),
+    ('initial_location: ws_1', 'initial_location: missing', 'initial_location'),
+    ('id: deliver', 'id: collect', 'IDs duplicados'),
+    ('tag_id: 1, container_color', 'tag_id: 2, container_color', 'inviável'),
+    ('action: pick, tag_id: 1', 'action: store, slot_id: left', 'action desconhecida'),
+    ('action: pick, tag_id: 1', 'action: pick, tag_id: 1, slot_id: left', 'campos desconhecidos'),
+    ('finish: false', 'finish: 1', 'booleano'),
+])
+def test_plan_validation(tmp_path, old, new, match):
     arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
-    plan_path = _write(
-        tmp_path,
-        'bad.yaml',
-        """
-schema_version: 1
-plan_id: bad
-steps:
-  - {action: navigate, target: missing}
-""",
-    )
-
-    with pytest.raises(ConfigurationError, match='target desconhecido'):
-        validate_plan(load_plan(plan_path), arena)
+    with pytest.raises(ConfigurationError, match=match):
+        validate_plan(load_plan(_write(tmp_path, 'plan.yaml', _plan_yaml().replace(old, new))), arena)
 
 
-def test_plan_rejects_manipulation_before_service_area(tmp_path):
-    arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
-    plan_path = _write(
-        tmp_path,
-        'bad.yaml',
-        """
-schema_version: 1
-plan_id: bad
-steps:
-  - {action: pick, tag_id: 1}
-""",
-    )
-
-    with pytest.raises(ConfigurationError, match='fora de uma área de serviço'):
-        validate_plan(load_plan(plan_path), arena)
+def test_plan_rejects_support_in_own_stack(tmp_path):
+    source = _plan_yaml().replace(
+        'action: place_in_container, tag_id: 1, container_color: red',
+        'action: stack, tag_ids: [1], support_tag_id: 1')
+    with pytest.raises(ConfigurationError, match='suporte na própria pilha'):
+        load_plan(_write(tmp_path, 'plan.yaml', source))
 
 
-def test_plan_allows_manipulation_at_declared_initial_location(tmp_path):
-    arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
-    plan_path = _write(
-        tmp_path,
-        'positioned.yaml',
-        """
-schema_version: 1
-plan_id: positioned
-initial_location: ws_1
-steps:
-  - {action: pick, tag_id: 1}
-""",
-    )
-
-    plan = load_plan(plan_path)
-    validate_plan(plan, arena)
-
-    assert plan.initial_location == 'ws_1'
-    assert plan.steps[0].action == 'pick'
+def test_arena_remains_v1(tmp_path):
+    with pytest.raises(ConfigurationError, match='schema_version: 1'):
+        load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA.replace('schema_version: 1', 'schema_version: 2')))
 
 
-def test_plan_rejects_unknown_initial_location(tmp_path):
-    arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
-    plan_path = _write(
-        tmp_path,
-        'positioned.yaml',
-        """
-schema_version: 1
-plan_id: positioned
-initial_location: missing
-steps:
-  - {action: pick, tag_id: 1}
-""",
-    )
-
-    with pytest.raises(ConfigurationError, match='initial_location'):
-        validate_plan(load_plan(plan_path), arena)
+def test_empty_navigation_visit_and_finish_default(tmp_path):
+    source = 'schema_version: 2\nplan_id: route\nvisits: [{id: route, target: ws_1}]\n'
+    plan = load_plan(_write(tmp_path, 'plan.yaml', source))
+    validate_plan(plan, load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA)))
+    assert not plan.finish and plan.initial_location == 'start'
 
 
-def test_finish_must_be_last_step(tmp_path):
-    arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
-    plan_path = _write(
-        tmp_path,
-        'bad.yaml',
-        """
-schema_version: 1
-plan_id: bad
-steps:
-  - {action: finish}
-  - {action: navigate, target: ws_1}
-""",
-    )
-
-    with pytest.raises(ConfigurationError, match='último passo'):
-        validate_plan(load_plan(plan_path), arena)
-
-
-def test_plan_rejects_action_specific_extra_fields(tmp_path):
-    plan_path = _write(
-        tmp_path,
-        'bad.yaml',
-        """
-schema_version: 1
-plan_id: bad
-steps:
-  - {action: store, slot_id: left, tag_id: 5}
-""",
-    )
-
-    with pytest.raises(ConfigurationError, match='campos desconhecidos'):
-        load_plan(plan_path)
-
-
-def test_example_shelf_plan_matches_configured_arena():
-    arena = load_arena(PACKAGE / 'config' / 'arena.yaml')
-    plan = load_plan(PACKAGE / 'config' / 'plans' / 'example_shelf.yaml')
-    validate_plan(plan, arena)
-    assert arena.service_areas['sh_1'].area_type == 'SH'
-    assert [step.action for step in plan.steps] == [
-        'navigate', 'pick', 'place_on_shelf', 'finish']
+def test_inconsistent_original_plans_are_preserved_outside_install_directory():
+    originals = PACKAGE / 'config' / 'invalid_plans'
+    for name in ('advanced_transportation_test_i.yaml', 'simples.yaml'):
+        assert (originals / name).exists()
+        assert not (PACKAGE / 'config' / 'plans' / name).exists()
 
 
 @pytest.mark.parametrize('positions,distance', [

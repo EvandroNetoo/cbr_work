@@ -1,6 +1,6 @@
 # mission_manager
 
-Executor sequencial das missões da RoboCup@Work. O pacote não controla motores
+Executor por visitas das missões da RoboCup@Work. O pacote não controla motores
 diretamente: ele compõe Nav2, alinhamento VL53 e as actions semânticas do pacote
 `manipulation`.
 
@@ -8,18 +8,106 @@ diretamente: ele compõe Nav2, alinhamento VL53 e as actions semânticas do paco
 
 - `config/arena.yaml`: poses fixas, alturas, tipos, alinhamento, recuo e
   recuperação de coleta;
-- `config/plans/*.yaml`: passos sequenciais selecionados por `plan_id`;
+- `config/plans/*.yaml`: visitas e tarefas flexíveis selecionadas por `plan_id`;
 - `config/mission_manager.yaml`: nomes das actions, serviço/tópico de estado,
   compartimentos disponíveis, proteções do `FollowWall` e timeouts ROS.
 
-As poses vazias de `arena.yaml` devem ser medidas antes da execução. O nó inicia
+As poses de `arena.yaml` devem ser calibradas para a arena antes da execução. O nó inicia
 normalmente, mas um goal retorna `CONFIGURATION_ERROR` sem movimentar o robô se
 a arena ou o plano não forem válidos.
 
-Um plano que começa com o robô já posicionado em uma área de serviço pode
-declarar `initial_location: ws_1`. Essa opção define apenas o contexto da área
-(por exemplo, a altura da mesa) e não envia um goal de navegação. Sem esse campo,
-o plano começa em `start`, preservando o comportamento anterior.
+## Formato de missão v2
+
+A ordem de `visits` define a rota. Dentro de cada visita, a ordem de `tasks`
+não determina a execução: o executor considera identificação, carga e viabilidade
+de concluir todas as visitas restantes. Tags não solicitadas são ignoradas.
+
+```yaml
+schema_version: 2
+plan_id: coleta_flexivel
+finish: true
+visits:
+  - id: coleta_ws1
+    target: ws_1
+    tasks:
+      - {id: pegar_1, action: pick, tag_id: 1}
+      - {id: pegar_2, action: pick, tag_id: 2}
+      - {id: pegar_3, action: pick, tag_id: 3}
+  - id: entrega_ws2
+    target: ws_2
+    tasks:
+      - {id: entregar_1, action: place_on_table, tag_id: 1}
+      - {id: entregar_2, action: place_in_container, tag_id: 2, container_color: red}
+      - {id: pegar_4, action: pick, tag_id: 4}
+  - id: entrega_ws3
+    target: ws_3
+    tasks:
+      - {id: entregar_3, action: place_on_table, tag_id: 3}
+      - {id: entregar_4, action: place_on_table, tag_id: 4}
+```
+
+IDs de visitas e tarefas são obrigatórios e únicos na missão. `tasks: []` é
+permitido para visitas de navegação. `initial_location` tem padrão `start` e
+informa a localização física inicial; cada visita ainda executa sua navegação.
+`finish` tem padrão `false`; quando verdadeiro, navega ao ponto `finish` após
+concluir as visitas. A arena permanece em `schema_version: 1`.
+
+Cada coleta ou entrega informa `tag_id`. As entregas disponíveis são
+`place_on_table`, `place_in_container` (`container_color: red|blue`),
+`place_on_shelf` e `stack`. Uma pilha sem ordem fixa é declarada assim:
+
+```yaml
+- id: montar_pilha
+  action: stack
+  support_tag_id: 14
+  tag_ids: [4, 5]
+```
+
+Qualquer membro pode ser o primeiro sobre 14. O próximo é colocado sobre o
+último objeto depositado e confirmado. O suporte deve estar na visita e livre
+para receber o objeto; não pode pertencer ao próprio grupo.
+
+`store` e `retrieve` são automáticos e não são aceitos no YAML. A carga começa
+vazia. O primeiro compartimento livre segue a ordem de `cargo_slot_ids`.
+Na saída de uma visita, a garra fica vazia ou leva um objeto que será entregue
+na próxima visita com tarefas. Visitas com `tasks: []` mantêm a navegação e
+o alinhamento, mas permitem passar com esse objeto na garra, sem exigir
+armazenamento adicional. No exemplo, a tag 3 viaja armazenada; não pode ser a última
+coleta quando isso deixaria a garra bloqueada. A missão termina sem carga pendente.
+
+Quando não há uma tarefa identificada disponível nem uma cena já analisada
+na posição atual, o executor prepara a câmera com garra vazia e observa tags e
+contêineres por dois segundos em `/vision/analyze_scene` (parâmetro `vision_action`). Prioriza entrega já na garra, identificação na posição atual,
+memória com menor deslocamento lateral e IDs para desempate. Na ausência de
+candidatos identificados, busca pelos pontos existentes e escolhe novamente a
+cada observação. Não completa a busca de uma tag ausente antes de considerar
+as outras. A memória conserva as posições das demais tags; só a tag coletada
+é removida. Históricos são separados por área, posição e iluminação.
+
+A detecção da análise explícita autoriza uma única coleta direta, imediatamente
+após essa análise. O servidor `manipulation` valida o alcance pelo
+`profiles.yaml` antes de planejar a pegada. Se a tag estiver alcançável, a coleta
+usa essa detecção sem alinhar a base nem capturar novamente. Se estiver fora do
+alcance, a recuperação alinha a base e solicita uma nova detecção.
+
+Uma coleta, transferência, depósito, navegação ou reposicionamento consome essa
+autorização. Voltar ao mesmo ponto não a renova. Sem essa autorização, uma tag
+memorizada orienta o robô ao alinhamento configurado, e `PickObject` analisa
+novamente a cena nessa posição antes de pegar. O ponto onde a tag foi vista
+não é usado como destino de alinhamento.
+
+O feedback mantém o contrato de `ExecuteMission`: `total_steps` inclui uma
+navegação por visita, cada tarefa, cada objeto de uma pilha e o `finish` opcional.
+Transferências internas não aumentam esse total. Seus erros apontam a tarefa
+que motivou a transferência. Entregas mostram o destino efetivo no feedback;
+`_delivery_outcomes` registra tarefa, tag, área, ação solicitada e efetiva, cor
+do contêiner e suporte quando aplicáveis.
+
+Planos v1 são rejeitados com orientação de migração. Os exemplos válidos foram
+migrados pelos passos ativos, preservando visitas repetidas, tags e destinos.
+`config/invalid_plans/` preserva os originais inconsistentes e os motivos; esses
+arquivos não são instalados como planos executáveis. Em particular, o advanced
+original empilha a tag 4 sobre si mesma, e `simples` não declara a origem da carga.
 
 ## Navegação
 
@@ -142,8 +230,8 @@ detecção solicita uma tentativa de alinhamento para
 e mesmo com `pickup_recovery.enabled: false`. Esse flag controla a recuperação
 opcional e a busca, não a tentativa inicial da SH. A base respeita os
 limites de parede e percurso existentes. Se já centralizada, não se move,
-mas repete a detecção para atualizar o alvo. Após essa tentativa, a posição
-alcançada é aceita mesmo fora das tolerâncias ou sem deslocamento. A nova
+e reutiliza a detecção se a posição permanece a mesma. Depois de um
+deslocamento, detecta novamente para atualizar o alvo. A posição alcançada é aceita mesmo fora das tolerâncias ou sem deslocamento. A nova
 pose detectada segue ao MoveIt sem exigir centralização exata. WS e PP usam
 `tabletop`.
 
@@ -180,11 +268,12 @@ O deslocamento realmente medido pela action é acumulado na coordenada lateral,
 em vez do valor comandado. Para uma tag vista anteriormente, o destino salvo é
 convertido novamente em um deslocamento relativo à posição atual.
 
-Se uma tag com posição salva não reaparecer no destino estimado de coleta, o
-robô retorna uma vez ao ponto original onde ela foi observada e repete a
-detecção. Se ainda não encontrá-la, ou se a tag nunca foi observada na área
-atual, o robô visita a posição de busca ainda não observada mais próxima. As
-posições são coordenadas absolutas em milímetros, configuradas em
+Para uma tag com posição salva, o robô vai ao alinhamento configurado e
+obtém uma detecção nova, salvo a coleta direta imediatamente após a análise
+explícita descrita acima. Se uma captura necessária após reposicionamento não
+localizar a tag, a seleção considera outras tarefas identificadas antes de
+continuar a busca. Uma tag desconhecida é procurada nos pontos ainda não
+observados. As posições são coordenadas absolutas em milímetros, configuradas em
 `pickup_recovery.search_positions_mm`; o padrão da arena é `[0, 325, -325]`.
 Após esgotar a busca padrão, coleta e empilhamento tentam
 `pickup_recovery.safety_search_positions_mm` à distância de parede
@@ -264,17 +353,18 @@ ros2 action send_goal /mission/execute interfaces/action/ExecuteMission \
   "{plan_id: example_transport}" --feedback
 ```
 
-Para executar o plano que percorre as quatro workspaces, transporta os cubos
-`1` a `6` e `10` a `13`, usa dois contêineres azuis e dois vermelhos e forma
-pilhas nas workspaces de destino:
+Para executar o exemplo com contêineres e depósitos nas workspaces, migrado
+pelos passos ativos do arquivo original:
 
 ```bash
 ros2 action send_goal /mission/execute interfaces/action/ExecuteMission \
   "{plan_id: transportar_container_empilhar}" --feedback
 ```
 
-Somente uma missão é aceita por vez. Qualquer passo que falhar encerra a missão,
-e o cancelamento é propagado para o goal filho ativo.
+Somente uma missão é aceita por vez. Falhas sem recuperação encerram a missão;
+uma coleta não encontrada na posição atual retorna à seleção de tarefas. O
+cancelamento é propagado para o goal filho ativo. O fallback de mesa existente
+é preservado para depósitos em mesa/contêiner, com destino efetivo registrado.
 
 ## Estado do mundo
 
@@ -292,6 +382,7 @@ use um passo como este em um plano YAML:
 ```yaml
 - id: depositar_no_azul
   action: place_in_container
+  tag_id: 1
   container_color: blue
 ```
 
@@ -303,3 +394,27 @@ O snapshot atual é publicado em `/mission/state` com QoS `transient_local`.
 Não existe uma API de estado usada pelo servidor de manipulação: `WorldState`
 permanece interno ao gerenciador e é o ponto de extensão para incorporar
 futuramente estados de objetos, estações e outros elementos da arena.
+
+## Validação
+
+Depois de compilar e carregar o workspace:
+
+```bash
+colcon build --packages-select interfaces manipulation mission_manager
+source install/setup.bash
+colcon test --packages-select mission_manager
+colcon test-result --test-result-base build/mission_manager
+```
+
+O teste abaixo inicia o executor completo e servidores ROS simulados para
+Nav2, FollowWall, visão e manipulação. Usa um domínio local separado; escolha um
+`ROS_DOMAIN_ID` que não esteja em uso. Confirma 12 passos do exemplo
+`test/fixtures/ros_visit_smoke.yaml`, transferências internas e a tag 3
+armazenada ao sair da ws1. A fixture é separada dos planos usados no robô:
+
+```bash
+ROS_DOMAIN_ID=177 ROS_LOCALHOST_ONLY=1 ROS_LOG_DIR=/tmp/mission_visits_ros_logs \
+  /usr/bin/python3 src/cbr_work/mission_manager/test/ros_visit_smoke.py
+```
+
+A execução simulada não substitui a calibração e o teste físico das trajetórias.

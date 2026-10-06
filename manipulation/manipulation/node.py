@@ -88,6 +88,8 @@ def _interfaces_are_compatible() -> bool:
         hasattr(PickObject.Result(), 'observed_detections'),
         hasattr(PickObject.Result(), 'scene_observation'),
         hasattr(PickObject.Goal(), 'alignment_completed'),
+        hasattr(PickObject.Goal(), 'use_observed_detection'),
+        hasattr(PickObject.Result(), 'used_observed_detection'),
         hasattr(PickObject.Result, 'RECOVERY_ALIGNMENT_REQUIRED'),
         hasattr(StackObject.Goal(), 'require_alignment'),
         hasattr(StackObject.Result, 'RECOVERY_ALIGNMENT_REQUIRED'),
@@ -602,7 +604,17 @@ class ManipulationServer(Node):
             if tag_id < 0:
                 raise ConfigurationError('tag_id não pode ser negativo.')
             profile = self._profiles.pickup_profile(goal_handle.request.profile)
+            request = goal_handle.request
+            if request.use_observed_detection:
+                detection = request.observed_detection
+                if detection.id != tag_id:
+                    raise ConfigurationError('A detecção fornecida não corresponde à tag solicitada.')
+                pose = PoseStamped()
+                pose.header = detection.header
+                pose.pose = detection.pose
+                self._validate_target_pose(pose)
             last_error: Exception | None = None
+            snapshot_tags: list[Any] | None = None
             for attempt in range(1, profile.attempts + 1):
                 grasp_committed = False
                 detected_pose = None
@@ -612,29 +624,29 @@ class ManipulationServer(Node):
                         0.05, f'Preparando coleta {profile.name} ({attempt}/{profile.attempts})',
                     )
                     self._gripper('open', 'Abrindo a garra')
-                    self._arm_state(profile.observation_state, 'Posicionando câmera sobre a mesa')
-                    self._feedback(
-                        goal_handle, PickObject, ManipulationFeedback.OBSERVING,
-                        0.20, f'Localizando AprilTag {tag_id}',
-                    )
-                    duration = float(
-                        self.get_parameter('vision_analysis_duration_s').value
-                    )
-                    attempt_detections: list[Any] = []
-                    try:
-                        tags, _containers, _table = self._analyze_for_operation(
-                            'pick',
-                            duration,
-                            scene_observation,
-                            work_surface_height_m=(
-                                float(goal_handle.request.ws_height_cm) / 100.0
-                            ),
-                        )
-                        attempt_detections.extend(tags)
+                    duration = float(self.get_parameter('vision_analysis_duration_s').value)
+                    if request.use_observed_detection or snapshot_tags is not None:
+                        # The manager owns scene lifetime and supplies the pose only
+                        # at its recorded viewpoint. No arm/camera observation is needed.
+                        self._feedback(goal_handle, PickObject, ManipulationFeedback.OBSERVING,
+                                       0.20, f'Usando detecção memorizada da AprilTag {tag_id}')
                         x, y, tag_z, yaw = self._motion.pose_da_april_tag(
-                            tags, tag_id, duration)
-                    finally:
-                        remember(attempt_detections)
+                            [request.observed_detection] if request.use_observed_detection else snapshot_tags,
+                            tag_id, duration)
+                    else:
+                        self._arm_state(profile.observation_state, 'Posicionando câmera sobre a mesa')
+                        self._feedback(goal_handle, PickObject, ManipulationFeedback.OBSERVING,
+                                       0.20, f'Localizando AprilTag {tag_id}')
+                        attempt_detections: list[Any] = []
+                        try:
+                            tags, _containers, _table = self._analyze_for_operation(
+                                'pick', duration, scene_observation,
+                                work_surface_height_m=float(request.ws_height_cm) / 100.0)
+                            snapshot_tags = list(tags)
+                            attempt_detections.extend(tags)
+                            x, y, tag_z, yaw = self._motion.pose_da_april_tag(tags, tag_id, duration)
+                        finally:
+                            remember(attempt_detections)
                     detected_pose = criar_pose(x, y, tag_z, yaw)
                     request = goal_handle.request
                     if profile.strategy == 'front' and not request.alignment_completed:
@@ -775,7 +787,7 @@ class ManipulationServer(Node):
                 raise ObjectNotFound(str(last_error)) from last_error
             raise last_error
 
-        return self._run(
+        result = self._run(
             PickObject,
             goal_handle,
             'pick',
@@ -783,6 +795,9 @@ class ManipulationServer(Node):
             observed_detections=observed_detections,
             scene_observation=scene_observation,
         )
+        if isinstance(result, PickObject.Result):
+            result.used_observed_detection = bool(goal_handle.request.use_observed_detection)
+        return result
 
     def _execute_store(self, goal_handle: Any) -> StoreObject.Result:
         slot_id = str(goal_handle.request.slot_id)
@@ -826,6 +841,9 @@ class ManipulationServer(Node):
             slot = self._profiles.cargo_slots.get(slot_id)
             if slot is None:
                 raise ConfigurationError(f"Compartimento não configurado: '{slot_id}'.")
+            self._transfer_state(
+                'Garantindo detect_apriltags antes da retirada do compartimento'
+            )
             self._feedback(
                 goal_handle, RetrieveObject, ManipulationFeedback.PREPARING,
                 0.10, f"Indo para a pose segura do compartimento '{slot_id}'",

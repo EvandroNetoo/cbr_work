@@ -1,1 +1,1 @@
-"""Sequential mission execution for the CBR robot."""
+"""Flexible mission visits for the CBR robot."""

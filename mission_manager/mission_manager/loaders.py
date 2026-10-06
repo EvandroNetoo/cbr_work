@@ -1,11 +1,11 @@
-"""Strict YAML loaders for static arena geometry and sequential plans."""
+"""Strict YAML loaders for static arena geometry and visit-based plans."""
 
 from __future__ import annotations
 
 import math
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -20,7 +20,7 @@ from .models import (
     SERVICE_AREA_TYPES,
     ServiceArea,
     Step,
-    STEP_ACTIONS,
+    Visit,
 )
 
 
@@ -71,7 +71,7 @@ def _nonempty_string(value: Any, context: str) -> str:
     return value.strip()
 
 
-def _load_yaml(path: str | Path) -> dict[str, Any]:
+def _load_yaml(path: str | Path, schema_version: int = 1) -> dict[str, Any]:
     source = Path(path)
     try:
         data = yaml.safe_load(source.read_text(encoding='utf-8'))
@@ -80,8 +80,9 @@ def _load_yaml(path: str | Path) -> dict[str, Any]:
             f"Não foi possível carregar '{source}': {error}"
         ) from error
     root = _mapping(data, str(source))
-    if root.get('schema_version') != 1:
-        raise ConfigurationError(f"'{source}' deve usar schema_version: 1.")
+    if type(root.get('schema_version')) is not int or root.get('schema_version') != schema_version:
+        hint = ' Migre steps para visits; store/retrieve agora são automáticos.' if schema_version == 2 else ''
+        raise ConfigurationError(f"'{source}' deve usar schema_version: {schema_version}.{hint}")
     return root
 
 
@@ -483,132 +484,87 @@ def load_arena(path: str | Path) -> Arena:
     )
 
 
-_STEP_FIELDS = {
-    'navigate': {'id', 'action', 'target'},
+_TASK_FIELDS = {
     'pick': {'id', 'action', 'tag_id'},
-    'store': {'id', 'action', 'slot_id'},
-    'retrieve': {'id', 'action', 'slot_id'},
-    'place_on_table': {'id', 'action'},
-    'place_in_container': {'id', 'action', 'container_color'},
-    'stack': {'id', 'action', 'support_tag_id'},
-    'place_on_shelf': {'id', 'action'},
-    'finish': {'id', 'action'},
+    'place_on_table': {'id', 'action', 'tag_id'},
+    'place_in_container': {'id', 'action', 'tag_id', 'container_color'},
+    'stack': {'id', 'action', 'tag_ids', 'support_tag_id'},
+    'place_on_shelf': {'id', 'action', 'tag_id'},
 }
 
 
-def _step(raw_value: Any, index: int) -> Step:
-    context = f'plan.steps[{index}]'
+def _identifier(raw: Any, context: str) -> str:
+    value = _nonempty_string(raw, context)
+    if not PLAN_ID_PATTERN.fullmatch(value):
+        raise ConfigurationError(f'{context} deve conter apenas letras, números, _ ou -.')
+    return value
+
+
+def _task(raw_value: Any, context: str) -> Step:
     raw = _mapping(raw_value, context)
     action = _nonempty_string(raw.get('action'), f'{context}.action')
-    if action not in STEP_ACTIONS:
-        raise ConfigurationError(
-            f'{context}.action desconhecida: {action!r}.'
-        )
-    _only_keys(raw, _STEP_FIELDS[action], context)
-    step_id = _nonempty_string(
-        raw.get('id', f'step_{index + 1:03d}'), f'{context}.id'
-    )
-    if not PLAN_ID_PATTERN.fullmatch(step_id):
-        raise ConfigurationError(
-            f'{context}.id deve conter apenas letras, números, _ ou -.'
-        )
-
-    if action == 'navigate':
-        return Step(
-            step_id, action,
-            target=_nonempty_string(raw.get('target'), f'{context}.target'),
-        )
-    if action == 'pick':
-        return Step(
-            step_id, action,
-            tag_id=_integer(raw.get('tag_id'), f'{context}.tag_id', nonnegative=True),
-        )
-    if action in {'store', 'retrieve'}:
-        return Step(
-            step_id, action,
-            slot_id=_nonempty_string(raw.get('slot_id'), f'{context}.slot_id'),
-        )
-    if action == 'place_on_table':
-        return Step(step_id, action)
-    if action == 'place_in_container':
-        color = _nonempty_string(
-            raw.get('container_color'), f'{context}.container_color'
-        ).lower()
-        if color not in {'red', 'blue'}:
-            raise ConfigurationError(
-                f'{context}.container_color deve ser red ou blue.'
-            )
-        return Step(step_id, action, container_color=color)
+    if action not in _TASK_FIELDS:
+        raise ConfigurationError(f'{context}.action desconhecida: {action!r}.')
+    _only_keys(raw, _TASK_FIELDS[action], context)
+    task_id = _identifier(raw.get('id'), f'{context}.id')
     if action == 'stack':
-        return Step(
-            step_id,
-            action,
-            support_tag_id=_integer(
-                raw.get('support_tag_id'),
-                f'{context}.support_tag_id',
-                nonnegative=True,
-            ),
-        )
-    return Step(step_id, action)
+        values = raw.get('tag_ids')
+        if not isinstance(values, list) or not values:
+            raise ConfigurationError(f'{context}.tag_ids deve ser uma lista não vazia.')
+        tags = tuple(_integer(value, f'{context}.tag_ids', nonnegative=True) for value in values)
+        support = _integer(raw.get('support_tag_id'), f'{context}.support_tag_id', nonnegative=True)
+        if len(set(tags)) != len(tags) or support in tags:
+            raise ConfigurationError(f'{context}: tags duplicadas ou suporte na própria pilha.')
+        return Step(task_id, action, support_tag_id=support, tag_ids=tags)
+    tag = _integer(raw.get('tag_id'), f'{context}.tag_id', nonnegative=True)
+    color = None
+    if action == 'place_in_container':
+        color = _nonempty_string(raw.get('container_color'), f'{context}.container_color').lower()
+        if color not in {'red', 'blue'}:
+            raise ConfigurationError(f'{context}.container_color deve ser red ou blue.')
+    return Step(task_id, action, tag_id=tag, container_color=color)
 
 
 def load_plan(path: str | Path) -> Plan:
-    """Load a sequential plan without embedding execution behavior in YAML."""
-    root = _load_yaml(path)
-    _only_keys(
-        root,
-        {'schema_version', 'plan_id', 'initial_location', 'steps'},
-        'plan',
-    )
-    plan_id = _nonempty_string(root.get('plan_id'), 'plan.plan_id')
-    if not PLAN_ID_PATTERN.fullmatch(plan_id):
-        raise ConfigurationError(
-            'plan.plan_id deve conter apenas letras, números, _ ou -.'
-        )
-    raw_steps = root.get('steps')
-    if not isinstance(raw_steps, list) or not raw_steps:
-        raise ConfigurationError('plan.steps deve ser uma lista não vazia.')
-    steps = tuple(_step(value, index) for index, value in enumerate(raw_steps))
-    ids = [step.step_id for step in steps]
-    if len(ids) != len(set(ids)):
-        raise ConfigurationError('plan.steps contém IDs duplicados.')
-    initial_location = _nonempty_string(
-        root.get('initial_location', 'start'), 'plan.initial_location'
-    )
-    return Plan(
-        plan_id=plan_id,
-        steps=steps,
-        initial_location=initial_location,
-    )
+    root = _load_yaml(path, schema_version=2)
+    _only_keys(root, {'schema_version', 'plan_id', 'initial_location', 'visits', 'finish'}, 'plan')
+    plan_id = _identifier(root.get('plan_id'), 'plan.plan_id')
+    raw_visits = root.get('visits')
+    if not isinstance(raw_visits, list) or not raw_visits:
+        raise ConfigurationError('plan.visits deve ser uma lista não vazia.')
+    visits = []
+    ids = set()
+    for index, value in enumerate(raw_visits):
+        context = f'plan.visits[{index}]'
+        raw = _mapping(value, context)
+        _only_keys(raw, {'id', 'target', 'tasks'}, context)
+        visit_id = _identifier(raw.get('id'), f'{context}.id')
+        target = _nonempty_string(raw.get('target'), f'{context}.target')
+        values = raw.get('tasks', [])
+        if not isinstance(values, list):
+            raise ConfigurationError(f'{context}.tasks deve ser uma lista.')
+        tasks = tuple(_task(task, f'{context}.tasks[{i}]') for i, task in enumerate(values))
+        for identifier in (visit_id, *(task.step_id for task in tasks)):
+            if identifier in ids:
+                raise ConfigurationError(f'plan contém IDs duplicados: {identifier}.')
+            ids.add(identifier)
+        visits.append(Visit(visit_id, target, tasks))
+    return Plan(plan_id, tuple(visits),
+                _nonempty_string(root.get('initial_location', 'start'), 'plan.initial_location'),
+                _boolean(root.get('finish', False), 'plan.finish'))
 
 
-def validate_plan(plan: Plan, arena: Arena) -> None:
-    """Validate static references without duplicating manipulation inventory."""
+def validate_plan(plan: Plan, arena: Arena, cargo_slot_ids=('left', 'right'),
+                  check_canceled: Callable[[], None] = lambda: None) -> None:
     if not arena.has_target(plan.initial_location):
+        raise ConfigurationError('plan.initial_location referencia target desconhecido.')
+    for visit in plan.visits:
+        if not arena.has_target(visit.target):
+            raise ConfigurationError(f"Visita '{visit.visit_id}': target desconhecido '{visit.target}'.")
+        if visit.tasks and visit.target not in arena.service_areas:
+            raise ConfigurationError(f"Visita '{visit.visit_id}': manipulação fora de uma área de serviço.")
+    from .scheduler import Scheduler
+    scheduler = Scheduler(plan, tuple(cargo_slot_ids), check_canceled)
+    if not scheduler.feasible(scheduler.initial_state):
         raise ConfigurationError(
-            'plan.initial_location referencia target desconhecido: '
-            f"'{plan.initial_location}'."
-        )
-    current_location = plan.initial_location
-    for index, step in enumerate(plan.steps):
-        if step.action == 'navigate':
-            assert step.target is not None
-            if not arena.has_target(step.target):
-                raise ConfigurationError(
-                    f"Passo '{step.step_id}' referencia target desconhecido: "
-                    f"'{step.target}'."
-                )
-            current_location = step.target
-            continue
-        if step.action == 'finish':
-            if index != len(plan.steps) - 1:
-                raise ConfigurationError(
-                    f"Passo '{step.step_id}': finish deve ser o último passo."
-                )
-            current_location = 'finish'
-            continue
-        if current_location not in arena.service_areas:
-            raise ConfigurationError(
-                f"Passo '{step.step_id}' executa manipulação fora de uma "
-                'área de serviço.'
-            )
+            'Missão inviável: verifique coletas, entregas, suportes, capacidade e garra na próxima visita.')

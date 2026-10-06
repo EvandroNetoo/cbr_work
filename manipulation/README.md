@@ -51,6 +51,20 @@ combina a grade livre com um disco de exclusão ao redor de cada tag. A flag
 de AprilTags nessa operação quanto esse bloqueio quando vale `false`.
 O raio do disco é `table_apriltag_clearance_radius_m` (padrão: 0,02 m).
 
+O `PickObject` pode receber `use_observed_detection: true` e uma
+`observed_detection` obtida na análise explícita imediatamente anterior à
+coleta, sem nenhuma operação ou deslocamento intermediário.
+Nesse modo, não posiciona a câmera nem chama análise de cena; valida ID,
+referencial `arm_base_link`, valores finitos e quaternion antes de agir, e
+aplica o mesmo filtro de alcance e planejamento do perfil. O resultado indica
+`used_observed_detection: true`; isso não representa uma nova captura. O
+cliente deve usar esse modo apenas na ação imediatamente após a análise.
+Manipulação, navegação ou reposicionamento consomem essa autorização; voltar ao
+mesmo ponto não a renova. Uma posição memorizada exige `false` e uma nova análise
+após o alinhamento configurado. Chamadas isoladas
+mantêm `false` por padrão. Tentativas internas no mesmo ponto reutilizam a
+primeira captura, sem repetir fotografias a cada tentativa de planejamento.
+
 Quando `pickup.tabletop.reachability_filter_enabled` está habilitado, a coleta
 usa seus próprios limites `reach_x/y_*`, CP e CL, definidos em
 `pickup.tabletop`. Uma AprilTag detectada fora dessa região é rejeitada antes
@@ -195,9 +209,11 @@ ros2 action send_goal manipulation/retrieve interfaces/action/RetrieveObject \
   "{slot_id: right}" --feedback
 ```
 
+Toda retirada começa pela pose de observação `detect_apriltags`, configurada
+em `pickup.tabletop.observation_state`, antes de entrar no compartimento.
 Na retirada, `safe_state` é a pose segura de entrada e saída, enquanto
 `retrieve_state` é a pose baixa onde a garra alcança o objeto. Para o
-compartimento `left`, a sequência completa é `safe_cube_left` → `pre_grip` →
+compartimento `left`, a sequência completa é `detect_apriltags` → `safe_cube_left` → `pre_grip` →
 `pick_cube_left` → fechar em `grip` → `safe_cube_left`. No lado direito, a
 mesma lógica usa `safe_cube_right` e `pick_cube_right`. O armazenamento usa
 `store_state` (`deposit_cube_left/right`) para liberar o objeto; `home` fica

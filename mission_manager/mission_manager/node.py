@@ -1,4 +1,4 @@
-"""ROS 2 action server that executes validated mission steps sequentially."""
+"""ROS 2 action server that executes validated visits with perception-ranked tasks."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from typing import Any, Callable
 from action_msgs.msg import GoalStatus
 from ament_index_python.packages import get_package_share_directory
 from interfaces.action import (
+    AnalyzeScene,
     ExecuteMission,
     FollowWall,
     PickObject,
@@ -37,11 +38,12 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_srvs.srv import SetBool
 
-from .errors import ConfigurationError, MissionCanceled, StateConflict, StepFailed
+from .errors import ConfigurationError, MissionCanceled, StateConflict, StepFailed, TaskNotFound
 from .loaders import load_arena, load_plan, PLAN_ID_PATTERN, validate_plan
 from .models import (
     Arena,
     ContainerObservation,
+    DeliveryOutcome,
     PickupRecoveryConfig,
     Plan,
     ServiceArea,
@@ -50,6 +52,7 @@ from .models import (
     TagObservation,
 )
 from .world_state import EMPTY, WorldState
+from .scheduler import Scheduler
 
 
 class MissionManager(Node):
@@ -61,6 +64,8 @@ class MissionManager(Node):
             not hasattr(PickObject.Result(), 'observed_detections')
             or not hasattr(PickObject.Result(), 'scene_observation')
             or not hasattr(PickObject.Goal(), 'alignment_completed')
+            or not hasattr(PickObject.Goal(), 'use_observed_detection')
+            or not hasattr(PickObject.Result(), 'used_observed_detection')
             or not hasattr(PickObject.Result, 'RECOVERY_ALIGNMENT_REQUIRED')
             or not hasattr(StackObject.Goal(), 'require_alignment')
             or not hasattr(StackObject.Result, 'RECOVERY_ALIGNMENT_REQUIRED')
@@ -88,6 +93,7 @@ class MissionManager(Node):
             'follow_wall.minimum_lateral_clearance_mm': 10,
             'deposit_lateral_retreat.threshold_mm': 100,
             'deposit_lateral_retreat.distance_mm': 50,
+            'vision_action': '/vision/analyze_scene',
             'prepare_action': '/manipulation/prepare',
             'pick_action': '/manipulation/pick',
             'store_action': '/manipulation/store',
@@ -156,6 +162,8 @@ class MissionManager(Node):
         self._blocked_search_positions: dict[str, set[int]] = {}
         self._last_wall_control_protection_stop = False
         self._last_table_observation: TableObservation | None = None
+        self._scene_observations: dict[tuple[str, int, int, bool], TableObservation] = {}
+        self._direct_pick_observation: TableObservation | None = None
         self._active_child = None
         self._arena: Arena | None = None
         self._service_area_vision_active = False
@@ -196,6 +204,7 @@ class MissionManager(Node):
             callback_group=self._callback_group)
         self._navigate_client = client(NavigateToPose, 'navigate_action')
         self._wall_control_client = client(FollowWall, 'wall_control_action')
+        self._vision_client = client(AnalyzeScene, 'vision_action')
         self._prepare_client = client(PrepareManipulator, 'prepare_action')
         self._pick_client = client(PickObject, 'pick_action')
         self._store_client = client(StoreObject, 'store_action')
@@ -739,6 +748,7 @@ class MissionManager(Node):
         )
 
     def _update_table_position(self, result: FollowWall.Result) -> None:
+        self._direct_pick_observation = None
         self._stack_alignment = None
         self._current_wall_distance_mm = float(
             result.final_average_distance_mm
@@ -763,6 +773,9 @@ class MissionManager(Node):
 
     def _remember_scene_observations(self, result: Any) -> None:
         """Merge one action's camera snapshot into mission-owned memory."""
+        if (getattr(result, 'used_observed_detection', False)
+                and not getattr(getattr(result, 'scene_observation', None), 'completed', False)):
+            return
         arena = getattr(self, '_arena', None)
         if arena is None or self._current_wall_distance_mm is None:
             return
@@ -799,25 +812,35 @@ class MissionManager(Node):
                         if abs(position - self._current_lateral_position_mm) <= config.travel_tolerance_mm:
                             self._safety_visited(detector).add(position)
         if apriltag_observation_completed or container_observation_completed:
+            previous = self._scene_at_current_position()
+            same_viewpoint = previous is not None and self._at_observation_point(previous)
+            previous_tags = previous.detected_tag_ids if same_viewpoint else frozenset()
+            previous_colors = previous.detected_container_colors if same_viewpoint else frozenset()
             self._last_table_observation = TableObservation(
                 area_id=self._current_location,
                 wall_distance_mm=self._current_wall_distance_mm,
                 lateral_position_mm=self._current_lateral_position_mm,
-                detected_tag_ids=frozenset(
-                    int(detection.id) for detection in detections
-                ),
-                apriltags_observed=apriltag_observation_completed,
-                detected_container_colors=frozenset(
-                    int(detection.color) for detection in containers
-                ),
-                containers_observed=container_observation_completed,
+                detected_tag_ids=(frozenset(int(detection.id) for detection in detections)
+                                  if apriltag_observation_completed else previous_tags),
+                apriltags_observed=(apriltag_observation_completed or
+                                   bool(same_viewpoint and previous.apriltags_observed)),
+                detected_container_colors=(frozenset(int(detection.color) for detection in containers)
+                                           if container_observation_completed else previous_colors),
+                containers_observed=(container_observation_completed or
+                                     bool(same_viewpoint and previous.containers_observed)),
             )
+            history = getattr(self, '_scene_observations', None)
+            if history is None:
+                history = self._scene_observations = {}
+            key = (self._current_location, round(self._current_wall_distance_mm),
+                   round(self._current_lateral_position_mm), bool(getattr(self, '_search_led_off', False)))
+            history[key] = self._last_table_observation
             visited = self._visited_search_positions.setdefault(
                 self._current_location, set()
             )
             area = arena.service_areas[self._current_location]
             if (
-                not getattr(self, '_search_phase', 0) and abs(
+                apriltag_observation_completed and not getattr(self, '_search_phase', 0) and abs(
                     area.alignment.distance_mm
                     - self._current_wall_distance_mm
                 )
@@ -902,6 +925,13 @@ class MissionManager(Node):
         self._remember_scene_observations(result)
 
     def _forget_picked_tag(self, tag_id: int) -> None:
+        history = getattr(self, '_scene_observations', {})
+        for key, snapshot in tuple(history.items()):
+            history[key] = replace(snapshot, detected_tag_ids=snapshot.detected_tag_ids - {tag_id})
+        observation = getattr(self, '_last_table_observation', None)
+        if observation is not None:
+            self._last_table_observation = replace(
+                observation, detected_tag_ids=observation.detected_tag_ids - {tag_id})
         for key in [key for key in self._tag_observations if key[1] == tag_id]:
             del self._tag_observations[key]
         for key in [key for key in getattr(self, '_placed_tag_viewpoints', {}) if key[1] == tag_id]:
@@ -977,6 +1007,7 @@ class MissionManager(Node):
         lateral_position_mm: float,
         description: str,
     ) -> bool:
+        self._direct_pick_observation = None
         assert self._arena is not None
         config = self._arena.pickup_recovery
         if self._current_wall_distance_mm is None:
@@ -1066,24 +1097,57 @@ class MissionManager(Node):
         )
         return True
 
-    def _position_from_memory(
-        self, tag_id: int
-    ) -> TagObservation | None:
-        observation = self._tag_observations.get(
-            (self._current_location, tag_id)
-        )
+    def _at_observation_point(self, observation) -> bool:
+        config = self._arena.pickup_recovery
+        return (observation.area_id == self._current_location
+                and self._current_wall_distance_mm is not None
+                and abs(observation.wall_distance_mm - self._current_wall_distance_mm)
+                    <= config.wall_tolerance_mm
+                and abs(observation.lateral_position_mm - self._current_lateral_position_mm)
+                    <= config.travel_tolerance_mm)
+
+    def _scene_at_current_position(self) -> TableObservation | None:
+        observation = getattr(self, '_last_table_observation', None)
+        if observation is not None and self._at_observation_point(observation):
+            return observation
+        dark = bool(getattr(self, '_search_led_off', False))
+        for key, observation in reversed(tuple(getattr(self, '_scene_observations', {}).items())):
+            if key[3] == dark and self._at_observation_point(observation):
+                return observation
+        return None
+
+    def _current_scene_observed(self) -> bool:
+        observation = self._scene_at_current_position()
+        return bool(observation is not None and observation.apriltags_observed)
+
+    def _take_direct_pick_detection(self, tag_id: int):
+        """Only the next action after explicit scene analysis may reuse its pose.
+
+        Search/position history helps choose where to go; it never authorizes a
+        direct grasp. Consuming this permission before the action also prevents
+        a failed attempt or a return to the same coordinates from renewing it.
+        """
+        snapshot = getattr(self, '_direct_pick_observation', None)
+        self._direct_pick_observation = None
+        observation = self._tag_observations.get((self._current_location, tag_id))
+        if (snapshot is not None and snapshot.apriltags_observed
+                and tag_id in snapshot.detected_tag_ids
+                and self._at_observation_point(snapshot)
+                and observation is not None and self._at_observation_point(observation)):
+            return copy.deepcopy(observation.detection)
+        return None
+
+    def _position_from_memory(self, tag_id: int) -> TagObservation | None:
+        observation = self._tag_observations.get((self._current_location, tag_id))
         if observation is None:
             return None
+        wall = observation.pickup_wall_distance_mm
+        lateral = observation.pickup_lateral_position_mm
         self.get_logger().info(
             f'AprilTag {tag_id} já observada em {self._current_location}; '
-            f'indo para parede={observation.pickup_wall_distance_mm} mm, '
-            f'lateral={observation.pickup_lateral_position_mm:.0f} mm.'
-        )
-        self._move_to_table_position(
-            observation.pickup_wall_distance_mm,
-            observation.pickup_lateral_position_mm,
-            f'retorno à posição armazenada da AprilTag {tag_id}',
-        )
+            f'indo para alinhamento parede={wall} mm, lateral={lateral:.0f} mm.')
+        self._move_to_table_position(wall, lateral,
+                                     f'alinhamento configurado da AprilTag {tag_id} memorizada')
         return observation
 
     def _position_from_placed_tag_memory(self, tag_id: int) -> bool:
@@ -1412,6 +1476,7 @@ class MissionManager(Node):
         self._service_area_vision_active = False
 
     def _navigate(self, target: str) -> None:
+        self._direct_pick_observation = None
         self._stack_alignment = None
         assert self._arena is not None
         pose = self._arena.pose_for(target)
@@ -1540,8 +1605,11 @@ class MissionManager(Node):
             )
 
     def _execute_pick(self, step: Step, timeout: float) -> None:
-        with self._search_session():
+        if getattr(self, '_flexible_pick', False):
             self._execute_pick_impl(step, timeout)
+        else:
+            with self._search_session():
+                self._execute_pick_impl(step, timeout)
 
     def _execute_pick_impl(self, step: Step, timeout: float) -> None:
         assert self._arena is not None
@@ -1555,11 +1623,10 @@ class MissionManager(Node):
         area = self._arena.service_areas[self._current_location]
         shelf_pick = area.area_type == 'SH'
         alignment_completed = False
+        direct_detection = self._take_direct_pick_detection(int(step.tag_id))
         original_observation = None
-        if config.enabled:
-            original_observation = self._position_from_memory(
-                int(step.tag_id)
-            )
+        if config.enabled and direct_detection is None:
+            original_observation = self._position_from_memory(int(step.tag_id))
             if (
                 original_observation is None
                 and (
@@ -1578,12 +1645,14 @@ class MissionManager(Node):
                         'todas as posições de busca já foram examinadas '
                         'ou bloqueadas por proteção.'
                     )
-        original_fallback_pending = original_observation is not None
         reposition_count = 0
         while True:
             goal = PickObject.Goal()
             goal.tag_id = int(step.tag_id)
             goal.profile = 'shelf_front' if shelf_pick else ''
+            if direct_detection is not None:
+                goal.use_observed_detection = True
+                goal.observed_detection = direct_detection
             goal.alignment_completed = alignment_completed
             # Keep compatibility metadata populated for existing action clients.
             goal.alignment_tag_x_m = config.preferred_tag_x_m
@@ -1599,6 +1668,7 @@ class MissionManager(Node):
                 'pick',
                 int(step.tag_id),
             )
+            direct_detection = None
             failure = self._manipulation_failure(result)
             if failure is None:
                 self._forget_picked_tag(int(step.tag_id))
@@ -1631,18 +1701,14 @@ class MissionManager(Node):
                 alignment_completed = False
                 reposition_count += 1
                 continue
+            if (getattr(self, '_flexible_pick', False)
+                    and result.outcome.code == ManipulationResult.OBJECT_NOT_FOUND):
+                self._tag_observations.pop((self._current_location, int(step.tag_id)), None)
+                raise TaskNotFound(f"AprilTag {step.tag_id} não encontrada nesta observação.")
             if (
                 config.enabled
                 and result.outcome.code == ManipulationResult.OBJECT_NOT_FOUND
             ):
-                if original_fallback_pending:
-                    original_fallback_pending = False
-                    assert original_observation is not None
-                    if self._return_to_original_observation(
-                        int(step.tag_id), original_observation
-                    ):
-                        alignment_completed = False
-                        continue
                 if self._move_to_next_search_position(int(step.tag_id)):
                     alignment_completed = False
                     continue
@@ -1749,6 +1815,7 @@ class MissionManager(Node):
                 continue
             break
 
+        self._last_delivery_action = 'place_on_table_fallback'
         fallback_goal = self._default_place_goal(height_cm)
         self.get_logger().warning(
             f"Nenhum destino utilizável para o passo '{step.step_id}' nas "
@@ -1944,6 +2011,8 @@ class MissionManager(Node):
             raise StepFailed('Retorno à distância padrão da SH não confirmado.')
 
     def _execute_manipulation(self, step: Step) -> None:
+        if step.action != 'pick':
+            self._direct_pick_observation = None
         if step.action not in {'stack', 'retrieve', 'store'}:
             self._stack_alignment = None
         assert self._arena is not None
@@ -1972,6 +2041,9 @@ class MissionManager(Node):
             else:
                 slot_id = ''
                 tag_id = self._world_state.require_gripper_object()
+                if step.tag_id is not None and tag_id != step.tag_id:
+                    raise StateConflict(f'A entrega exige {step.tag_id}, mas a garra contém {tag_id}.')
+                self._last_delivery_action = step.action
                 self._world_state.validate_place(tag_id)
                 transition = 'place'
                 if step.action == 'place_on_table':
@@ -2038,6 +2110,8 @@ class MissionManager(Node):
             self._restore_shelf_observation_distance(area)
 
     def _execute_step(self, step: Step) -> None:
+        if step.action != 'pick':
+            self._direct_pick_observation = None
         if step.action in {'navigate', 'finish'}:
             self._stack_alignment = None
         if step.action == 'navigate':
@@ -2047,6 +2121,147 @@ class MissionManager(Node):
             self._navigate('finish')
         else:
             self._execute_manipulation(step)
+
+    def _observe_visit(self) -> None:
+        """Observe without requesting any particular object or physical pick."""
+        known, gripper, _slots = self._world_state.snapshot()
+        if not known or gripper != EMPTY:
+            raise StepFailed('Observação de seleção requer garra vazia e carga conhecida.')
+        self._prepare_for_pick_observation()
+        goal = AnalyzeScene.Goal()
+        goal.requested_detectors = AnalyzeScene.Goal.APRILTAGS | AnalyzeScene.Goal.CONTAINERS_HSV
+        goal.duration = self._duration(2.0)
+        goal.work_surface_height_m = self._arena.service_areas[self._current_location].height_cm / 100.0
+        result = self._call_action(self._vision_client, goal, 'observação da visita',
+                                   self._manipulation_timeout())
+        if result.frames_processed == 0 or result.frames_with_base_transform == 0:
+            raise StepFailed('Observação sem frames válidos no referencial da base.')
+        scene = SceneObservation()
+        scene.completed = True
+        scene.requested_detectors = goal.requested_detectors
+        scene.apriltags = result.best_apriltags_base
+        scene.containers = result.best_containers_base
+        # Negative observations invalidate memories at this same viewpoint.
+        for key, memory in list(self._tag_observations.items()):
+            if (key[0] == self._current_location
+                    and abs(memory.wall_distance_mm - self._current_wall_distance_mm) <= 1
+                    and abs(memory.lateral_position_mm - self._current_lateral_position_mm) <= 1
+                    and key[1] not in {int(tag.id) for tag in scene.apriltags}):
+                del self._tag_observations[key]
+        for key, memory in list(self._container_observations.items()):
+            if (key[0] == self._current_location
+                    and abs(memory.wall_distance_mm - self._current_wall_distance_mm) <= 1
+                    and abs(memory.lateral_position_mm - self._current_lateral_position_mm) <= 1
+                    and key[1] not in {int(container.color) for container in scene.containers}):
+                del self._container_observations[key]
+        class ObservationResult:
+            scene_observation = scene
+        self._remember_scene_observations(ObservationResult())
+        self._direct_pick_observation = self._last_table_observation
+
+    def _scheduler_observations(self):
+        observations = {('tag', tag): memory.lateral_position_mm
+                        for (area, tag), memory in self._tag_observations.items()
+                        if area == self._current_location}
+        observations.update({('container', 'red' if color == PlaceInContainer.Goal.RED else 'blue'):
+                             memory.lateral_position_mm
+                             for (area, color), memory in self._container_observations.items()
+                             if area == self._current_location})
+        observations.update({('tag', tag): lateral
+                             for (area, tag), (_wall, lateral) in self._placed_tag_viewpoints.items()
+                             if area == self._current_location})
+        return observations
+
+    def _report_scheduled_operation(self, goal_handle, plan, step, task_id, description):
+        self._failed_step_id = task_id
+        self._current_step_index = self._completed_steps
+        self._active_world_operation = step.action
+        self._publish_world_state()
+        self._feedback(goal_handle, self._completed_steps, plan.total_steps,
+                       replace(step, step_id=task_id), description)
+
+    def _run_plan(self, goal_handle, plan: Plan) -> None:
+        scheduler = Scheduler(plan, tuple(self._world_state.snapshot()[2]), self._check_canceled)
+        state = scheduler.initial_state
+        if not scheduler.feasible(state):
+            raise ConfigurationError('Missão inviável para a carga configurada.')
+        while not scheduler.complete(state):
+            visit = plan.visits[state.visit]
+            nav = Step(visit.visit_id, 'navigate', target=visit.target)
+            self._report_scheduled_operation(goal_handle, plan, nav, visit.visit_id,
+                                             f'Navegando para {visit.target}')
+            self._execute_step(nav)
+            self._completed_steps += 1
+            with self._search_session():
+                while state.visit < len(plan.visits) and plan.visits[state.visit] is visit:
+                    self._check_canceled()
+                    known, gripper, slots = self._world_state.snapshot()
+                    if (not known or gripper != state.gripper
+                            or tuple(slots[slot] for slot in scheduler.slot_ids) != state.slots):
+                        raise StepFailed('Carga física confirmada diverge do escalonador.')
+                    viable = scheduler.viable_choices(state)
+                    if not viable:
+                        raise StepFailed(f'Visita {visit.visit_id} bloqueada pela carga ou suportes.')
+                    choice = scheduler.select(state, self._scheduler_observations(),
+                                              self._current_lateral_position_mm)
+                    if choice is None:
+                        if gripper != EMPTY:
+                            raise StepFailed(f'Visita {visit.visit_id}: garra bloqueada.')
+                        if not self._current_scene_observed():
+                            self._observe_visit()
+                            continue
+                        self._failed_step_id = min((c.task_id for c in viable if c.task_id),
+                                                   default=visit.visit_id)
+                        pending_pick = next((c.step.tag_id for c in viable if c.step.action == 'pick'), 0)
+                        if (self._arena.pickup_recovery.enabled
+                                and self._move_to_next_search_position(pending_pick)):
+                            self._observe_visit()
+                            continue
+                        # Permit retrieving a delivery whose detector found no target;
+                        # its existing recovery/fallback handles that case. Never pick unseen tags.
+                        choice = scheduler.select(state, self._scheduler_observations(),
+                                                  self._current_lateral_position_mm,
+                                                  allow_unobserved=True)
+                        if choice is None:
+                            raise StepFailed(f'Visita {visit.visit_id}: objetos pendentes não encontrados após busca.')
+                    if choice.step.action == 'depart':
+                        state = choice.next_state
+                        break
+                    task_id = choice.task_id or next(
+                        (task.step_id for index, (vi, task, _group) in enumerate(scheduler.tasks)
+                         if vi == state.visit and not state.done & (1 << index)), visit.visit_id)
+                    description = f'{choice.step.action}: tag {choice.step.tag_id} em {visit.target}'
+                    self._report_scheduled_operation(goal_handle, plan, choice.step, task_id, description)
+                    self._flexible_pick = choice.step.action == 'pick'
+                    try:
+                        self._execute_step(replace(choice.step, step_id=task_id))
+                    except TaskNotFound:
+                        continue
+                    finally:
+                        self._flexible_pick = False
+                    known, gripper, slots = self._world_state.snapshot()
+                    expected = choice.next_state
+                    if (not known or gripper != expected.gripper
+                            or tuple(slots[slot] for slot in scheduler.slot_ids) != expected.slots):
+                        raise StepFailed(f'Tarefa {task_id}: efeito físico esperado não confirmado.')
+                    if choice.task_index is not None:
+                        self._completed_steps += 1
+                        if choice.step.action != 'pick':
+                            actual_action = getattr(self, '_last_delivery_action', choice.step.action)
+                            self._delivery_outcomes.append(DeliveryOutcome(
+                                task_id, choice.step.tag_id, visit.target, choice.step.action,
+                                actual_action,
+                                choice.step.container_color if actual_action == 'place_in_container' else None,
+                                choice.step.support_tag_id if actual_action == 'stack' else None))
+                            self._feedback(goal_handle, self._completed_steps - 1, plan.total_steps,
+                                           replace(choice.step, step_id=task_id),
+                                           f'Entrega confirmada: tag {choice.step.tag_id}, {actual_action} em {visit.target}')
+                    state = choice.next_state
+        if plan.finish:
+            step = Step('finish', 'finish')
+            self._report_scheduled_operation(goal_handle, plan, step, 'finish', 'Navegando para finish')
+            self._execute_step(step)
+            self._completed_steps += 1
 
     def _load_goal_files(self, plan_id: str) -> tuple[Arena, Plan]:
         if not PLAN_ID_PATTERN.fullmatch(plan_id):
@@ -2063,7 +2278,7 @@ class MissionManager(Node):
                 f"O arquivo solicitado como '{plan_id}' declara plan_id "
                 f"'{plan.plan_id}'."
             )
-        validate_plan(plan, arena)
+        validate_plan(plan, arena, tuple(self._world_state.snapshot()[2]), self._check_canceled)
         return arena, plan
 
     def _feedback(
@@ -2123,8 +2338,13 @@ class MissionManager(Node):
         self._blocked_search_positions.clear()
         self._last_wall_control_protection_stop = False
         self._last_table_observation = None
+        self._scene_observations = {}
+        self._direct_pick_observation = None
         completed = 0
-        failed_step = ''
+        self._completed_steps = 0
+        self._failed_step_id = ''
+        self._delivery_outcomes = []
+        self._flexible_pick = False
         try:
             arena, plan = self._load_goal_files(str(goal_handle.request.plan_id))
             self._arena = arena
@@ -2133,18 +2353,8 @@ class MissionManager(Node):
                 self._activate_service_area_vision()
             self._world_state.reset()
             self._publish_world_state()
-            total = len(plan.steps)
-            for index, step in enumerate(plan.steps):
-                failed_step = step.step_id
-                self._current_step_index = index
-                self._active_world_operation = step.action
-                self._publish_world_state()
-                self._feedback(
-                    goal_handle, index, total, step,
-                    f'Executando {step.action}',
-                )
-                self._execute_step(step)
-                completed += 1
+            self._run_plan(goal_handle, plan)
+            completed = self._completed_steps
             self._deactivate_service_area_vision()
             self._status = 'succeeded'
             return self._result(
@@ -2159,8 +2369,8 @@ class MissionManager(Node):
             return self._result(
                 goal_handle,
                 ExecuteMission.Result.CANCELED,
-                completed,
-                failed_step,
+                self._completed_steps,
+                self._failed_step_id,
                 str(error),
             )
         except ConfigurationError as error:
@@ -2168,8 +2378,8 @@ class MissionManager(Node):
             return self._result(
                 goal_handle,
                 ExecuteMission.Result.CONFIGURATION_ERROR,
-                completed,
-                failed_step,
+                self._completed_steps,
+                self._failed_step_id,
                 str(error),
             )
         except StepFailed as error:
@@ -2177,8 +2387,8 @@ class MissionManager(Node):
             return self._result(
                 goal_handle,
                 ExecuteMission.Result.STEP_FAILED,
-                completed,
-                failed_step,
+                self._completed_steps,
+                self._failed_step_id,
                 str(error),
             )
         except Exception as error:
@@ -2187,8 +2397,8 @@ class MissionManager(Node):
             return self._result(
                 goal_handle,
                 ExecuteMission.Result.INTERNAL_ERROR,
-                completed,
-                failed_step,
+                self._completed_steps,
+                self._failed_step_id,
                 str(error),
             )
         finally:

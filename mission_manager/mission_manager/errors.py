@@ -19,3 +19,7 @@ class MissionCanceled(MissionError):
 
 class StateConflict(MissionError):
     """A requested transition conflicts with the mission-owned world state."""
+
+
+class TaskNotFound(StepFailed):
+    """A flexible pick observed an empty source; choose another task."""

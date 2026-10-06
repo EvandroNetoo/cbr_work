@@ -1173,7 +1173,7 @@ def test_missing_tag_scans_every_position_once_and_then_fails():
     assert manager._visited_search_positions['ws_1'] == {0, 250, -250}
 
 
-def test_cached_pick_falls_back_to_original_observation_before_search():
+def test_memorized_pick_aligns_and_searches_elsewhere_if_missing():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._arena = _arena()
@@ -1212,8 +1212,8 @@ def test_cached_pick_falls_back_to_original_observation_before_search():
 
     assert len(moves) == 2
     assert moves[0][:2] == (220, 100.0)
-    assert moves[1][:2] == (180, 0.0)
-    assert 'ponto original' in moves[1][2]
+    assert moves[1][:2] == (200, 250)
+    assert 'alinhamento configurado' in moves[0][2]
 
 
 @pytest.mark.parametrize(
@@ -2159,7 +2159,7 @@ def test_initial_service_area_enables_vision_and_cleans_up(area_type, ending):
         arena.service_areas['ws_1'], area_type=area_type)
     plan = SimpleNamespace(
         initial_location='ws_1', plan_id='test',
-        steps=(Step('collect', 'pick', tag_id=1),))
+        visits=(SimpleNamespace(tasks=(Step('collect', 'pick', tag_id=1),)),))
     manager._load_goal_files = lambda _plan_id: (arena, plan)
     for attribute in (
         '_tag_observations', '_placed_tag_viewpoints', '_container_observations',
@@ -2185,7 +2185,11 @@ def test_initial_service_area_enables_vision_and_cleans_up(area_type, ending):
         if ending == 'cancel':
             raise MissionCanceled('test cancel')
 
-    manager._execute_step = execute
+    def run_plan(_handle, _plan):
+        execute(_plan.visits[0].tasks[0])
+        manager._completed_steps += 1
+
+    manager._run_plan = run_plan
     handle = SimpleNamespace(
         request=SimpleNamespace(plan_id='test'),
         succeed=lambda: None, abort=lambda: None, canceled=lambda: None)
@@ -2352,3 +2356,56 @@ def test_safety_search_is_used_by_other_perception_actions(action):
     assert views[3:10] == [(60.0, False)] * 7
     assert views[10:17] == [(60.0, True)] * 7
     assert len(views) == (17 if action == 'stack' else 18)
+
+
+def test_cached_pick_result_preserves_other_tags_and_scene_history():
+    manager = _safety_manager()
+    result = _pick_result(ManipulationResult.OBJECT_NOT_FOUND)
+    result.observed_detections = [_detection(1, 0.12, -0.18), _detection(2, -0.12, -0.18)]
+    manager._remember_scene_observations(result)
+    snapshot = manager._last_table_observation
+    cached = _pick_result(ManipulationResult.SUCCESS)
+    cached.used_observed_detection = True
+    manager._remember_scene_observations(cached)
+    assert manager._last_table_observation is snapshot
+    manager._forget_picked_tag(1)
+    assert ('ws_1', 2) in manager._tag_observations
+    assert manager._last_table_observation.detected_tag_ids == frozenset({2})
+    assert manager._current_scene_observed()
+
+
+def test_hsv_only_scene_does_not_erase_tag_snapshot_or_mark_apriltag_search():
+    manager = _safety_manager()
+    seen = _pick_result(ManipulationResult.OBJECT_NOT_FOUND)
+    seen.observed_detections = [_detection(1, 0.12, -0.18)]
+    manager._remember_scene_observations(seen)
+    hsv = PlaceInContainer.Result()
+    hsv.scene_observation.completed = True
+    hsv.scene_observation.requested_detectors = SceneObservation.CONTAINERS_HSV
+    manager._remember_scene_observations(hsv)
+    assert manager._last_table_observation.apriltags_observed
+    assert manager._last_table_observation.detected_tag_ids == frozenset({1})
+    manager._current_lateral_position_mm = 250.0
+    manager._remember_scene_observations(hsv)
+    assert not manager._last_table_observation.apriltags_observed
+    assert manager._visited_search_positions['ws_1'] == {0}
+    assert manager._container_search_positions['ws_1'] == {0, 250}
+
+
+def test_return_to_previously_analyzed_adjusted_viewpoint_reuses_snapshot():
+    manager = _safety_manager()
+    manager._current_wall_distance_mm = 136.0
+    manager._current_lateral_position_mm = 49.0
+    first = _pick_result(ManipulationResult.OBJECT_NOT_FOUND)
+    first.observed_detections = [_detection(1, 0.12, -0.18), _detection(2, -0.12, -0.18)]
+    manager._remember_scene_observations(first)
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 250.0
+    manager._remember_scene_observations(_pick_result(ManipulationResult.OBJECT_NOT_FOUND))
+    manager._forget_picked_tag(1)
+    manager._current_wall_distance_mm = 136.0
+    manager._current_lateral_position_mm = 49.0
+    assert manager._current_scene_observed()
+    assert manager._scene_at_current_position().detected_tag_ids == frozenset({2})
+    manager._search_led_off = True
+    assert not manager._current_scene_observed()

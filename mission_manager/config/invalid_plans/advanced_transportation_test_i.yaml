@@ -70,7 +70,7 @@ steps:
 
   - id: empilhar_attc_4_sobre_attc_14
     action: stack
-    support_tag_id: 4
+    support_tag_id: 14
   - id: retirar_attc_5
     action: retrieve
     slot_id: left
