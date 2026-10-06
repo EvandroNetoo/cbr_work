@@ -232,6 +232,7 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
             'maximum_lateral_position_mm', 'preferred_tag_x_m',
             'preferred_tag_y_m', 'wall_tolerance_mm', 'travel_tolerance_mm',
             'timeout_s', 'max_reposition_attempts', 'search_positions_mm',
+            'safety_search_distance_mm', 'safety_search_positions_mm',
             'shelf_preferred_tag_x_m', 'shelf_preferred_tag_y_m',
             'stack_preferred_tag_x_m', 'stack_preferred_tag_y_m',
         },
@@ -313,7 +314,22 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
         )
     if wall_tolerance == 0 or travel_tolerance == 0:
         raise ConfigurationError(f'{context}.tolerâncias devem ser positivas.')
+    safety_distance = _integer(raw.get('safety_search_distance_mm', 60),
+                               f'{context}.safety_search_distance_mm')
+    safety_raw = raw.get('safety_search_positions_mm', [])
+    if not isinstance(safety_raw, list):
+        raise ConfigurationError(f'{context}.safety_search_positions_mm deve ser uma lista.')
+    safety_positions = tuple(_integer(value, f'{context}.safety_search_positions_mm')
+                             for value in safety_raw)
+    if len(set(safety_positions)) != len(safety_positions):
+        raise ConfigurationError(f'{context}.safety_search_positions_mm contém repetições.')
+    if safety_positions and not minimum <= safety_distance <= maximum:
+        raise ConfigurationError(f'{context}.safety_search_distance_mm fora dos limites de parede.')
+    if any(not minimum_lateral <= value <= maximum_lateral for value in safety_positions):
+        raise ConfigurationError(f'{context}.safety_search_positions_mm fora dos limites laterais.')
     return PickupRecoveryConfig(
+        safety_search_distance_mm=safety_distance,
+        safety_search_positions_mm=safety_positions,
         stack_preferred_tag_x_m=_number(
             raw.get('stack_preferred_tag_x_m', 0.0),
             f'{context}.stack_preferred_tag_x_m'),

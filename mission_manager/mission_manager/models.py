@@ -51,6 +51,8 @@ class PickupRecoveryConfig:
     timeout_s: float
     max_reposition_attempts: int
     search_positions_mm: tuple[int, ...]
+    safety_search_distance_mm: int = 60
+    safety_search_positions_mm: tuple[int, ...] = ()
     shelf_preferred_tag_x_m: float = 0.0
     shelf_preferred_tag_y_m: float = -0.22
     stack_preferred_tag_x_m: float = 0.0

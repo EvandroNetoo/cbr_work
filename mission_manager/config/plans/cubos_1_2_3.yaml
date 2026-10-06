@@ -4,37 +4,42 @@ plan_id: cubos_1_2_3
 # Os cubos e os contêineres vermelho e azul estão na mesa 2.
 steps:
 
-  - id: navigate_to_ws_4
+  - id: navigate_to_ws_1
     action: navigate
-    target: ws_4
+    target: ws_1
 
   - id: pegar_cubo_11
     action: pick
-    tag_id: 4
+    tag_id: 2
 
-  - id: guardar_cubo_11_na_direita
-    action: store
-    slot_id: right
+  - id: containerize_cubo_11
+    action: place_in_container
+    container_color: red
 
-  - id: pegar_cubo_6
-    action: pick
-    tag_id: 5
 
-  - id: navigate_to_ws_5
-    action: navigate
-    target: ws_5
+  # - id: guardar_cubo_11_na_direita
+  #   action: store
+  #   slot_id: right
 
-  - id: empilhar_attc_6_sobre_attc_14
-    action: stack
-    support_tag_id: 4
+  # - id: pegar_cubo_6
+  #   action: pick
+  #   tag_id: 2
 
-  - id: retirar_attc_11
-    action: retrieve
-    slot_id: right
+  # - id: navigate_to_ws_5
+  #   action: navigate
+  #   target: ws_5
 
-  - id: empilhar_attc_11_sobre_attc_6
-    action: stack
-    support_tag_id: 5
+  # - id: empilhar_attc_6_sobre_attc_14
+  #   action: stack
+  #   support_tag_id: 4
 
-  - id: finish_transport_plan
-    action: finish
+  # - id: retirar_attc_11
+  #   action: retrieve
+  #   slot_id: right
+
+  # - id: empilhar_attc_11_sobre_attc_6
+  #   action: stack
+  #   support_tag_id: 5
+
+  # - id: finish_transport_plan
+  #   action: finish

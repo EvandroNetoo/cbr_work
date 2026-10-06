@@ -376,3 +376,28 @@ def test_example_shelf_plan_matches_configured_arena():
     assert arena.service_areas['sh_1'].area_type == 'SH'
     assert [step.action for step in plan.steps] == [
         'navigate', 'pick', 'place_on_shelf', 'finish']
+
+
+@pytest.mark.parametrize('positions,distance', [
+    ([0, 125, -125], 60),
+    ([0, 0], 60),
+    ([0, 375], 60),
+    ([0], 20),
+    ([0], True),
+    ('invalid', 60),
+])
+def test_safety_search_configuration_limits(tmp_path, positions, distance):
+    import yaml
+    raw = yaml.safe_load(VALID_ARENA)
+    raw['pickup_recovery'].update({
+        'safety_search_positions_mm': positions,
+        'safety_search_distance_mm': distance,
+    })
+    path = _write(tmp_path, 'arena.yaml', yaml.safe_dump(raw))
+    if positions == [0, 125, -125]:
+        config = load_arena(path).pickup_recovery
+        assert config.safety_search_positions_mm == (0, 125, -125)
+        assert config.safety_search_distance_mm == 60
+    else:
+        with pytest.raises(ConfigurationError, match='safety_search'):
+            load_arena(path)

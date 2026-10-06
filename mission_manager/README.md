@@ -186,6 +186,22 @@ detecção. Se ainda não encontrá-la, ou se a tag nunca foi observada na área
 atual, o robô visita a posição de busca ainda não observada mais próxima. As
 posições são coordenadas absolutas em milímetros, configuradas em
 `pickup_recovery.search_positions_mm`; o padrão da arena é `[0, 325, -325]`.
+Após esgotar a busca padrão, coleta e empilhamento tentam
+`pickup_recovery.safety_search_positions_mm` à distância de parede
+`pickup_recovery.safety_search_distance_mm`. A arena configura 60 mm e
+`[-375, -250, -125, 0, 125, 250, 375]`. Primeiro a varredura usa LED ligado;
+se o alvo continuar ausente, repete os sete pontos com LED apagado. O serviço
+`/vision/hold_led_off` impede que cada análise religue o LED durante essa fase.
+O LED volta a ligar ao terminar a busca, inclusive em falha ou cancelamento.
+Uma lista de segurança vazia desativa as duas varreduras extras.
+
+O histórico de segurança separa área, alinhamento, iluminação e detector.
+Se X foi encontrado após quatro pontos de segurança iluminados, a busca de Y
+que ainda não foi observado visita apenas os três pontos iluminados restantes,
+seguindo para a varredura apagada se necessário. Todas as tags e contêineres
+observados nessas fases continuam atualizando suas posições na memória.
+Tentativas de movimento sem observação não contam como análise para outro passo.
+
 Todas as posições de busca precisam estar dentro dos limites laterais.
 Cada destino é marcado como tentado depois que o movimento termina, inclusive
 quando `FollowWall` é interrompida por uma proteção tolerada. Se a proteção
@@ -224,7 +240,11 @@ de AprilTag. Se a cor solicitada não apareceu na última observação da posiç
 atual, não repete a mesma detecção. `place_on_table` mantém seu conjunto de
 busca independente.
 
-Depois de examinar todas as posições configuradas, o gerenciador chama
+Contêiner e espaço livre também usam as duas varreduras de segurança antes
+de esgotar a busca. A busca de espaço livre é renovada em cada depósito, pois
+a ocupação da mesa pode mudar.
+
+Depois de examinar as posições padrão e de segurança, o gerenciador chama
 `PlaceOnTable` em modo de fallback. Nesse modo, a percepção é ignorada e a
 posição padrão `x=0`, `y=-0,20` é usada com a altura, o offset do TCP, a
 orientação preferencial e as restrições normais do perfil `table`. Se uma action

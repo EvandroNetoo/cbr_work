@@ -452,6 +452,9 @@ class SceneAnalyzer(
                 self.get_parameter('camera_capture_state_service').value)
             self.camera_state_client = self.create_client(
                 Trigger, self.camera_state_service)
+        self._hold_led_off = False
+        self._led_hold_service = self.create_service(
+            SetBool, 'vision/hold_led_off', self._set_led_hold)
         self.action_server = ActionServer(self, AnalyzeScene, 'vision/analyze_scene',
                                           goal_callback=self.goal_callback,
                                           cancel_callback=self.cancel_callback,
@@ -694,6 +697,13 @@ class SceneAnalyzer(
         self.get_logger().error(f'Estado inválido recebido de {service}.')
         return None
 
+    def _set_led_hold(self, request, response):
+        """Mission-owned dark sweep: suppress automatic LED acquisition."""
+        self._hold_led_off = bool(request.data)
+        response.success = True
+        response.message = 'LED automático bloqueado.' if request.data else 'LED automático liberado.'
+        return response
+
     def _set_vision_led(self, enabled: bool) -> bool:
         """Liga ou desliga a iluminação através do dono da serial do brick."""
         if not self.manage_vision_led:
@@ -768,7 +778,7 @@ class SceneAnalyzer(
         led_started = False
         camera_started = False
         try:
-            if self.manage_vision_led:
+            if self.manage_vision_led and not getattr(self, '_hold_led_off', False):
                 led_state = self._resource_state(
                     self.vision_led_state_client, self.vision_led_state_service,
                     self.vision_led_timeout)

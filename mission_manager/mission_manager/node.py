@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
 from dataclasses import replace
 import math
 from pathlib import Path
@@ -99,6 +100,7 @@ class MissionManager(Node):
             'navigation_timeout_s': 120.0,
             'manipulation_timeout_s': 120.0,
             'camera_capture_service': '/camera/set_capture',
+            'vision_led_hold_off_service': '/vision/hold_led_off',
             'vision_led_service': '/base_hardware/set_vision_led',
             'vision_resource_timeout_s': 5.0,
         }
@@ -185,6 +187,9 @@ class MissionManager(Node):
 
         self._camera_capture_client = self.create_client(
             SetBool, str(self.get_parameter('camera_capture_service').value),
+            callback_group=self._callback_group)
+        self._vision_led_hold_off_client = self.create_client(
+            SetBool, str(self.get_parameter('vision_led_hold_off_service').value),
             callback_group=self._callback_group)
         self._vision_led_client = self.create_client(
             SetBool, str(self.get_parameter('vision_led_service').value),
@@ -787,6 +792,12 @@ class MissionManager(Node):
             )
             container_observation_completed = False
         config = self._pickup_config()
+        if abs(self._current_wall_distance_mm - config.safety_search_distance_mm) <= config.wall_tolerance_mm:
+            for detector, completed in (('apriltags', apriltag_observation_completed), ('containers', container_observation_completed)):
+                if completed:
+                    for position in config.safety_search_positions_mm:
+                        if abs(position - self._current_lateral_position_mm) <= config.travel_tolerance_mm:
+                            self._safety_visited(detector).add(position)
         if apriltag_observation_completed or container_observation_completed:
             self._last_table_observation = TableObservation(
                 area_id=self._current_location,
@@ -806,7 +817,7 @@ class MissionManager(Node):
             )
             area = arena.service_areas[self._current_location]
             if (
-                abs(
+                not getattr(self, '_search_phase', 0) and abs(
                     area.alignment.distance_mm
                     - self._current_wall_distance_mm
                 )
@@ -822,7 +833,7 @@ class MissionManager(Node):
         if container_observation_completed:
             area = arena.service_areas[self._current_location]
             if (
-                abs(
+                not getattr(self, '_search_phase', 0) and abs(
                     area.alignment.distance_mm
                     - self._current_wall_distance_mm
                 )
@@ -1144,8 +1155,70 @@ class MissionManager(Node):
             f'retorno ao ponto original da observação da AprilTag {tag_id}',
         )
 
+    @contextmanager
+    def _search_session(self):
+        self._search_phase = 0
+        self._safety_search_attempts = {}
+        try:
+            yield
+        finally:
+            try:
+                self._restore_search_led()
+            finally:
+                self._search_phase = 0
+
+    def _restore_search_led(self) -> None:
+        if not getattr(self, '_search_led_off', False):
+            return
+        # Restore the physical LED before releasing vision's hold.
+        self._set_vision_resource(self._vision_led_client, 'LED', True)
+        self._set_vision_resource(
+            self._vision_led_hold_off_client, 'bloqueio do LED', False)
+        self._search_led_off = False
+        self._last_table_observation = None
+
+    def _safety_visited(self, detector: str) -> set[int]:
+        if not hasattr(self, '_safety_search_history'):
+            self._safety_search_history = {}
+        key = (self._current_location, self._arena.pickup_recovery.safety_search_distance_mm,
+               getattr(self, '_search_phase', 0) == 2, detector)
+        return self._safety_search_history.setdefault(key, set())
+
+    def _move_to_next_safety_position(self, detector: str) -> bool:
+        config = self._arena.pickup_recovery
+        if not config.safety_search_positions_mm:
+            return False
+        phase = max(1, getattr(self, '_search_phase', 0))
+        while phase <= 2:
+            if phase != getattr(self, '_search_phase', 0):
+                self._search_phase = phase
+                self._last_table_observation = None
+                if phase == 2:
+                    self._search_led_off = True
+                    self._set_vision_resource(self._vision_led_hold_off_client, 'bloqueio do LED', True)
+                    self._set_vision_resource(self._vision_led_client, 'LED', False)
+                self.get_logger().info(f'Busca de segurança: parede={config.safety_search_distance_mm} mm, LED={"apagado" if phase == 2 else "ligado"}.')
+            visited = self._safety_visited(detector)
+            if not hasattr(self, '_safety_search_attempts'):
+                self._safety_search_attempts = {}
+            attempted = self._safety_search_attempts.setdefault((phase, detector), set())
+            candidates = [p for p in config.safety_search_positions_mm if p not in visited and p not in attempted]
+            if candidates:
+                destination = min(candidates, key=lambda p: (abs(p - self._current_lateral_position_mm), config.safety_search_positions_mm.index(p)))
+                self._move_to_table_position(config.safety_search_distance_mm, destination,
+                                             f'busca de segurança de {detector}')
+                attempted.add(destination)
+                self._last_table_observation = None
+                return True
+            phase += 1
+        self._restore_search_led()
+        self._search_phase = 0
+        return False
+
     def _move_to_next_search_position(self, tag_id: int) -> bool:
         assert self._arena is not None
+        if getattr(self, '_search_phase', 0):
+            return self._move_to_next_safety_position('apriltags')
         config = self._arena.pickup_recovery
         visited = self._visited_search_positions.setdefault(
             self._current_location, set()
@@ -1157,7 +1230,7 @@ class MissionManager(Node):
             if position not in visited and position not in blocked
         ]
         if not candidates:
-            return False
+            return self._move_to_next_safety_position('apriltags')
         destination = min(
             candidates,
             key=lambda position: (
@@ -1185,6 +1258,8 @@ class MissionManager(Node):
         self, visited: set[int], positions: tuple[int, ...]
     ) -> None:
         """Mark the configured table-search point at the current pose."""
+        if getattr(self, '_search_phase', 0):
+            return
         assert self._arena is not None
         if self._current_wall_distance_mm is None:
             return
@@ -1208,6 +1283,17 @@ class MissionManager(Node):
         self, positions_by_area: dict[str, set[int]] | None = None
     ) -> bool:
         """Whether the current WS point was analyzed for this detector."""
+        config = self._arena.pickup_recovery
+        if (getattr(self, '_search_phase', 0)
+                or (config.safety_search_positions_mm
+                    and self._current_wall_distance_mm is not None
+                    and abs(self._current_wall_distance_mm - config.safety_search_distance_mm) <= config.wall_tolerance_mm
+                    and abs(self._current_wall_distance_mm - self._arena.service_areas[self._current_location].alignment.distance_mm) > config.wall_tolerance_mm)):
+            detector = 'apriltags' if positions_by_area is None else 'containers'
+            return (self._current_wall_distance_mm is not None
+                    and abs(self._current_wall_distance_mm - config.safety_search_distance_mm) <= config.wall_tolerance_mm
+                    and any(abs(p - self._current_lateral_position_mm) <= config.travel_tolerance_mm
+                            for p in self._safety_visited(detector)))
         if self._current_wall_distance_mm is None:
             return False
         config = self._arena.pickup_recovery
@@ -1231,6 +1317,9 @@ class MissionManager(Node):
     ) -> bool:
         """Move to the nearest untried table-search point for this step."""
         assert self._arena is not None
+        detector = 'containers' if step.action == 'place_in_container' else 'table'
+        if getattr(self, '_search_phase', 0):
+            return self._move_to_next_safety_position(detector)
         blocked = (
             getattr(self, '_blocked_search_positions', {}).get(
                 self._current_location, set())
@@ -1241,7 +1330,7 @@ class MissionManager(Node):
             if position not in visited and position not in blocked
         ]
         if not candidates:
-            return False
+            return self._move_to_next_safety_position(detector)
         destination = min(
             candidates,
             key=lambda position: (
@@ -1451,6 +1540,10 @@ class MissionManager(Node):
             )
 
     def _execute_pick(self, step: Step, timeout: float) -> None:
+        with self._search_session():
+            self._execute_pick_impl(step, timeout)
+
+    def _execute_pick_impl(self, step: Step, timeout: float) -> None:
         assert self._arena is not None
         try:
             self._world_state.validate_pick(int(step.tag_id))
@@ -1557,7 +1650,11 @@ class MissionManager(Node):
                 f"passo '{step.step_id}' (pick) falhou: {failure}"
             )
 
-    def _execute_place_with_recovery(
+    def _execute_place_with_recovery(self, step, client, goal, tag_id, height_cm, timeout) -> None:
+        with self._search_session():
+            self._execute_place_with_recovery_impl(step, client, goal, tag_id, height_cm, timeout)
+
+    def _execute_place_with_recovery_impl(
         self,
         step: Step,
         client: ActionClient,
@@ -1701,7 +1798,11 @@ class MissionManager(Node):
             self._current_wall_distance_mm, self._current_lateral_position_mm,
         )
 
-    def _execute_stack_with_search(
+    def _execute_stack_with_search(self, step, goal, tag_id, timeout) -> None:
+        with self._search_session():
+            self._execute_stack_with_search_impl(step, goal, tag_id, timeout)
+
+    def _execute_stack_with_search_impl(
         self, step: Step, goal: StackObject.Goal, tag_id: int, timeout: float,
     ) -> None:
         """Use known tag locations, then search only unexamined viewpoints."""
@@ -1994,6 +2095,9 @@ class MissionManager(Node):
         self._tag_observations.clear()
         self._placed_tag_viewpoints.clear()
         self._container_observations.clear()
+        self._safety_search_history = {}
+        self._search_phase = 0
+        self._search_led_off = False
         self._container_search_positions.clear()
         self._visited_search_positions.clear()
         self._blocked_search_positions.clear()

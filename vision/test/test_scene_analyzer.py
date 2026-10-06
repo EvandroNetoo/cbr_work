@@ -912,12 +912,14 @@ def test_hsv_area_parameter_names_match_height_bands():
 
 
 @pytest.mark.parametrize('initially_on', [False, True])
-def test_vision_only_releases_resources_it_enabled(initially_on):
+@pytest.mark.parametrize('hold_led_off', [False, True])
+def test_vision_only_releases_resources_it_enabled(initially_on, hold_led_off):
     analyzer = object.__new__(SceneAnalyzer)
     analyzer.sessions_lock = threading.RLock()
     analyzer.image_condition = threading.Condition()
     analyzer.pending_images = {}
     analyzer.manage_vision_led = True
+    analyzer._hold_led_off = hold_led_off
     analyzer.manage_camera_capture = True
     analyzer.vision_led_state_client = object()
     analyzer.camera_state_client = object()
@@ -957,6 +959,8 @@ def test_vision_only_releases_resources_it_enabled(initially_on):
 
     if initially_on:
         assert commands == []
+    elif hold_led_off:
+        assert commands == [('camera', True), ('camera', False)]
     else:
         assert commands == [
             ('led', True), ('camera', True),

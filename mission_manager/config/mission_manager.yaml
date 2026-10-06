@@ -22,6 +22,7 @@ mission_manager:
     place_in_container_action: /manipulation/place_in_container
     stack_action: /manipulation/stack
     place_on_shelf_action: /manipulation/place_on_shelf
+    vision_led_hold_off_service: /vision/hold_led_off
     server_timeout_s: 10.0
     navigation_timeout_s: 120.0
     manipulation_timeout_s: 120.0

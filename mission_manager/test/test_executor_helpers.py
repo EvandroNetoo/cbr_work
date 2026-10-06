@@ -2188,3 +2188,153 @@ def test_initial_service_area_enables_vision_and_cleans_up(area_type, ending):
         ('câmera', False), ('LED', False),
     ]
     assert not manager._service_area_vision_active
+
+
+def _safety_manager():
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._arena = replace(_arena(), pickup_recovery=replace(
+        _arena().pickup_recovery,
+        minimum_lateral_position_mm=-900,
+        maximum_lateral_position_mm=900,
+        safety_search_distance_mm=60,
+        safety_search_positions_mm=(-375, -250, -125, 0, 125, 250, 375),
+    ))
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._service_area_vision_active = False
+    manager._tag_observations = {}
+    manager._container_observations = {}
+    manager._visited_search_positions = {}
+    manager._container_search_positions = {}
+    manager._pick_client = object()
+    manager._vision_led_client = 'led'
+    manager._vision_led_hold_off_client = 'hold'
+    manager.get_logger = lambda: SimpleNamespace(
+        info=lambda *_args: None, warning=lambda *_args: None)
+    manager._prepare_for_pick_observation = lambda: None
+    manager._set_vision_resource = lambda *_args: None
+
+    def move(wall, lateral, *_args):
+        manager._current_wall_distance_mm = float(wall)
+        manager._current_lateral_position_mm = float(lateral)
+        return True
+
+    manager._move_to_table_position = move
+    return manager
+
+
+@pytest.mark.parametrize('finish', ['missing', 'success', 'cancel'])
+def test_safety_pick_scans_seven_lit_then_seven_dark_and_restores_led(finish):
+    manager = _safety_manager()
+    commands = []
+    viewpoints = []
+    manager._set_vision_resource = lambda client, _name, enabled: commands.append((client, enabled))
+
+    def action(*_args, **_kwargs):
+        viewpoints.append((manager._current_wall_distance_mm,
+                           manager._current_lateral_position_mm,
+                           getattr(manager, '_search_led_off', False)))
+        if len(viewpoints) == 17:
+            if finish == 'cancel':
+                raise MissionCanceled('cancelada')
+            if finish == 'success':
+                return _pick_result(ManipulationResult.SUCCESS, 'ok')
+        return _pick_result(ManipulationResult.OBJECT_NOT_FOUND, 'não encontrada')
+
+    manager._call_action = action
+    if finish == 'success':
+        manager._execute_pick(Step('pick_9', 'pick', tag_id=9), 120.0)
+    else:
+        with pytest.raises(MissionCanceled if finish == 'cancel' else StepFailed):
+            manager._execute_pick(Step('pick_9', 'pick', tag_id=9), 120.0)
+    assert len(viewpoints) == 17
+    assert {p for wall, p, dark in viewpoints if wall == 60 and not dark} == set(
+        manager._arena.pickup_recovery.safety_search_positions_mm)
+    assert {p for wall, p, dark in viewpoints if dark} == set(
+        manager._arena.pickup_recovery.safety_search_positions_mm)
+    assert commands == [('hold', True), ('led', False), ('led', True), ('hold', False)]
+
+
+def test_second_tag_reuses_lit_safety_observations_and_saves_other_tags():
+    manager = _safety_manager()
+    manager._visited_search_positions = {'ws_1': {0, 250, -250}}
+    with manager._search_session():
+        for _ in range(4):
+            assert manager._move_to_next_search_position(1)
+            result = _pick_result(ManipulationResult.OBJECT_NOT_FOUND, 'missing')
+            result.observed_detections = [_detection(8, 0.0, -0.22)]
+            manager._remember_scene_observations(result)
+    assert ('ws_1', 8) in manager._tag_observations
+    assert manager._tag_observations[('ws_1', 8)].wall_distance_mm == 60
+    assert manager._current_search_position_visited()
+    lit_remaining = []
+    with manager._search_session():
+        while manager._move_to_next_search_position(2):
+            if manager._search_phase == 2:
+                break
+            lit_remaining.append(manager._current_lateral_position_mm)
+            manager._remember_scene_observations(
+                _pick_result(ManipulationResult.OBJECT_NOT_FOUND, 'missing'))
+    assert len(lit_remaining) == 3
+
+
+def test_safety_container_history_requires_container_detector():
+    manager = _safety_manager()
+    manager._search_phase = 1
+    manager._current_wall_distance_mm = 60
+    result = _pick_result(ManipulationResult.OBJECT_NOT_FOUND, 'missing')
+    manager._remember_scene_observations(result)
+    assert manager._safety_visited('apriltags') == {0}
+    assert manager._safety_visited('containers') == set()
+    result.scene_observation.completed = True
+    result.scene_observation.requested_detectors = SceneObservation.CONTAINERS_HSV
+    result.scene_observation.containers = [_container_detection(1)]
+    manager._remember_scene_observations(result)
+    assert manager._safety_visited('containers') == {0}
+    assert manager._container_observations[('ws_1', 1)].wall_distance_mm == 60
+
+
+@pytest.mark.parametrize('action', ['stack', 'place_in_container', 'place_on_table'])
+def test_safety_search_is_used_by_other_perception_actions(action):
+    manager = _safety_manager()
+    manager._world_state.commit_pick(5)
+    manager._stack_client = object()
+    manager._placed_tag_viewpoints = {}
+    manager._place_table_client = object()
+    views = []
+
+    def call_action(*_args, **_kwargs):
+        views.append((manager._current_wall_distance_mm,
+                      getattr(manager, '_search_led_off', False)))
+        if action == 'stack':
+            result = StackObject.Result()
+        elif action == 'place_in_container':
+            result = PlaceInContainer.Result()
+        else:
+            result = PlaceOnTable.Result()
+        result.outcome.code = ManipulationResult.OBJECT_NOT_FOUND
+        result.outcome.message = 'missing'
+        result.outcome.effect_known = True
+        result.outcome.final_object_location = ManipulationResult.LOCATION_SOURCE
+        result.scene_observation.completed = True
+        result.scene_observation.requested_detectors = (
+            SceneObservation.APRILTAGS | SceneObservation.CONTAINERS_HSV)
+        return result
+
+    manager._call_action = call_action
+    step = Step('search', action, tag_id=5, support_tag_id=9, container_color='red')
+    with pytest.raises(StepFailed):
+        if action == 'stack':
+            goal = StackObject.Goal()
+            goal.support_tag_id = 9
+            manager._execute_stack_with_search(step, goal, 5, 120)
+        else:
+            goal = PlaceInContainer.Goal() if action == 'place_in_container' else PlaceOnTable.Goal()
+            manager._execute_place_with_recovery(step, object(), goal, 5, 12.5, 120)
+    # Placement adds one final table fallback after the complete search.
+    assert views[:3] == [(200.0, False)] * 3
+    assert views[3:10] == [(60.0, False)] * 7
+    assert views[10:17] == [(60.0, True)] * 7
+    assert len(views) == (17 if action == 'stack' else 18)
