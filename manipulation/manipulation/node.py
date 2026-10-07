@@ -17,6 +17,7 @@ from interfaces.action import (
     PlaceInContainer,
     PlaceOnShelf,
     PlaceOnTable,
+    PlaceOnPrecisionTable,
     PrepareManipulator,
     RetrieveObject,
     StackObject,
@@ -124,6 +125,7 @@ class ManipulationServer(Node):
             'place_on_table_action': 'manipulation/place_on_table',
             'place_in_container_action': 'manipulation/place_in_container',
             'stack_action': 'manipulation/stack',
+            'place_on_precision_table_action': 'manipulation/place_on_precision_table',
             'place_on_shelf_action': 'manipulation/place_on_shelf',
             'place_at_pose_action': 'manipulation/place_at_pose',
             'prepare_action': 'manipulation/prepare',
@@ -136,6 +138,7 @@ class ManipulationServer(Node):
                 'table_surface', 'apriltags', 'containers_hsv'],
             'vision_detectors.place_in_container': ['containers_hsv'],
             'vision_detectors.stack': ['apriltags', 'containers_hsv'],
+            'vision_detectors.place_on_precision_table': ['apriltags'],
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -157,7 +160,8 @@ class ManipulationServer(Node):
                     f'vision_detectors.{operation}').value),
             )
             for operation in (
-                'pick', 'place_on_table', 'place_in_container', 'stack'
+                'pick', 'place_on_table', 'place_in_container', 'stack',
+                'place_on_precision_table'
             )
         }
 
@@ -224,6 +228,11 @@ class ManipulationServer(Node):
             ActionServer(
                 self, StackObject, str(self.get_parameter('stack_action').value),
                 execute_callback=self._execute_stack, **common,
+            ),
+            ActionServer(
+                self, PlaceOnPrecisionTable,
+                str(self.get_parameter('place_on_precision_table_action').value),
+                execute_callback=self._execute_place_on_precision_table, **common,
             ),
             ActionServer(
                 self, PlaceOnShelf,
@@ -383,6 +392,7 @@ class ManipulationServer(Node):
             'place_on_table': SceneObservation.TABLE_SURFACE,
             'place_in_container': SceneObservation.CONTAINERS_HSV,
             'stack': SceneObservation.APRILTAGS,
+            'place_on_precision_table': SceneObservation.APRILTAGS,
         }[operation]
         if mask & required != required:
             raise ConfigurationError(
@@ -407,6 +417,7 @@ class ManipulationServer(Node):
                     | SceneObservation.CONTAINERS_HSV
                 ),
                 'place_in_container': SceneObservation.CONTAINERS_HSV,
+                'place_on_precision_table': SceneObservation.APRILTAGS,
                 'stack': (
                     SceneObservation.APRILTAGS
                     | SceneObservation.CONTAINERS_HSV
@@ -504,7 +515,10 @@ class ManipulationServer(Node):
         result.outcome.message = message
         if placed_pose is not None and hasattr(result, 'placed_pose'):
             result.placed_pose = copy.deepcopy(placed_pose)
-        if action_type in (PickObject, StackObject) and isinstance(failure, PickRecoveryRequired):
+        if (
+            action_type in (PickObject, StackObject, PlaceOnPrecisionTable)
+            and isinstance(failure, PickRecoveryRequired)
+        ):
             result.recovery_reason = failure.recovery_reason
             result.has_detected_pose = True
             result.detected_pose = copy.deepcopy(failure.detected_pose)
@@ -1662,36 +1676,50 @@ class ManipulationServer(Node):
         )
 
     def _execute_stack(self, goal_handle: Any) -> StackObject.Result:
-        support_tag_id = int(goal_handle.request.support_tag_id)
-        scene_observation = self._new_scene_observation('stack')
+        return self._execute_tag_relative_placement(
+            goal_handle, StackObject, 'stack', 'stack',
+            int(goal_handle.request.support_tag_id),
+        )
+
+    def _execute_place_on_precision_table(self, goal_handle: Any):
+        return self._execute_tag_relative_placement(
+            goal_handle, PlaceOnPrecisionTable, 'place_on_precision_table',
+            'precision_table', int(goal_handle.request.reference_tag_id),
+        )
+
+    def _execute_tag_relative_placement(
+        self, goal_handle: Any, action_type: Any, operation_name: str,
+        profile_name: str, reference_tag_id: int,
+    ):
+        scene_observation = self._new_scene_observation(operation_name)
 
         def operation() -> tuple[str, int, Any]:
-            if support_tag_id < 0:
+            if reference_tag_id < 0:
                 raise ConfigurationError(
-                    'support_tag_id não pode ser negativo.'
+                    'reference_tag_id não pode ser negativo.'
                 )
-            profile = self._placement_profile('stack', 'Empilhamento')
+            profile = self._placement_profile(profile_name, 'Depósito relativo à AprilTag')
             if not profile.calibrated_reference:
                 raise FeatureUnavailable(
-                    "O offset do perfil 'stack' ainda não foi calibrado."
+                    f"O offset do perfil '{profile_name}' ainda não foi calibrado."
                 )
             observation = self._profiles.pickup_profile('tabletop').observation_state
             self._feedback(
-                goal_handle, StackObject, ManipulationFeedback.OBSERVING,
+                goal_handle, action_type, ManipulationFeedback.OBSERVING,
                 0.15,
-                f'Localizando cubo de apoio {support_tag_id} pela AprilTag',
+                f'Localizando referência {reference_tag_id} pela AprilTag',
             )
-            self._arm_state(observation, 'Preparando câmera para empilhamento')
+            self._arm_state(observation, 'Preparando câmera para depósito relativo à tag')
             duration = float(self.get_parameter('vision_analysis_duration_s').value)
             try:
                 tags, _containers, _table = self._analyze_for_operation(
-                    'stack', duration, scene_observation,
+                    operation_name, duration, scene_observation,
                     work_surface_height_m=(
                         float(goal_handle.request.ws_height_cm) / 100.0
                     ),
                 )
                 x, y, z, yaw = self._motion.pose_da_april_tag(
-                    tags, support_tag_id, duration)
+                    tags, reference_tag_id, duration)
             except RuntimeError as error:
                 if 'não encontrada' in str(error).lower():
                     raise ObjectNotFound(str(error)) from error
@@ -1699,9 +1727,9 @@ class ManipulationServer(Node):
             dx, dy, dz = profile.reference_offset_xyz
             if goal_handle.request.require_alignment:
                 raise PickRecoveryRequired(
-                    'Tag de apoio localizada; alinhamento da base solicitado antes do stack.',
+                    'Tag de referência localizada; alinhamento da base solicitado antes do depósito.',
                     criar_pose(x, y, z, yaw),
-                    StackObject.Result.RECOVERY_ALIGNMENT_REQUIRED,
+                    action_type.Result.RECOVERY_ALIGNMENT_REQUIRED,
                 )
             release_pose = criar_pose(
                 x + dx,
@@ -1710,12 +1738,12 @@ class ManipulationServer(Node):
                 normalizar_angulo_de_pegada(yaw) + profile.yaw_offset_deg,
             )
             return self._release_at_pose(
-                goal_handle, StackObject, release_pose, profile,
-                f'empilhamento sobre o objeto {support_tag_id}',
+                goal_handle, action_type, release_pose, profile,
+                f'{profile_name} relativo à AprilTag {reference_tag_id}',
             )
 
         return self._run(
-            StackObject, goal_handle, 'stack', operation,
+            action_type, goal_handle, operation_name, operation,
             scene_observation=scene_observation,
         )
 

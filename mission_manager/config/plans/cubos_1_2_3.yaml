@@ -1,13 +1,25 @@
-# Migrado dos passos ativos; rota e destinos preservados.
-# Os cubos e os contêineres vermelho e azul estão na mesa 2.
+# Exemplo: coletar o cubo 2 na pp_1 e depositá-lo na cavidade da mesma mesa.
+# A AprilTag 4 é a referência fixa da PP; ajustar os IDs conforme o cenário real.
+# A pose de soltura usa o offset de placements.precision_table no profiles.yaml.
 schema_version: 2
 plan_id: cubos_1_2_3
 finish: false
 visits:
-- target: ws_1
+
+- target: pp_1
   tasks:
   - action: pick
+    tag_id: 1
+  - action: pick
     tag_id: 2
-  - action: place_in_container
-    container_color: red
+  - action: pick
+    tag_id: 3
+  - action: place_on_precision_table
+    tag_id: 1
+    reference_tag_id: 27
+  - action: place_on_precision_table
     tag_id: 2
+    reference_tag_id: 26
+  - action: place_on_precision_table
+    tag_id: 3
+    reference_tag_id: 25

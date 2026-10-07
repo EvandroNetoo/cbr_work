@@ -98,7 +98,7 @@ def test_expected_placement_profiles_are_enabled():
     enabled = {
         name for name, profile in profiles.placements.items() if profile.enabled
     }
-    assert enabled == {'table', 'explicit_pose', 'container', 'stack', 'shelf'}
+    assert enabled == {'table', 'explicit_pose', 'container', 'stack', 'shelf', 'precision_table'}
 
 
 def test_container_profile_keeps_xy_and_height_offsets_explicit():
@@ -147,7 +147,7 @@ def test_table_free_space_search_uses_safe_defaults_and_complete_bounds():
 def test_semantic_placement_profiles_are_explicit():
     profiles = _profiles()
     assert set(profiles.placements) == {
-        'table', 'explicit_pose', 'container', 'stack', 'shelf'
+        'table', 'explicit_pose', 'container', 'stack', 'shelf', 'precision_table'
     }
 
 
@@ -265,3 +265,18 @@ def test_shelf_profile_references_an_arm_state_with_all_joints():
         'base_link_to_link1', 'link1_to_link2', 'link2_to_link3',
         'link3_to_link4', 'link4_to_link5',
     }
+
+
+def test_precision_profile_loads_independent_calibration_and_requires_tag_strategy(tmp_path):
+    raw = yaml.safe_load((PACKAGE / 'config/profiles.yaml').read_text())
+    raw['placements']['precision_table'].update(
+        calibrated_reference=False, reference_offset_xyz=[0.01, -0.02, 0.03])
+    path = tmp_path / 'profiles.yaml'
+    path.write_text(yaml.safe_dump(raw))
+    precision = load_profiles(path, PACKAGE / 'config/cargo_slots.yaml').placements['precision_table']
+    assert precision.calibrated_reference is False
+    assert precision.reference_offset_xyz == (0.01, -0.02, 0.03)
+    raw['placements']['precision_table']['strategy'] = 'perception'
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ConfigurationError, match='precision_table.strategy'):
+        load_profiles(path, PACKAGE / 'config/cargo_slots.yaml')

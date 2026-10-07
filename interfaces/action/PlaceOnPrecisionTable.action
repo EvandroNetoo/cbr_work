@@ -1,0 +1,17 @@
+# Deposit the held object in a PP cavity relative to a detected reference tag.
+# Offset in meters is configured by placements.precision_table, in arm_base_link.
+int32 reference_tag_id
+float32 ws_height_cm
+# Detect first and request base alignment before releasing (Mission Manager).
+bool require_alignment
+---
+uint8 RECOVERY_NONE=0
+uint8 RECOVERY_ALIGNMENT_REQUIRED=3
+interfaces/ManipulationResult outcome
+uint8 recovery_reason
+bool has_detected_pose
+geometry_msgs/PoseStamped detected_pose
+geometry_msgs/PoseStamped placed_pose
+interfaces/SceneObservation scene_observation
+---
+interfaces/ManipulationFeedback status

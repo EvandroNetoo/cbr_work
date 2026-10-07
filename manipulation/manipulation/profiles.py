@@ -522,6 +522,11 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 f"placements.{name}.strategy deve ser '{expected_strategy}'."
             )
 
+    if ('precision_table' in placements
+            and placements['precision_table'].strategy != 'tag_relative'):
+        raise ConfigurationError(
+            "placements.precision_table.strategy deve ser 'tag_relative'.")
+
     cargo_root = _load_yaml(cargo_path)
     _only_keys(
         cargo_root,

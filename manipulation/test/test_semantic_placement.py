@@ -1098,3 +1098,87 @@ def test_shelf_deposit_uses_fixed_high_state_then_releases_and_returns_to_observ
         ('arm', 'place_on_shelf_high'), ('gripper', 'open'),
         ('effect', ManipulationResult.LOCATION_DESTINATION), ('arm', 'detect_apriltags'),
     ]
+
+
+@pytest.mark.parametrize('alignment', [False, True])
+def test_precision_table_uses_reference_tag_and_independent_xyz_offset(alignment):
+    from interfaces.action import PlaceOnPrecisionTable
+    server = _operation_only_server()
+    profile = replace(
+        _cartesian_profile(), name='precision_table', strategy='tag_relative',
+        calibrated_reference=True, reference_offset_xyz=(0.03, -0.04, 0.05),
+        yaw_offset_deg=15.0,
+    )
+    server._profiles = SimpleNamespace(
+        placements={'precision_table': profile},
+        pickup_profile=lambda _: SimpleNamespace(observation_state='detect_apriltags'),
+    )
+    server._arm_state = lambda *_: None
+    server.get_parameter = lambda _: SimpleNamespace(value=2.0)
+    detected = []
+    server._analyze_for_operation = lambda *args, **kwargs: ([], [], None)
+    server._motion = SimpleNamespace(pose_da_april_tag=lambda tags, tag, duration: (
+        detected.append(tag) or (0.01, -0.22, 0.10, 20.0)))
+    releases = []
+    server._release_at_pose = lambda handle, action, pose, prof, destination: releases.append((pose, prof))
+    goal = PlaceOnPrecisionTable.Goal(reference_tag_id=42, require_alignment=alignment)
+    if alignment:
+        with pytest.raises(PickRecoveryRequired) as error:
+            server._execute_place_on_precision_table(SimpleNamespace(request=goal))
+        assert error.value.detected_pose.pose.position.x == pytest.approx(0.01)
+        result = server._make_result(
+            PlaceOnPrecisionTable, SimpleNamespace(abort=lambda: None),
+            ManipulationResult.MOTION_FAILED, str(error.value),
+            failure=error.value,
+        )
+        assert result.recovery_reason == PlaceOnPrecisionTable.Result.RECOVERY_ALIGNMENT_REQUIRED
+        assert result.has_detected_pose is True
+        assert result.detected_pose == error.value.detected_pose
+        assert result.outcome.effect_known is True
+        assert not releases
+    else:
+        server._execute_place_on_precision_table(SimpleNamespace(request=goal))
+        pose, used_profile = releases[0]
+        assert used_profile is profile
+        assert pose.header.frame_id == 'arm_base_link'
+        assert pose.pose.position.x == pytest.approx(0.04)
+        assert pose.pose.position.y == pytest.approx(-0.26)
+        assert pose.pose.position.z == pytest.approx(0.15)
+        from so_arm_101_moveit_config.restricoes import criar_pose
+        expected = criar_pose(0, 0, 0, 35)
+        assert pose.pose.orientation == expected.pose.orientation
+    assert detected == [42]
+
+
+def test_precision_table_requires_calibrated_reference():
+    from interfaces.action import PlaceOnPrecisionTable
+    server = _operation_only_server()
+    server._profiles.placements['precision_table'] = replace(
+        _cartesian_profile(), name='precision_table', strategy='tag_relative',
+        calibrated_reference=False,
+    )
+    with pytest.raises(FeatureUnavailable, match='precision_table'):
+        server._execute_place_on_precision_table(SimpleNamespace(
+            request=PlaceOnPrecisionTable.Goal(reference_tag_id=42)))
+
+
+def test_precision_missing_reference_never_releases():
+    from interfaces.action import PlaceOnPrecisionTable
+    server = _operation_only_server()
+    server._profiles.placements['precision_table'] = replace(
+        _cartesian_profile(), name='precision_table', strategy='tag_relative',
+        calibrated_reference=True,
+    )
+    server._profiles.pickup_profile = lambda _: SimpleNamespace(observation_state='detect_apriltags')
+    server._arm_state = lambda *_: None
+    server.get_parameter = lambda _: SimpleNamespace(value=2.0)
+    server._analyze_for_operation = lambda *args, **kwargs: ([], [], None)
+
+    def missing(*args):
+        raise RuntimeError('AprilTag 42 não encontrada')
+
+    server._motion = SimpleNamespace(pose_da_april_tag=missing)
+    server._release_at_pose = lambda *_: pytest.fail('Não soltar sem referência.')
+    with pytest.raises(ObjectNotFound):
+        server._execute_place_on_precision_table(SimpleNamespace(
+            request=PlaceOnPrecisionTable.Goal(reference_tag_id=42)))

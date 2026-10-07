@@ -111,6 +111,18 @@ placements:
     # A aproximação e a retirada mantêm a tolerância de 35 graus.
     tilt_tolerance_deg: 30
 
+  precision_table:
+    strategy: tag_relative
+    enabled: true
+    # Calibrar a pose de soltura do TCP em relação à tag da mesa PP.
+    # Somar XYZ em arm_base_link, em metros (não nos eixos locais da tag).
+    calibrated_reference: true
+    reference_offset_xyz: [0.0, 0.065, -0.015]
+    yaw_offset_deg: 0.0
+    approach_height_m: 0.015
+    retreat_height_m: 0.0
+    tilt_tolerance_deg: null
+
   shelf:
     strategy: named_state
     # Pose alta FICTÍCIA: substituir as juntas de place_on_shelf_high no SRDF

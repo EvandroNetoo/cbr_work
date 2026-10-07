@@ -15,6 +15,7 @@ STEP_ACTIONS = frozenset({
     'place_in_container',
     'stack',
     'place_on_shelf',
+    'place_on_precision_table',
     'finish',
 })
 
@@ -57,6 +58,8 @@ class PickupRecoveryConfig:
     shelf_preferred_tag_y_m: float = -0.22
     stack_preferred_tag_x_m: float = 0.0
     stack_preferred_tag_y_m: float = -0.22
+    precision_preferred_tag_x_m: float = 0.0
+    precision_preferred_tag_y_m: float = -0.22
 
 
 @dataclass(frozen=True)
@@ -151,6 +154,7 @@ class Step:
     container_color: str | None = None
     support_tag_id: int | None = None
     tag_ids: tuple[int, ...] = ()
+    reference_tag_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -183,3 +187,4 @@ class DeliveryOutcome:
     actual_action: str
     container_color: str | None = None
     support_tag_id: int | None = None
+    reference_tag_id: int | None = None

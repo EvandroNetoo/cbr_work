@@ -237,6 +237,7 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
             'safety_search_distance_mm', 'safety_search_positions_mm',
             'shelf_preferred_tag_x_m', 'shelf_preferred_tag_y_m',
             'stack_preferred_tag_x_m', 'stack_preferred_tag_y_m',
+            'precision_preferred_tag_x_m', 'precision_preferred_tag_y_m',
         },
         context,
     )
@@ -332,6 +333,12 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
     return PickupRecoveryConfig(
         safety_search_distance_mm=safety_distance,
         safety_search_positions_mm=safety_positions,
+        precision_preferred_tag_x_m=_number(
+            raw.get('precision_preferred_tag_x_m', 0.0),
+            f'{context}.precision_preferred_tag_x_m'),
+        precision_preferred_tag_y_m=_number(
+            raw.get('precision_preferred_tag_y_m', -0.22),
+            f'{context}.precision_preferred_tag_y_m'),
         stack_preferred_tag_x_m=_number(
             raw.get('stack_preferred_tag_x_m', 0.0),
             f'{context}.stack_preferred_tag_x_m'),
@@ -491,6 +498,7 @@ _TASK_FIELDS = {
     'place_in_container': {'id', 'action', 'tag_id', 'container_color'},
     'stack': {'id', 'action', 'tag_ids', 'support_tag_id'},
     'place_on_shelf': {'id', 'action', 'tag_id'},
+    'place_on_precision_table': {'id', 'action', 'tag_id', 'reference_tag_id'},
 }
 
 
@@ -523,7 +531,14 @@ def _task(raw_value: Any, context: str) -> Step:
         color = _nonempty_string(raw.get('container_color'), f'{context}.container_color').lower()
         if color not in {'red', 'blue'}:
             raise ConfigurationError(f'{context}.container_color deve ser red ou blue.')
-    return Step(task_id, action, tag_id=tag, container_color=color)
+    reference = None
+    if action == 'place_on_precision_table':
+        reference = _integer(raw.get('reference_tag_id'),
+                             f'{context}.reference_tag_id', nonnegative=True)
+        if reference == tag:
+            raise ConfigurationError(f'{context}: referência não pode ser o objeto na garra.')
+    return Step(task_id, action, tag_id=tag, container_color=color,
+                reference_tag_id=reference)
 
 
 def load_plan(path: str | Path) -> Plan:
@@ -578,6 +593,8 @@ def load_plan(path: str | Path) -> Plan:
                 parameters = (f'{"_".join(str(tag) for tag in sorted(task.tag_ids))}'
                               f'_on_{task.support_tag_id}' if task.action == 'stack'
                               else str(task.tag_id))
+                if task.reference_tag_id is not None:
+                    parameters += f'_ref_{task.reference_tag_id}'
                 if task.container_color:
                     parameters += f'_{task.container_color}'
                 task = replace(task, step_id=allocate(f'{visit_id}_{task.action}_{parameters}'))
@@ -597,6 +614,11 @@ def validate_plan(plan: Plan, arena: Arena, cargo_slot_ids=('left', 'right'),
             raise ConfigurationError(f"Visita '{visit.visit_id}': target desconhecido '{visit.target}'.")
         if visit.tasks and visit.target not in arena.service_areas:
             raise ConfigurationError(f"Visita '{visit.visit_id}': manipulação fora de uma área de serviço.")
+        for task in visit.tasks:
+            if (task.action == 'place_on_precision_table'
+                    and arena.service_areas[visit.target].area_type != 'PP'):
+                raise ConfigurationError(
+                    f"Visita '{visit.visit_id}': place_on_precision_table exige área PP.")
     from .scheduler import Scheduler
     scheduler = Scheduler(plan, tuple(cargo_slot_ids), check_canceled)
     if not scheduler.feasible(scheduler.initial_state):

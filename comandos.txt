@@ -2,7 +2,7 @@ ros2 launch bringup workstation.launch.py enable_xbox_teleop:=true
 ros2 launch nav2_bringup localization_launch.py   map:=/home/evandro/ros2_ws/src/cbr_work/bringup/maps/arena.yaml   params_file:=/home/evandro/ros2_ws/tools/amcl_localization.yaml autostart:=true
 ros2 launch bringup navigation.launch.py
 ros2 launch mission_manager mission_manager.launch.py
-ros2 action send_goal /mission/execute   interfaces/action/ExecuteMission   "{plan_id: advanced_transportation_test_i}"   --feedback
+ros2 action send_goal /mission/execute   interfaces/action/ExecuteMission   "{plan_id: cubos_1_2_3}"   --feedback
 
 
 ros2 service call /so101_hardware_node/set_torque std_srvs/srv/SetBool "{data: false}"
@@ -15,9 +15,9 @@ ros2 launch bringup hardware.launch.py
 # Raspberry
 ros2 launch bringup processing.launch.py
 # Raspberry: inicia tudo, exceto a missão
-ros2 launch bringup processing.launch.py disable_components:=mission,manipulation,vision
+ros2 launch bringup processing.launch.py disable_components:=mission,manipulation
 # Notebook: inicia missão, manipulação e visão
-ros2 launch bringup processing.launch.py components:=mission,manipulation,vision
+ros2 launch bringup processing.launch.py components:=mission,manipulation
 
 # Raspberry: inicia explicitamente todos os componentes possiveis
 ros2 launch bringup processing.launch.py components:=rsp,ekf,camera,vision,localization,navigation,moveit,manipulation,mission
@@ -85,6 +85,12 @@ ros2 action send_goal /manipulation/place_in_container interfaces/action/PlaceIn
 # Empilhar o objeto carregado sobre o objeto identificado pela AprilTag 5
 ros2 action send_goal /manipulation/stack interfaces/action/StackObject \
   "{support_tag_id: 5, ws_height_cm: 12.5}" --feedback
+
+# Depositar na cavidade da mesa de precisao (PP), usando a AprilTag de referencia 42
+# Offset XYZ em metros configurado em placements.precision_table no profiles.yaml.
+# require_alignment: false executa diretamente; o Mission Manager gerencia o alinhamento.
+ros2 action send_goal /manipulation/place_on_precision_table interfaces/action/PlaceOnPrecisionTable \
+  "{reference_tag_id: 4, ws_height_cm: 11.0, require_alignment: false}" --feedback
 
 # Colocar na prateleira fixa
 # O perfil shelf esta habilitado com pose FICTICIA: calibrar place_on_shelf_high no SRDF antes do uso.

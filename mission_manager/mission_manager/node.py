@@ -22,6 +22,7 @@ from interfaces.action import (
     PlaceInContainer,
     PlaceOnShelf,
     PlaceOnTable,
+    PlaceOnPrecisionTable,
     PrepareManipulator,
     RetrieveObject,
     StackObject,
@@ -104,6 +105,7 @@ class MissionManager(Node):
             'place_on_table_action': '/manipulation/place_on_table',
             'place_in_container_action': '/manipulation/place_in_container',
             'stack_action': '/manipulation/stack',
+            'place_on_precision_table_action': '/manipulation/place_on_precision_table',
             'place_on_shelf_action': '/manipulation/place_on_shelf',
             'server_timeout_s': 10.0,
             'navigation_timeout_s': 120.0,
@@ -218,6 +220,7 @@ class MissionManager(Node):
             PlaceInContainer, 'place_in_container_action'
         )
         self._stack_client = client(StackObject, 'stack_action')
+        self._place_precision_client = client(PlaceOnPrecisionTable, 'place_on_precision_table_action')
         self._place_shelf_client = client(PlaceOnShelf, 'place_on_shelf_action')
 
         self._server = ActionServer(
@@ -1190,6 +1193,23 @@ class MissionManager(Node):
             return copy.deepcopy(observation.detection)
         return None
 
+    def _precision_alignment_config(self) -> PickupRecoveryConfig:
+        config = self._arena.pickup_recovery
+        return replace(
+            config, preferred_tag_x_m=config.precision_preferred_tag_x_m,
+            preferred_tag_y_m=config.precision_preferred_tag_y_m,
+        )
+
+    def _precision_memory_destination(self, observation: TagObservation) -> tuple[int, float]:
+        # Translate from the measured observation point, using PP preferences.
+        # The cached pickup destination uses different preferences.
+        pose = observation.detection.pose.position
+        wall, travel = self._pickup_recovery_correction(
+            observation.wall_distance_mm, float(pose.x), float(pose.y),
+            self._precision_alignment_config(),
+        )
+        return wall, self._clamp_lateral_position(observation.lateral_position_mm + travel)
+
     def _position_from_memory(self, tag_id: int) -> TagObservation | None:
         observation = self._tag_observations.get((self._current_location, tag_id))
         if observation is None:
@@ -1653,7 +1673,7 @@ class MissionManager(Node):
             )
         self.get_logger().warning(
             f'Alinhamento para {step.action} da AprilTag '
-            f'{step.support_tag_id if step.action == "stack" else step.tag_id} em '
+            f'{step.reference_tag_id if step.action == "place_on_precision_table" else step.support_tag_id if step.action == "stack" else step.tag_id} em '
             f'x={pose.x:.3f}, y={pose.y:.3f} m. Reposicionando a base para '
             f'{target_wall} mm da parede e deslocando {bounded_travel} mm '
             f'(positivo=direita, negativo=esquerda).{lateral_limit_message}'
@@ -1937,78 +1957,111 @@ class MissionManager(Node):
     def _execute_stack_with_search_impl(
         self, step: Step, goal: StackObject.Goal, tag_id: int, timeout: float,
     ) -> None:
+        self._execute_tag_placement_with_search(
+            step, goal, tag_id, timeout, self._stack_client, StackObject,
+            int(goal.support_tag_id), precision=False,
+        )
+
+    def _execute_precision_with_search(self, step, goal, tag_id, timeout):
+        with self._search_session():
+            self._execute_tag_placement_with_search(
+                step, goal, tag_id, timeout, self._place_precision_client,
+                PlaceOnPrecisionTable, int(goal.reference_tag_id), precision=True,
+            )
+
+    def _execute_tag_placement_with_search(
+        self, step, goal, tag_id, timeout, client, action_type,
+        reference_tag_id: int, *, precision: bool,
+    ):
         """Use known tag locations, then search only unexamined viewpoints."""
         assert self._arena is not None
-        support_tag_id = int(goal.support_tag_id)
         config = replace(
             self._arena.pickup_recovery,
-            preferred_tag_x_m=self._arena.pickup_recovery.stack_preferred_tag_x_m,
-            preferred_tag_y_m=self._arena.pickup_recovery.stack_preferred_tag_y_m,
+            preferred_tag_x_m=(self._arena.pickup_recovery.precision_preferred_tag_x_m
+                               if precision else self._arena.pickup_recovery.stack_preferred_tag_x_m),
+            preferred_tag_y_m=(self._arena.pickup_recovery.precision_preferred_tag_y_m
+                               if precision else self._arena.pickup_recovery.stack_preferred_tag_y_m),
         )
         original_observation = None
-        if config.enabled and not self._stack_is_aligned(support_tag_id):
-            placed_viewpoint = self._position_from_placed_tag_memory(
-                support_tag_id)
+        alignment_completed = not precision and self._stack_is_aligned(reference_tag_id)
+        if config.enabled and (precision or not self._stack_is_aligned(reference_tag_id)):
+            placed_viewpoint = (False if precision else
+                                self._position_from_placed_tag_memory(reference_tag_id))
             if not placed_viewpoint:
-                original_observation = self._position_from_memory(
-                    support_tag_id)
+                if precision:
+                    original_observation = self._tag_observations.get(
+                        (self._current_location, reference_tag_id))
+                    if original_observation is not None:
+                        wall, lateral = self._precision_memory_destination(original_observation)
+                        self._move_to_table_position(
+                            wall, lateral,
+                            f'alinhamento PP pela AprilTag {reference_tag_id} memorizada',
+                        )
+                        alignment_completed = (
+                            self._current_wall_distance_mm is not None
+                            and abs(self._current_wall_distance_mm - wall) <= config.wall_tolerance_mm
+                            and abs(self._current_lateral_position_mm - lateral) <= config.travel_tolerance_mm
+                        )
+                else:
+                    original_observation = self._position_from_memory(reference_tag_id)
             if (
                 not placed_viewpoint
                 and original_observation is None
                 and (
-                    self._current_observation_excludes(support_tag_id)
+                    self._current_observation_excludes(reference_tag_id)
                     or self._current_search_position_visited()
                 )
             ):
                 self.get_logger().info(
-                    f'AprilTag {support_tag_id} não localizada nas '
+                    f'AprilTag {reference_tag_id} não localizada nas '
                     'observações da posição atual; evitando nova detecção '
                     'no mesmo local.'
                 )
-                if not self._move_to_next_search_position(support_tag_id):
+                if not self._move_to_next_search_position(reference_tag_id):
                     raise StepFailed(
-                        f"passo '{step.step_id}' (stack) falhou: AprilTag "
-                        f'{support_tag_id} não apareceu nas observações e '
+                        f"passo '{step.step_id}' ({step.action}) falhou: AprilTag "
+                        f'{reference_tag_id} não apareceu nas observações e '
                         'todas as posições de busca já foram examinadas '
                         'ou bloqueadas por proteção.'
                     )
         original_fallback_pending = original_observation is not None
-        alignment_completed = self._stack_is_aligned(support_tag_id)
         while True:
             goal.require_alignment = not alignment_completed
             result = self._call_manipulation_action(
-                self._stack_client, goal,
-                f"passo '{step.step_id}' (stack)", timeout, 'place', tag_id,
+                client, goal,
+                f"passo '{step.step_id}' ({step.action})", timeout, 'place', tag_id,
             )
             failure = self._manipulation_failure(result)
             if failure is None:
                 self._remember_placed_tag_viewpoint(tag_id)
-                self._remember_stack_alignment(tag_id, support_tag_id)
+                if not precision:
+                    self._remember_stack_alignment(tag_id, reference_tag_id)
                 return
             if not result.outcome.effect_known:
                 raise StepFailed(
-                    f"passo '{step.step_id}' (stack) deixou o estado físico "
+                    f"passo '{step.step_id}' ({step.action}) deixou o estado físico "
                     f'incerto: {failure}'
                 )
 
             known, gripper, _slots = self._world_state.snapshot()
             if known and gripper == EMPTY:
                 self._remember_placed_tag_viewpoint(tag_id)
-                self._remember_stack_alignment(tag_id, support_tag_id)
+                if not precision:
+                    self._remember_stack_alignment(tag_id, reference_tag_id)
                 self.get_logger().warning(
-                    f"Passo '{step.step_id}' confirmou o empilhamento antes "
+                    f"Passo '{step.step_id}' confirmou o depósito antes "
                     f'de falhar durante a finalização: {failure}. O fluxo da '
                     'missão continuará.'
                 )
                 return
             if not known or gripper != tag_id:
                 raise StepFailed(
-                    f"passo '{step.step_id}' (stack) não pode ser repetido "
+                    f"passo '{step.step_id}' ({step.action}) não pode ser repetido "
                     f'com segurança: {failure}'
                 )
-            if result.recovery_reason == StackObject.Result.RECOVERY_ALIGNMENT_REQUIRED:
+            if result.recovery_reason == action_type.Result.RECOVERY_ALIGNMENT_REQUIRED:
                 if alignment_completed or not result.has_detected_pose:
-                    raise StepFailed('Solicitação de alinhamento do stack sem pose válida ou repetida.')
+                    raise StepFailed('Solicitação de alinhamento do depósito sem pose válida ou repetida.')
                 self._recover_pick(result, step, alignment_only=True, config=config)
                 alignment_completed = True
                 continue
@@ -2025,15 +2078,15 @@ class MissionManager(Node):
                     original_fallback_pending = False
                     assert original_observation is not None
                     if self._return_to_original_observation(
-                        support_tag_id, original_observation
+                        reference_tag_id, original_observation
                     ):
                         alignment_completed = False
                         continue
-                if self._move_to_next_search_position(support_tag_id):
+                if self._move_to_next_search_position(reference_tag_id):
                     alignment_completed = False
                     continue
             raise StepFailed(
-                f"passo '{step.step_id}' (stack) falhou: {failure}"
+                f"passo '{step.step_id}' ({step.action}) falhou: {failure}"
             )
 
     def _align_for_shelf_placement(self, area: ServiceArea) -> None:
@@ -2117,9 +2170,10 @@ class MissionManager(Node):
             memory = self._container_observations.get((self._current_location, color))
             return (SlotMovement(round(memory.wall_distance_mm), memory.lateral_position_mm)
                     if memory is not None else None)
-        if step.action not in {'pick', 'stack'}:
+        if step.action not in {'pick', 'stack', 'place_on_precision_table'}:
             return None
-        tag = step.support_tag_id if step.action == 'stack' else step.tag_id
+        tag = (step.reference_tag_id if step.action == 'place_on_precision_table'
+               else step.support_tag_id if step.action == 'stack' else step.tag_id)
         if step.action == 'stack':
             if self._stack_is_aligned(tag):
                 return None
@@ -2127,6 +2181,8 @@ class MissionManager(Node):
             if viewpoint is not None:
                 return SlotMovement(*viewpoint)
         memory = self._tag_observations.get((self._current_location, tag))
+        if step.action == 'place_on_precision_table' and memory is not None:
+            return SlotMovement(*self._precision_memory_destination(memory))
         return (SlotMovement(memory.pickup_wall_distance_mm, memory.pickup_lateral_position_mm)
                 if memory is not None else None)
 
@@ -2254,6 +2310,13 @@ class MissionManager(Node):
                     goal.support_tag_id = int(step.support_tag_id)
                     goal.ws_height_cm = float(area.height_cm)
                     client = self._stack_client
+                elif step.action == 'place_on_precision_table':
+                    if area.area_type != 'PP':
+                        raise ConfigurationError('place_on_precision_table exige área PP.')
+                    goal = PlaceOnPrecisionTable.Goal()
+                    goal.reference_tag_id = int(step.reference_tag_id)
+                    goal.ws_height_cm = float(area.height_cm)
+                    client = self._place_precision_client
                 elif step.action == 'place_on_shelf':
                     goal = PlaceOnShelf.Goal()
                     client = self._place_shelf_client
@@ -2278,6 +2341,9 @@ class MissionManager(Node):
 
         if step.action == 'stack':
             self._execute_stack_with_search(step, goal, tag_id, timeout)
+            return
+        if step.action == 'place_on_precision_table':
+            self._execute_precision_with_search(step, goal, tag_id, timeout)
             return
 
         if transition in {'store', 'retrieve'}:
@@ -2453,7 +2519,8 @@ class MissionManager(Node):
                                 task_id, choice.step.tag_id, visit.target, choice.step.action,
                                 actual_action,
                                 choice.step.container_color if actual_action == 'place_in_container' else None,
-                                choice.step.support_tag_id if actual_action == 'stack' else None))
+                                choice.step.support_tag_id if actual_action == 'stack' else None,
+                                choice.step.reference_tag_id if actual_action == 'place_on_precision_table' else None))
                             self._feedback(goal_handle, self._completed_steps - 1, plan.total_steps,
                                            replace(choice.step, step_id=task_id),
                                            f'Entrega confirmada: tag {choice.step.tag_id}, {actual_action} em {visit.target}')

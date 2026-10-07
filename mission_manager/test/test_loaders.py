@@ -395,3 +395,32 @@ def test_safety_search_configuration_limits(tmp_path, positions, distance):
     else:
         with pytest.raises(ConfigurationError, match='safety_search'):
             load_arena(path)
+
+
+@pytest.mark.parametrize('reference', [42, -1, True, '42', None])
+def test_precision_plan_reference_validation(tmp_path, reference):
+    import yaml
+    raw = {'schema_version': 2, 'plan_id': 'pp', 'visits': [
+        {'target': 'ws_1', 'tasks': [{'action': 'pick', 'tag_id': 5}]},
+        {'target': 'ws_3', 'tasks': [{'action': 'place_on_precision_table',
+                                    'tag_id': 5, 'reference_tag_id': reference}]},
+    ]}
+    path = _write(tmp_path, 'plan.yaml', yaml.safe_dump(raw))
+    if reference != 42 or isinstance(reference, bool):
+        with pytest.raises(ConfigurationError, match='reference_tag_id'):
+            load_plan(path)
+        return
+    from dataclasses import replace
+    from mission_manager.scheduler import Scheduler
+    arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
+    plan = load_plan(path)
+    with pytest.raises(ConfigurationError, match='área PP'):
+        validate_plan(plan, arena)
+    arena.service_areas['ws_3'] = replace(arena.service_areas['ws_3'], area_type='PP')
+    validate_plan(plan, arena)
+    task = plan.visits[1].tasks[0]
+    assert task.reference_tag_id == 42
+    scheduler = Scheduler(plan, ('left', 'right'))
+    assert 42 not in scheduler.tags  # Reference belongs to the table, not cargo.
+    assert scheduler._rank(task, {('tag', 42): 300}, 100) == (1, 200)
+    assert scheduler._rank(task, {('tag', 5): 300}, 100) is None

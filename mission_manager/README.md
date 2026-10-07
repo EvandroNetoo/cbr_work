@@ -461,3 +461,38 @@ ROS_DOMAIN_ID=177 ROS_LOCALHOST_ONLY=1 ROS_LOG_DIR=/tmp/mission_visits_ros_logs 
 ```
 
 A execução simulada não substitui a calibração e o teste físico das trajetórias.
+
+### Entrega na mesa de precisão (PP)
+
+Declare a mesa com `type: PP` em `config/arena.yaml`. A tarefa distingue a tag
+do objeto transportado (`tag_id`) da tag fixa da mesa (`reference_tag_id`):
+
+```yaml
+schema_version: 2
+plan_id: precision_delivery
+visits:
+  - target: ws_1
+    tasks:
+      - {action: pick, tag_id: 5}
+  - target: pp_1
+    tasks:
+      - {action: place_on_precision_table, tag_id: 5, reference_tag_id: 42}
+finish: true
+```
+
+`pp_1` deve existir na arena como área PP. A tag 42 é uma referência da mesa e
+não entra no inventário de carga. As observações de AprilTags encontradas na
+mesa são armazenadas pela mesma lógica usada nas coletas e no stack. Para a
+entrega, o gerenciador calcula o destino a partir da pose memorizada e dos
+alvos X/Y específicos do PP, indo diretamente à posição preferida em um único
+reposicionamento. Ao confirmar a chegada, detecta a referência novamente para
+calcular a pose de soltura. Se a chegada ficar incompleta, solicita alinhamento
+pela nova detecção; se a tag não aparecer, mantém a recuperação e a busca.
+Sem uma referência memorizada, detecta primeiro e depois alinha a base.
+
+Os alvos de alinhamento são `pickup_recovery.precision_preferred_tag_x_m` e
+`precision_preferred_tag_y_m`, independentes do stack. Calibre esses alvos junto
+com `placements.precision_table.reference_offset_xyz` no pacote `manipulation`,
+para que a cavidade fique ao alcance do braço. O offset é somado em metros no
+referencial `arm_base_link`. Antes de executar, configure o offset real e
+marque `calibrated_reference: true` no perfil PP.

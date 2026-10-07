@@ -30,6 +30,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/PlaceInContainer.action"
   "action/PlaceOnShelf.action"
   "action/PlaceOnTable.action"
+  "action/PlaceOnPrecisionTable.action"
   "action/PrepareManipulator.action"
   "action/RetrieveObject.action"
   "action/StackObject.action"

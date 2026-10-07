@@ -289,3 +289,40 @@ pose contém valores **fictícios** em radianos: substitua-os pela calibração
 antes de executar no robô. A action não recebe altura nem pose de destino. Após liberar o objeto, retorna
 diretamente à pose de observação `detect_apriltags`, sem passar por `home`.
 Os compartimentos internos `left` e `right` mantêm suas poses medidas no SRDF.
+
+### Depósito na mesa de precisão (PP)
+
+A ação `manipulation/place_on_precision_table` (`interfaces/action/PlaceOnPrecisionTable`)
+recebe `reference_tag_id`: a AprilTag fixa que referencia a cavidade. O perfil
+`placements.precision_table`, em `config/profiles.yaml`, configura o depósito:
+
+```yaml
+precision_table:
+  strategy: tag_relative
+  enabled: true
+  calibrated_reference: true  # Somente após medir e validar o offset real.
+  reference_offset_xyz: [0.03, -0.04, 0.05]  # Exemplo ilustrativo, em metros.
+  yaw_offset_deg: 0.0
+  approach_height_m: 0.08
+  retreat_height_m: 0.08
+```
+
+A pose detectada é transformada para `arm_base_link`. A pose de soltura do TCP é
+`XYZ_tag + reference_offset_xyz`, somando nos eixos do braço; o offset não gira
+com os eixos locais da tag. Z inclui o ajuste necessário da cavidade até o TCP
+com o objeto preso. O yaw segue a normalização usada no stack, acrescida de
+`yaw_offset_deg`. Aproximação e retirada usam as alturas do perfil PP.
+
+O depósito exige `calibrated_reference: true`. Calibre a relação entre a tag e
+a pose de soltura antes de habilitar depósitos reais; use `false` enquanto a
+calibração estiver pendente. Essa calibração é independente do stack. Uma tag
+ausente não permite a soltura.
+
+```bash
+ros2 action send_goal manipulation/place_on_precision_table interfaces/action/PlaceOnPrecisionTable \
+  '{reference_tag_id: 42, ws_height_cm: 15.0, require_alignment: false}'
+```
+
+O Mission Manager usa `require_alignment: true` na primeira chamada, alinha a
+base a partir da pose detectada e solicita uma nova detecção antes do depósito.
+A seleção de detectores é `vision_detectors.place_on_precision_table: [apriltags]`.

@@ -49,6 +49,9 @@ pickup_recovery:
   # O alinhamento é tentado mesmo com pickup_recovery.enabled: false.
   stack_preferred_tag_x_m: 0.0
   stack_preferred_tag_y_m: -0.22
+  # Alvo da tag de referência PP no referencial do braço; calibrar com o offset.
+  precision_preferred_tag_x_m: 0.0
+  precision_preferred_tag_y_m: -0.30
   wall_tolerance_mm: 5
   travel_tolerance_mm: 10
   timeout_s: 15.0
@@ -77,49 +80,6 @@ finish:
   yaw_rad: 3.14
 
 service_areas:
-  ws_1:
-    x_m: 2.2
-    y_m: 2.476
-    yaw_rad: 1.570
-    height_cm: 6
-    type: WS
-
-  ws_2:
-    x_m: 2.2
-    y_m: 3.755
-    yaw_rad: -1.570
-    height_cm: 6
-    type: WS
-
-  ws_3:
-    x_m: 2.77
-    y_m: 4.11
-    yaw_rad: 0.000
-    height_cm: 11
-    type: WS
-
-  ws_4:
-    x_m: 3.955
-    y_m: 4.11
-    yaw_rad: -3.14
-    height_cm: 11
-    type: WS
-
-  ws_5:
-    x_m: 4.422
-    y_m: 4.830
-    yaw_rad: 1.570
-    height_cm: 16.0
-    type: WS
-
-  ws_6:
-    x_m: 4.422
-    y_m: 6.100
-    yaw_rad: -1.570
-    height_cm: 16.0
-    type: WS
-
-
   sh_1:
     x_m: 1.333
     y_m: 1.414
@@ -127,7 +87,53 @@ service_areas:
     height_cm: 10.0
     type: SH
     alignment:
-      distance_mm: 80  
+      distance_mm: 80
+
+  ws_1:
+    x_m: 3.13
+    y_m: 1.36
+    yaw_rad: 1.570
+    height_cm: 10.5
+    type: WS
+
+  pp_1:
+    x_m: 3.13
+    y_m: 2.67
+    yaw_rad: -1.570
+    height_cm: 10.5
+    type: PP
+    alignment:
+      distance_mm: 80
+
+  ws_2:
+    x_m: 2.2
+    y_m: 2.476
+    yaw_rad: 1.570
+    height_cm: 6
+    type: WS
+
+  ws_3:
+    x_m: 2.2
+    y_m: 3.755
+    yaw_rad: -1.570
+    height_cm: 6
+    type: WS
+
+  ws_4:
+    x_m: 4.38
+    y_m: 4.830
+    yaw_rad: 1.570
+    height_cm: 16.0
+    type: WS
+
+  ws_5:
+    x_m: 4.38
+    y_m: 6.100
+    yaw_rad: -1.570
+    height_cm: 16.0
+    type: WS
+
+
 
   # Exemplo completo de área de serviço (valores ilustrativos).
   # Para usar, descomente o bloco abaixo e ajuste o ID e os valores.

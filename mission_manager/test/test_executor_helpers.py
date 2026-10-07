@@ -2507,3 +2507,105 @@ def test_return_to_previously_analyzed_adjusted_viewpoint_reuses_snapshot():
     assert manager._scene_at_current_position().detected_tag_ids == frozenset({2})
     manager._search_led_off = True
     assert not manager._current_scene_observed()
+
+
+@pytest.mark.parametrize('missing_first', [False, True])
+def test_precision_search_uses_reference_memory_then_aligns(missing_first):
+    from interfaces.action import PlaceOnPrecisionTable
+    manager = _stack_search_manager()
+    manager._arena.service_areas['ws_1'] = replace(
+        manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._place_precision_client = object()
+    manager._tag_observations[('ws_1', 42)] = TagObservation(
+        'ws_1', 200.0, 325.0, 200, 325.0, _detection(42, 0, -0.22))
+    manager._arena = replace(manager._arena, pickup_recovery=replace(
+        manager._arena.pickup_recovery, precision_preferred_tag_x_m=0.03,
+        precision_preferred_tag_y_m=-0.25))
+    moves = []
+    calls = []
+    recoveries = []
+
+    def move(wall, lateral, _description):
+        moves.append((wall, lateral))
+        manager._current_wall_distance_mm = float(wall)
+        manager._current_lateral_position_mm = float(lateral)
+        return True
+
+    def call(client, goal, *_args, **_kwargs):
+        assert client is manager._place_precision_client
+        calls.append((goal.reference_tag_id, goal.require_alignment))
+        if missing_first and len(calls) == 1:
+            return _place_result(PlaceOnPrecisionTable, ManipulationResult.OBJECT_NOT_FOUND)
+        if goal.require_alignment:
+            result = _place_result(PlaceOnPrecisionTable, ManipulationResult.MOTION_FAILED)
+            result.has_detected_pose = True
+            result.recovery_reason = PlaceOnPrecisionTable.Result.RECOVERY_ALIGNMENT_REQUIRED
+            result.scene_observation.completed = True
+            result.scene_observation.requested_detectors = SceneObservation.APRILTAGS
+            result.scene_observation.apriltags = [_detection(42, 0.03, -0.25)]
+            return result
+        result = _place_result(PlaceOnPrecisionTable, ManipulationResult.SUCCESS,
+                               location=ManipulationResult.LOCATION_DESTINATION)
+        result.scene_observation.completed = True
+        result.scene_observation.requested_detectors = SceneObservation.APRILTAGS
+        result.scene_observation.apriltags = [_detection(42, 0.03, -0.25)]
+        return result
+
+    manager._move_to_table_position = move
+    manager._call_action = call
+    manager._recover_pick = lambda result, step, **kwargs: recoveries.append(kwargs)
+    manager._execute_manipulation(Step('pp', 'place_on_precision_table', tag_id=5,
+                                       reference_tag_id=42))
+    assert moves[0] == (230, 350.0)
+    assert calls == ([(42, False), (42, True)] if missing_first else []) + [(42, False)]
+    assert len(recoveries) == int(missing_first)
+    if missing_first:
+        assert recoveries[0]['alignment_only'] is True
+        assert recoveries[0]['config'].preferred_tag_x_m == pytest.approx(0.03)
+        assert recoveries[0]['config'].preferred_tag_y_m == pytest.approx(-0.25)
+    assert manager._world_state.snapshot()[1] == EMPTY
+    assert not manager._stack_is_aligned(42)
+    assert manager._tag_observations[('ws_1', 42)].detection.pose.position.x == pytest.approx(0.03)
+
+
+@pytest.mark.parametrize('complete_move', [True, False])
+def test_precision_returns_from_cube_to_reference_in_one_preferred_move(complete_move):
+    from interfaces.action import PlaceOnPrecisionTable
+    manager = _stack_search_manager()
+    manager._arena.service_areas['ws_1'] = replace(
+        manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._arena = replace(manager._arena, pickup_recovery=replace(
+        manager._arena.pickup_recovery, precision_preferred_tag_x_m=0.02,
+        precision_preferred_tag_y_m=-0.25))
+    manager._current_lateral_position_mm = 325.0  # Cube picked at search point.
+    manager._tag_observations[('ws_1', 4)] = TagObservation(
+        'ws_1', 200.0, 0.0, 180, -40.0, _detection(4, 0.04, -0.30))
+    manager._place_precision_client = object()
+    moves, calls = [], []
+
+    def move(wall, lateral, _description):
+        moves.append((wall, lateral))
+        manager._current_wall_distance_mm = float(wall if complete_move else 200)
+        manager._current_lateral_position_mm = float(lateral if complete_move else 100)
+        return True
+
+    def call(client, goal, *_args, **_kwargs):
+        calls.append(goal.require_alignment)
+        if goal.require_alignment:
+            result = _place_result(PlaceOnPrecisionTable, ManipulationResult.MOTION_FAILED)
+            result.recovery_reason = PlaceOnPrecisionTable.Result.RECOVERY_ALIGNMENT_REQUIRED
+            result.has_detected_pose = True
+            result.detected_pose.pose.position.x = 0.04
+            result.detected_pose.pose.position.y = -0.30
+            return result
+        return _place_result(PlaceOnPrecisionTable, ManipulationResult.SUCCESS,
+                             location=ManipulationResult.LOCATION_DESTINATION)
+
+    manager._move_to_table_position = move
+    manager._call_action = call
+    manager._execute_manipulation(Step('pp', 'place_on_precision_table', tag_id=5,
+                                       reference_tag_id=4))
+    assert moves[0] == (150, -20.0)  # Measured point + PP correction, not pickup target.
+    assert len(moves) == (1 if complete_move else 2)
+    assert calls == ([False] if complete_move else [True, False])
+    assert manager._world_state.snapshot()[1] == EMPTY
