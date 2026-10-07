@@ -586,6 +586,29 @@ def load_plan(path: str | Path) -> Plan:
         values = raw.get('tasks', [])
         if not isinstance(values, list):
             raise ConfigurationError(f'{context}.tasks deve ser uma lista.')
+        pp_start = pp_final = None
+        if any(isinstance(value, dict) and ('start_state' in value or 'final_state' in value)
+               for value in values):
+            states = {}
+            for i, value in enumerate(values):
+                entry = _mapping(value, f'{context}.tasks[{i}]')
+                if len(entry) != 1 or next(iter(entry)) not in {'start_state', 'final_state'}:
+                    raise ConfigurationError(f'{context}: use apenas start_state e final_state nesta visita.')
+                name = next(iter(entry))
+                if name in states:
+                    raise ConfigurationError(f'{context}: {name} duplicado.')
+                states[name] = _mapping(entry[name], f'{context}.{name}')
+            if set(states) != {'start_state', 'final_state'}:
+                raise ConfigurationError(f'{context}: start_state e final_state são obrigatórios juntos.')
+            from .precision_organization import organize_precision_slots
+            generated = organize_precision_slots(states['start_state'], states['final_state'])
+            pp_start = tuple(sorted(states['start_state'].items()))
+            pp_final = tuple(sorted(states['final_state'].items()))
+            tasks = tuple(replace(task, step_id=allocate(
+                f'{visit_id}_pp_{i + 1}_{task.action}_{task.tag_id}_slot_{task.reference_tag_id}'))
+                for i, task in enumerate(generated))
+            visits.append(Visit(visit_id, target, tasks, pp_start, pp_final))
+            continue
         tasks = []
         for i, value in enumerate(values):
             task = _task(value, f'{context}.tasks[{i}]')
@@ -612,8 +635,11 @@ def validate_plan(plan: Plan, arena: Arena, cargo_slot_ids=('left', 'right'),
     for visit in plan.visits:
         if not arena.has_target(visit.target):
             raise ConfigurationError(f"Visita '{visit.visit_id}': target desconhecido '{visit.target}'.")
-        if visit.tasks and visit.target not in arena.service_areas:
+        if (visit.tasks or visit.pp_start_state is not None) and visit.target not in arena.service_areas:
             raise ConfigurationError(f"Visita '{visit.visit_id}': manipulação fora de uma área de serviço.")
+        if (visit.pp_start_state is not None
+                and arena.service_areas[visit.target].area_type != 'PP'):
+            raise ConfigurationError(f"Visita '{visit.visit_id}': organização de alojamentos exige área PP.")
         for task in visit.tasks:
             if (task.action == 'place_on_precision_table'
                     and arena.service_areas[visit.target].area_type != 'PP'):

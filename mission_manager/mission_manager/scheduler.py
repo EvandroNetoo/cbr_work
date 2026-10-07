@@ -106,6 +106,12 @@ class Scheduler:
         for index, (vi, task, group) in enumerate(self.tasks):
             if vi != state.visit or state.done & (1 << index):
                 continue
+            if visit.pp_start_state is not None:
+                # Organization steps encode occupied/free PP slots. Do not let
+                # perception ranking reorder them and place over another cube.
+                earlier = self.masks[state.visit] & ((1 << index) - 1)
+                if state.done & earlier != earlier:
+                    continue
             tag = task.tag_id
             locations = list(state.locations)
             tops = list(state.tops)

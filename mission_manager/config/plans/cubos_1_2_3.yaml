@@ -1,25 +1,11 @@
-# Exemplo: coletar o cubo 2 na pp_1 e depositá-lo na cavidade da mesma mesa.
-# A AprilTag 4 é a referência fixa da PP; ajustar os IDs conforme o cenário real.
-# A pose de soltura usa o offset de placements.precision_table no profiles.yaml.
+# Organizar os cubos somente nos alojamentos da mesa PP.
+# Chaves: AprilTags fixas dos slots. Valores: tags dos cubos; null = vazio.
+# Exemplo corrigido: slot 26 contém o cubo 3, em vez de repetir o cubo 5.
 schema_version: 2
 plan_id: cubos_1_2_3
 finish: false
 visits:
-
 - target: pp_1
   tasks:
-  - action: pick
-    tag_id: 1
-  - action: pick
-    tag_id: 2
-  - action: pick
-    tag_id: 3
-  - action: place_on_precision_table
-    tag_id: 1
-    reference_tag_id: 27
-  - action: place_on_precision_table
-    tag_id: 2
-    reference_tag_id: 26
-  - action: place_on_precision_table
-    tag_id: 3
-    reference_tag_id: 25
+  - start_state: {21: null, 22: 1, 23: 2, 24: 3, 25: 4, 26: 5, 27: 6}
+  - final_state: {21: 1, 22: 2, 23: 3, 24: 4, 25: 5, 26: 6, 27: null}

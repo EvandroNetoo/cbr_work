@@ -471,3 +471,64 @@ def test_intervening_operation_expires_immediate_scene_permission(action):
     manager._execute_manipulation = lambda _step: None
     manager._execute_step(Step('intervening', action, target='ws_2'))
     assert manager._direct_pick_observation is None
+
+
+@pytest.mark.parametrize('full_table', [False, True])
+def test_pp_organization_executes_only_in_slots_and_retrieves_cargo(full_table):
+    from interfaces.action import PlaceOnPrecisionTable
+    from mission_manager.precision_organization import organize_precision_slots
+    start = {21: 2, 22: 3, 23: 1}
+    final = {21: 1, 22: 2, 23: 3}
+    if not full_table:
+        start[24] = final[24] = None
+    generated = tuple(replace(t, step_id=f'pp_{i}') for i, t in enumerate(
+        organize_precision_slots(start, final)))
+    plan = Plan('pp_sort', (Visit('pp', 'pp_1', generated,
+                                tuple(start.items()), tuple(final.items())),))
+    manager, navs, events, departures = simulated_manager(plan)
+    board = dict(start)
+    held = []
+
+    def observe(goal):
+        result = AnalyzeScene.Result()
+        result.frames_processed = result.frames_with_base_transform = 10
+        tags = set(board) | {tag for tag in board.values() if tag is not None}
+        result.best_apriltags_base = [detection(tag) for tag in sorted(tags)]
+        return result
+
+    def pick(goal):
+        source = next(slot for slot, tag in board.items() if tag == goal.tag_id)
+        board[source] = None
+        events.append(('pick', goal.tag_id))
+        result = outcome(PickObject, ManipulationResult.LOCATION_GRIPPER)
+        result.used_observed_detection = goal.use_observed_detection
+        return result
+
+    def place(goal):
+        assert goal.reference_tag_id in board
+        assert board[goal.reference_tag_id] is None
+        if goal.require_alignment:
+            result = outcome(PlaceOnPrecisionTable, ManipulationResult.LOCATION_UNKNOWN)
+            result.outcome.code = ManipulationResult.MOTION_FAILED
+            result.recovery_reason = PlaceOnPrecisionTable.Result.RECOVERY_ALIGNMENT_REQUIRED
+            result.has_detected_pose = True
+            result.detected_pose.pose.position.y = -0.22
+            return result
+        cube = manager._world_state.snapshot()[1]
+        assert cube != EMPTY
+        board[goal.reference_tag_id] = cube
+        held.append(cube)
+        events.append(('pp_place', cube))
+        return outcome(PlaceOnPrecisionTable, ManipulationResult.LOCATION_DESTINATION)
+
+    manager._vision_client.responder = observe
+    manager._pick_client.responder = pick
+    manager._place_precision_client = SimulatedActionClient(place)
+    manager._run_plan(SimpleNamespace(publish_feedback=lambda _: None), plan)
+    assert navs == ['pp_1']
+    assert board == final
+    assert manager._world_state.snapshot() == (True, EMPTY, {'left': EMPTY, 'right': EMPTY})
+    assert manager._completed_steps == plan.total_steps
+    assert all(d.actual_action == 'place_on_precision_table' for d in manager._delivery_outcomes)
+    stores = len(manager._store_client.goals)
+    assert stores == len(manager._retrieve_client.goals) == int(full_table)

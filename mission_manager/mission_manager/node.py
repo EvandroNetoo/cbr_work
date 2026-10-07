@@ -2453,6 +2453,7 @@ class MissionManager(Node):
                                              f'Navegando para {visit.target}')
             self._execute_step(nav)
             self._completed_steps += 1
+            pp_slots = dict(visit.pp_start_state) if visit.pp_start_state is not None else None
             with self._search_session():
                 while state.visit < len(plan.visits) and plan.visits[state.visit] is visit:
                     self._check_canceled()
@@ -2486,6 +2487,8 @@ class MissionManager(Node):
                         if choice is None:
                             raise StepFailed(f'Visita {visit.visit_id}: objetos pendentes não encontrados após busca.')
                     if choice.step.action == 'depart':
+                        if pp_slots is not None and pp_slots != dict(visit.pp_final_state):
+                            raise StepFailed(f'Visita {visit.visit_id}: organização PP não alcançou final_state.')
                         state = choice.next_state
                         break
                     task_id = choice.task_id or next(
@@ -2496,6 +2499,13 @@ class MissionManager(Node):
                     self._flexible_pick = choice.step.action == 'pick'
                     try:
                         step = replace(choice.step, step_id=task_id)
+                        if pp_slots is not None:
+                            if step.action == 'pick' and pp_slots.get(step.reference_tag_id) != step.tag_id:
+                                raise StepFailed(f'Organização PP: cubo {step.tag_id} não está no alojamento esperado.')
+                            if step.action == 'place_on_precision_table' and (
+                                step.reference_tag_id not in pp_slots or pp_slots[step.reference_tag_id] is not None
+                            ):
+                                raise StepFailed(f'Organização PP: alojamento {step.reference_tag_id} não está vazio.')
                         movement = (self._next_slot_movement(scheduler, choice, plan)
                                     if step.action in {'store', 'retrieve'} else None)
                         if movement is None:
@@ -2511,6 +2521,12 @@ class MissionManager(Node):
                     if (not known or gripper != expected.gripper
                             or tuple(slots[slot] for slot in scheduler.slot_ids) != expected.slots):
                         raise StepFailed(f'Tarefa {task_id}: efeito físico esperado não confirmado.')
+                    if pp_slots is not None:
+                        # Update slot occupancy only after confirming the physical transfer.
+                        if choice.step.action == 'pick':
+                            pp_slots[choice.step.reference_tag_id] = None
+                        elif choice.step.action == 'place_on_precision_table':
+                            pp_slots[choice.step.reference_tag_id] = choice.step.tag_id
                     if choice.task_index is not None:
                         self._completed_steps += 1
                         if choice.step.action != 'pick':

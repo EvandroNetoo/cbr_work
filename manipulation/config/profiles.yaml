@@ -117,7 +117,7 @@ placements:
     # Calibrar a pose de soltura do TCP em relação à tag da mesa PP.
     # Somar XYZ em arm_base_link, em metros (não nos eixos locais da tag).
     calibrated_reference: true
-    reference_offset_xyz: [0.0, 0.065, -0.015]
+    reference_offset_xyz: [0.0, 0.070, -0.015]
     yaw_offset_deg: 0.0
     approach_height_m: 0.015
     retreat_height_m: 0.0

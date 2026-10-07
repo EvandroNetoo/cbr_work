@@ -162,6 +162,8 @@ class Visit:
     visit_id: str
     target: str
     tasks: tuple[Step, ...]
+    pp_start_state: tuple[tuple[int, int | None], ...] | None = None
+    pp_final_state: tuple[tuple[int, int | None], ...] | None = None
 
 
 @dataclass(frozen=True)

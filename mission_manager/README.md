@@ -496,3 +496,48 @@ com `placements.precision_table.reference_offset_xyz` no pacote `manipulation`,
 para que a cavidade fique ao alcance do braço. O offset é somado em metros no
 referencial `arm_base_link`. Antes de executar, configure o offset real e
 marque `calibrated_reference: true` no perfil PP.
+
+### Organizar os alojamentos PP (Advanced Manipulation Test)
+
+Uma visita pode declarar a distribuição inicial e a desejada, sem listar cada
+movimento. As chaves são IDs das AprilTags fixas que referenciam os alojamentos;
+os valores são IDs das tags dos cubos. `null` significa alojamento vazio:
+
+```yaml
+schema_version: 2
+plan_id: cubos_1_2_3
+finish: false
+visits:
+- target: pp_1
+  tasks:
+  - start_state: {21: 4, 22: 1, 23: 2, 24: 5, 25: 6, 26: 3, 27: null}
+  - final_state: {21: 1, 22: 2, 23: 3, 24: 4, 25: 5, 26: 6, 27: null}
+```
+
+O gerenciador gera uma sequência ordenada de coletas e depósitos
+`place_on_precision_table`, usando a tag fixa do slot de destino como
+`reference_tag_id`. Cubos já corretos permanecem no lugar. Um alojamento vazio
+pode receber um cubo temporariamente para desfazer ciclos, inclusive quando o
+estado final exige que ele fique vazio. Se todos os alojamentos estiverem
+ocupados, um cubo é guardado temporariamente em um compartimento interno; as
+operações de armazenamento e retirada usam a capacidade configurada do robô.
+Não há depósito em espaço livre da mesa, contêiner ou outra zona.
+
+A ordem gerada é obrigatória: as observações não podem antecipar um depósito
+sobre um slot ocupado. A ocupação esperada é atualizada após o resultado
+confirmar a transferência, e a visita só termina ao atingir `final_state`.
+
+`start_state` é uma declaração da distribuição física inicial, não uma leitura
+automática de quais cubos ocupam cada slot. Confira essa distribuição antes de
+iniciar. As actions continuam detectando os cubos e as referências para os
+movimentos; a confirmação de soltura não certifica visualmente o encaixe final.
+
+Os dois mapas devem declarar os mesmos alojamentos e os mesmos cubos, sem IDs
+duplicados. Tags dos slots e dos cubos devem ser distintas. A visita precisa
+ter `type: PP` na arena. Não misture actions explícitas com esses dois mapas
+na mesma visita. O offset de `placements.precision_table` deve estar calibrado
+e ser válido para todas as referências dos slots usados.
+
+No exemplo inicialmente proposto, o cubo 5 aparecia duas vezes e o cubo 3
+estava ausente. Isso é rejeitado antes de movimentar o robô; o arquivo de
+exemplo usa o cubo 3 no alojamento 26.
