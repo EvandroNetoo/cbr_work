@@ -16,6 +16,40 @@ As poses de `arena.yaml` devem ser calibradas para a arena antes da execução. 
 normalmente, mas um goal retorna `CONFIGURATION_ERROR` sem movimentar o robô se
 a arena ou o plano não forem válidos.
 
+Na aproximação de uma área de serviço, o braço vai para `detect_apriltags`
+(`PrepareManipulator.OBSERVATION`) ao mesmo tempo que o alinhamento `FollowWall`.
+Na saída, vai para `home` (`PrepareManipulator.NAVIGATION`, conforme as poses de
+transporte em `manipulation/config/cargo_slots.yaml`) em paralelo ao recuo.
+O executor espera os dois resultados antes da próxima ação. A falha ou o timeout
+de uma ação não cancela a outra: o erro só é reportado após ambas terminarem.
+O cancelamento solicitado pelo cliente continua interrompendo as ações. O estado da carga precisa ser conhecido. O Nav2
+continua viajando com o braço na pose de transporte.
+
+Antes do depósito em prateleira, a base alinha com `FollowWall` mantendo a pose
+atual do braço. No retorno à distância de observação, o braço vai para
+`detect_apriltags` em paralelo.
+
+Guardar (`store`) e retirar (`retrieve`) dos slots também podem ocorrer enquanto
+um `FollowWall` antecipa o próximo reposicionamento ou recuo de saída. A base só
+é liberada pelo feedback `APPROACHING`, após a preparação segura do braço. Para
+slot `left`, somente deslocamento para a direita; para slot `right`, somente
+para a esquerda. O executor usa o slot escolhido e o deslocamento efetivo após
+os limites laterais e o recuo de folga já existentes. Mesmo lado, deslocamento
+sem componente lateral, slot sem lado conhecido ou destino ainda não decidido
+mantêm a execução sequencial.
+
+O destino vem da próxima escolha viável: memória de cubo/suporte/contêiner,
+próximo ponto de uma busca já iniciada ou recuo configurado para a próxima visita.
+A saída antecipada não repete o recuo. Outra ação do braço e o Nav2 esperam os dois
+resultados, e a carga só é atualizada pelo resultado físico confirmado da transferência.
+Durante a sobreposição, a recuperação lateral automática fica desativada para
+não inverter o sentido em direção ao slot. Paradas de proteção reconhecidas com
+sensores e odometria válidos mantêm a base parada e permitem concluir a transferência;
+o executor conserva a posição medida e registra destinos de busca bloqueados.
+Uma saída parcial não é marcada como concluída. Falhas de comunicação, sensores
+ou manipulação são reportadas após a outra ação terminar. Cada ação mantém seu
+próprio timeout e suas proteções locais; o executor não cancela sua parceira.
+
 ## Formato de missão v2
 
 A ordem de `visits` define a rota. Dentro de cada visita, a ordem de `tasks`
@@ -168,7 +202,7 @@ inclusive em cancelamento ou falha.
 Na SH, `pick` usa o mesmo fluxo AprilTag, busca lateral e recuperação da WS,
 com o `height_cm` da área de coleta. O depósito alto usa explicitamente
 `action: place_on_shelf` no plano: move o braço para a pose fixa configurada,
-abre a garra e retorna à posição segura. O tipo `SH` não troca a ação do plano
+abre a garra e retorna diretamente a `detect_apriltags`. O tipo `SH` não troca a ação do plano
 automaticamente, e `height_cm` não define a altura desse depósito.
 
 O plano `example_shelf` demonstra coleta e depósito na `sh_1`. Os valores de
@@ -224,8 +258,9 @@ pelas tolerâncias ou proteções segue a mesma regra do pick em SH: o alvo exat
 não precisa ser alcançado para prosseguir. Uma falha de comunicação ou estado
 físico incerto interrompe a operação.
 
-Antes de qualquer depósito em uma área `SH`, o gerenciador recolhe o braço
-com a carga e executa `FollowWall` para confirmar a distância frontal do VL53.
+Antes de qualquer depósito em uma área `SH`, o gerenciador executa `FollowWall`
+para confirmar a distância frontal do VL53, mantendo a pose atual do braço.
+A ação de depósito começa após esse alinhamento, sem preparação em `home`.
 `shelf_place_alignment_defaults` define o padrão de 40 mm, tolerância de 5 mm
 e timeout de 10 s. Cada SH pode sobrescrever apenas os campos desejados em
 `service_areas.<id>.shelf_place_alignment`, por exemplo `distance_mm: 80`.

@@ -91,7 +91,8 @@ def test_shelf_deposit_aligns_and_restores_observation_distance(
     manager._manipulation_timeout = lambda: 120.0
     manager._place_shelf_client = object()
     events = []
-    manager._prepare_for_navigation = lambda: events.append('prepare')
+    manager._prepare_for_navigation = lambda: pytest.fail('Depósito na SH não deve ir para home')
+    manager._prepare_for_pick_observation = lambda: events.append('observe')
     target = local_distance or 40
 
     def wall(distance, tolerance, timeout, _description, **kwargs):
@@ -124,11 +125,12 @@ def test_shelf_deposit_aligns_and_restores_observation_distance(
         else:
             with pytest.raises(StepFailed, match='Retorno à distância padrão'):
                 manager._execute_manipulation(Step('place_sh', 'place_on_shelf'))
-        assert events == ['prepare', 'align', 'place', 'prepare', 'restore']
+        assert events[:2] == ['align', 'place']
+        assert sorted(events[2:]) == ['observe', 'restore']
     else:
         with pytest.raises(StepFailed, match='Distância de alinhamento'):
             manager._execute_manipulation(Step('place_sh', 'place_on_shelf'))
-        assert events == ['prepare', 'align']
+        assert events == ['align']
     assert manager._current_lateral_position_mm == 25.0
 
 
@@ -1230,6 +1232,7 @@ def test_navigation_returns_to_departure_lateral_origin_while_backing_away(
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = current_lateral_position_mm
+    _attach_world_state(manager)
     manager._navigate_client = object()
     manager._prepare_for_navigation = lambda: None
     manager._navigation_timeout = lambda: 120.0
@@ -1264,6 +1267,7 @@ def test_navigation_keeps_apriltag_memory_for_later_return():
     marker = object()
     manager._tag_observations = {('ws_1', 3): marker}
     manager._visited_search_positions = {'ws_1': {0}}
+    _attach_world_state(manager)
     manager._navigate_client = object()
     manager._prepare_for_navigation = lambda: None
     manager._navigation_timeout = lambda: 120.0
@@ -1671,12 +1675,14 @@ def test_service_area_vision_is_enabled_after_navigation_and_before_alignment(ar
     manager._current_location = 'start'
     manager._current_lateral_position_mm = 0.0
     manager._current_wall_distance_mm = None
+    _attach_world_state(manager)
     manager._navigate_client = object()
     manager._prepare_for_navigation = lambda: None
     manager._navigation_timeout = lambda: 120.0
     manager.get_clock = lambda: SimpleNamespace(
         now=lambda: SimpleNamespace(to_msg=lambda: Time()))
     events = []
+    manager._prepare_for_pick_observation = lambda: events.append('observe')
     manager._call_action = lambda *_args, **_kwargs: events.append('navigate')
     manager._activate_service_area_vision = lambda: events.append('on')
     manager._control_wall = lambda *_args, **_kwargs: (
@@ -1684,7 +1690,8 @@ def test_service_area_vision_is_enabled_after_navigation_and_before_alignment(ar
 
     manager._navigate('ws_1')
 
-    assert events == ['navigate', 'on', 'align']
+    assert events[:2] == ['navigate', 'on']
+    assert sorted(events[2:]) == ['align', 'observe']
 
 
 @pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP'])
@@ -1696,6 +1703,7 @@ def test_service_area_vision_is_disabled_before_departure_alignment(area_type):
     manager._current_location = 'ws_1'
     manager._current_lateral_position_mm = 0.0
     manager._current_wall_distance_mm = 200.0
+    _attach_world_state(manager)
     manager._navigate_client = object()
     manager._prepare_for_navigation = lambda: None
     manager._navigation_timeout = lambda: 120.0

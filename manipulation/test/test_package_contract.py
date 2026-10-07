@@ -134,8 +134,8 @@ def test_retrieve_uses_explicit_waypoints_before_and_after_grasp():
     retrieve = retrieve.split('def _validate_target_pose', 1)[0]
 
     observation = retrieve.index('self._transfer_state(')
-    approach_safe = retrieve.index('self._arm_state(slot.safe_state')
-    pre_grip = retrieve.index("self._gripper('pre_grip'", approach_safe)
+    approach_safe = retrieve.index('self._motion.mover_braco_e_garra_para_estados(')
+    pre_grip = retrieve.index("slot.safe_state, 'pre_grip'", approach_safe)
     retrieve_pose = retrieve.index(
         'self._arm_state(slot.retrieve_state', pre_grip
     )

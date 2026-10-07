@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import replace
 import math
@@ -27,7 +28,8 @@ from interfaces.action import (
     StoreObject,
 )
 from interfaces.msg import (
-    CargoSlotState, ManipulationResult, ManipulationState, SceneObservation,
+    CargoSlotState, ManipulationFeedback, ManipulationResult, ManipulationState,
+    SceneObservation,
 )
 from nav2_msgs.action import NavigateToPose
 import rclpy
@@ -47,6 +49,7 @@ from .models import (
     PickupRecoveryConfig,
     Plan,
     ServiceArea,
+    SlotMovement,
     Step,
     TableObservation,
     TagObservation,
@@ -164,7 +167,8 @@ class MissionManager(Node):
         self._last_table_observation: TableObservation | None = None
         self._scene_observations: dict[tuple[str, int, int, bool], TableObservation] = {}
         self._direct_pick_observation: TableObservation | None = None
-        self._active_child = None
+        self._active_children = {}
+        self._departure_completed_for = None
         self._arena: Arena | None = None
         self._service_area_vision_active = False
 
@@ -266,8 +270,8 @@ class MissionManager(Node):
 
     def _cancel_active_child(self) -> None:
         with self._lock:
-            child = self._active_child
-        if child is not None:
+            children = tuple(self._active_children.values())
+        for child in children:
             child.cancel_goal_async()
 
     def _check_canceled(self) -> None:
@@ -329,39 +333,59 @@ class MissionManager(Node):
         allow_unsuccessful_status: bool = False,
         accept_unsuccessful_result: Callable[[Any], bool] | None = None,
         on_goal_accepted: Callable[[], None] | None = None,
+        feedback_callback: Callable[[Any], None] | None = None,
     ) -> Any:
         self._check_canceled()
         if not math.isfinite(timeout_s) or timeout_s <= 0.0:
             raise ConfigurationError(f'Timeout inválido para {description}.')
         if not client.wait_for_server(timeout_sec=self._server_timeout()):
             raise StepFailed(f'Servidor indisponível: {description}.')
+        child = None
+        send_future = None
+        result_received = False
         try:
-            send_future = client.send_goal_async(goal)
+            self._check_canceled()
+            send_future = (
+                client.send_goal_async(goal, feedback_callback=feedback_callback)
+                if feedback_callback is not None else client.send_goal_async(goal)
+            )
             child = self._wait_future(
                 send_future, self._server_timeout(), check_cancel=False
             )
             if child is None or not child.accepted:
                 raise StepFailed(f'Goal rejeitado: {description}.')
             with self._lock:
-                self._active_child = child
+                self._active_children[id(child)] = child
             if on_goal_accepted is not None:
                 on_goal_accepted()
             self._check_canceled()
             result_wrapper = self._wait_future(
                 child.get_result_async(), timeout_s
             )
+            result_received = True
+            self._check_canceled()
         except MissionCanceled:
             raise
         except StepFailed:
             raise
         except TimeoutError as error:
-            self._cancel_active_child()
             raise StepFailed(f'Timeout durante {description}.') from error
         except Exception as error:
             raise StepFailed(f'Falha de comunicação em {description}: {error}') from error
         finally:
-            with self._lock:
-                self._active_child = None
+            # Cancel even if acceptance arrives after the communication timeout.
+            if child is None and send_future is not None:
+                def cancel_late_goal(future):
+                    if future.exception() is None:
+                        late_child = future.result()
+                        if late_child is not None and late_child.accepted:
+                            late_child.cancel_goal_async()
+                send_future.add_done_callback(cancel_late_goal)
+            if child is not None and child.accepted:
+                if not result_received:
+                    child.cancel_goal_async()
+                with self._lock:
+                    self._active_children.pop(id(child), None)
         if result_wrapper is None:
             raise StepFailed(f'{description} falhou sem resultado.')
         result = result_wrapper.result
@@ -468,6 +492,8 @@ class MissionManager(Node):
         operation: str,
         tag_id: int,
         slot_id: str = '',
+        *,
+        feedback_callback: Callable[[Any], None] | None = None,
     ) -> Any:
         """Call a physical action and conservatively own its logical transition."""
         goal_accepted = False
@@ -484,6 +510,8 @@ class MissionManager(Node):
                 timeout_s,
                 allow_unsuccessful_status=True,
                 on_goal_accepted=note_acceptance,
+                **({'feedback_callback': feedback_callback}
+                   if feedback_callback is not None else {}),
             )
         except (MissionCanceled, StepFailed):
             # Without a result, the manager cannot know whether the gripper crossed
@@ -718,6 +746,25 @@ class MissionManager(Node):
 
     def _manipulation_timeout(self) -> float:
         return float(self.get_parameter('manipulation_timeout_s').value)
+
+    def _run_with_manipulator_prepare(
+        self, prepare_arm: Callable[[], None], movement: Callable[[], Any]
+    ) -> Any:
+        """Overlap the selected arm preparation and wall control; wait for both."""
+        known, _, _ = self._world_state.snapshot()
+        if not known:
+            raise StepFailed('Estado da carga incerto; navegação automática bloqueada.')
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            prepare = executor.submit(prepare_arm)
+            move = executor.submit(movement)
+            wait((prepare, move))
+            # An independent failure must not interrupt the other action.
+            failures = [future.exception() for future in (prepare, move)
+                        if future.exception() is not None]
+            if failures:
+                raise next((error for error in failures
+                            if isinstance(error, MissionCanceled)), failures[0])
+            return move.result()
 
     def _prepare_for_navigation(self) -> None:
         known, gripper, _ = self._world_state.snapshot()
@@ -1064,31 +1111,7 @@ class MissionManager(Node):
             travel_tolerance_mm=config.travel_tolerance_mm,
         )
         self._update_table_position(follow_result)
-        destination_unreached = (
-            travel > 0
-            and self._current_lateral_position_mm
-            < bounded_lateral_position_mm - config.travel_tolerance_mm
-        ) or (
-            travel < 0
-            and self._current_lateral_position_mm
-            > bounded_lateral_position_mm + config.travel_tolerance_mm
-        )
-        if (
-            travel != 0
-            and self._last_wall_control_protection_stop
-            and destination_unreached
-            and bounded_lateral_position_mm in config.search_positions_mm
-        ):
-            blocked_by_area = getattr(self, '_blocked_search_positions', None)
-            if blocked_by_area is None:
-                blocked_by_area = {}
-                self._blocked_search_positions = blocked_by_area
-            blocked_by_area.setdefault(self._current_location, set()).add(
-                round(bounded_lateral_position_mm))
-            self.get_logger().warning(
-                f'Destino lateral {bounded_lateral_position_mm:.0f} mm '
-                f'bloqueado em {self._current_location} apos protecao; '
-                f'posicao medida={self._current_lateral_position_mm:.1f} mm.')
+        self._remember_blocked_search_destination(bounded_lateral_position_mm, travel)
         self.get_logger().info(
             f'Estado da mesa atualizado ({description}): parede='
             f'{self._current_wall_distance_mm:.1f} mm, lateral='
@@ -1097,6 +1120,35 @@ class MissionManager(Node):
             'mm).'
         )
         return True
+
+    def _remember_blocked_search_destination(self, lateral: float, travel: int) -> None:
+        """Do not retry a search point that a protected partial movement missed."""
+        config = self._arena.pickup_recovery
+        destination_unreached = (
+            travel > 0
+            and self._current_lateral_position_mm
+            < lateral - config.travel_tolerance_mm
+        ) or (
+            travel < 0
+            and self._current_lateral_position_mm
+            > lateral + config.travel_tolerance_mm
+        )
+        if (
+            travel != 0
+            and getattr(self, '_last_wall_control_protection_stop', False)
+            and destination_unreached
+            and lateral in config.search_positions_mm
+        ):
+            blocked_by_area = getattr(self, '_blocked_search_positions', None)
+            if blocked_by_area is None:
+                blocked_by_area = {}
+                self._blocked_search_positions = blocked_by_area
+            blocked_by_area.setdefault(self._current_location, set()).add(
+                round(lateral))
+            self.get_logger().warning(
+                f'Destino lateral {lateral:.0f} mm '
+                f'bloqueado em {self._current_location} apos protecao; '
+                f'posicao medida={self._current_lateral_position_mm:.1f} mm.')
 
     def _at_observation_point(self, observation) -> bool:
         config = self._arena.pickup_recovery
@@ -1476,6 +1528,30 @@ class MissionManager(Node):
             raise StepFailed('; '.join(failures))
         self._service_area_vision_active = False
 
+    def _depart_service_area(self, *, slot_overlap: bool = False) -> None:
+        self._deactivate_service_area_vision()
+        departure = self._arena.service_areas[self._current_location].departure
+        result = self._control_wall(
+            departure.distance_mm, departure.tolerance_mm, departure.timeout_s,
+            f'recuo para sair de {self._current_location}',
+            travel_distance_mm=round(
+                departure.lateral_position_mm - self._current_lateral_position_mm),
+            max_alignment_error_mm=departure.max_alignment_error_mm,
+            alignment_recovery_distance_mm=(
+                0 if slot_overlap else departure.alignment_recovery_distance_mm),
+            minimum_lateral_clearance_mm=departure.minimum_lateral_clearance_mm,
+            accept_safety_abort=True,
+        )
+        if slot_overlap:
+            self._update_table_position(result)
+            reached = (
+                abs(self._current_wall_distance_mm - departure.distance_mm)
+                <= departure.tolerance_mm
+                and abs(self._current_lateral_position_mm - departure.lateral_position_mm)
+                <= departure.tolerance_mm
+            )
+            self._departure_completed_for = self._current_location if reached else None
+
     def _navigate(self, target: str) -> None:
         self._direct_pick_observation = None
         self._stack_alignment = None
@@ -1485,31 +1561,16 @@ class MissionManager(Node):
             self._current_location in self._arena.service_areas
             and target != self._current_location
         ):
-            self._deactivate_service_area_vision()
-            departure = self._arena.service_areas[
-                self._current_location
-            ].departure
-            departure_travel_mm = round(
-                departure.lateral_position_mm
-                - self._current_lateral_position_mm
-            )
-            self._control_wall(
-                departure.distance_mm,
-                departure.tolerance_mm,
-                departure.timeout_s,
-                f'recuo para sair de {self._current_location}',
-                travel_distance_mm=departure_travel_mm,
-                max_alignment_error_mm=departure.max_alignment_error_mm,
-                alignment_recovery_distance_mm=(
-                    departure.alignment_recovery_distance_mm
-                ),
-                minimum_lateral_clearance_mm=(
-                    departure.minimum_lateral_clearance_mm
-                ),
-            )
+            if getattr(self, '_departure_completed_for', None) == self._current_location:
+                self._prepare_for_navigation()
+            else:
+                self._run_with_manipulator_prepare(
+                    self._prepare_for_navigation, self._depart_service_area)
+            self._departure_completed_for = None
             self._current_wall_distance_mm = None
             self._current_lateral_position_mm = 0.0
-        self._prepare_for_navigation()
+        else:
+            self._prepare_for_navigation()
         goal = NavigateToPose.Goal()
         goal.pose.header.frame_id = self._arena.frame_id
         goal.pose.header.stamp = self.get_clock().now().to_msg()
@@ -1531,11 +1592,14 @@ class MissionManager(Node):
         if target in self._arena.service_areas:
             self._activate_service_area_vision()
             alignment = self._arena.service_areas[target].alignment
-            result = self._control_wall(
-                alignment.distance_mm,
-                alignment.tolerance_mm,
-                alignment.timeout_s,
-                f'alinhamento em {target}',
+            result = self._run_with_manipulator_prepare(
+                self._prepare_for_pick_observation,
+                lambda: self._control_wall(
+                    alignment.distance_mm,
+                    alignment.tolerance_mm,
+                    alignment.timeout_s,
+                    f'alinhamento em {target}',
+                )
             )
             self._current_wall_distance_mm = float(
                 result.final_average_distance_mm
@@ -1977,7 +2041,6 @@ class MissionManager(Node):
         alignment = (
             area.shelf_place_alignment or self._arena.shelf_place_alignment_defaults
         )
-        self._prepare_for_navigation()
         result = self._control_wall(
             alignment.distance_mm, alignment.tolerance_mm, alignment.timeout_s,
             f'alinhamento antes do depósito em {area.area_id}',
@@ -1995,11 +2058,13 @@ class MissionManager(Node):
 
     def _restore_shelf_observation_distance(self, area: ServiceArea) -> None:
         alignment = area.alignment
-        self._prepare_for_navigation()
-        result = self._control_wall(
-            alignment.distance_mm, alignment.tolerance_mm, alignment.timeout_s,
-            f'retorno à distância padrão após depósito em {area.area_id}',
-            accept_safety_abort=False,
+        result = self._run_with_manipulator_prepare(
+            self._prepare_for_pick_observation,
+            lambda: self._control_wall(
+                alignment.distance_mm, alignment.tolerance_mm, alignment.timeout_s,
+                f'retorno à distância padrão após depósito em {area.area_id}',
+                accept_safety_abort=False,
+            )
         )
         self._update_table_position(result)
         if (
@@ -2011,7 +2076,131 @@ class MissionManager(Node):
         ):
             raise StepFailed('Retorno à distância padrão da SH não confirmado.')
 
-    def _execute_manipulation(self, step: Step) -> None:
+    def _next_slot_movement(self, scheduler, choice, plan: Plan) -> SlotMovement | None:
+        """Look ahead for base motion without assuming that cargo already moved."""
+        observations = self._scheduler_observations()
+        following = scheduler.select(
+            choice.next_state, observations, self._current_lateral_position_mm)
+        config = self._arena.pickup_recovery
+        if following is None:
+            # A fresh observation must precede any new destination decision.
+            if (choice.step.action != 'store' or not config.enabled
+                    or not self._current_scene_observed()
+                    or getattr(self, '_search_phase', 0)):
+                return None
+            visited = self._visited_search_positions.get(self._current_location, set())
+            blocked = self._blocked_search_positions.get(self._current_location, set())
+            candidates = [p for p in config.search_positions_mm
+                          if p not in visited and p not in blocked]
+            if not candidates:
+                return None
+            lateral = min(candidates, key=lambda p: (
+                abs(p - self._current_lateral_position_mm),
+                config.search_positions_mm.index(p)))
+            return SlotMovement(
+                self._arena.service_areas[self._current_location].alignment.distance_mm,
+                lateral)
+        step = following.step
+        if step.action == 'depart':
+            next_visit = following.next_state.visit
+            target = (plan.visits[next_visit].target if next_visit < len(plan.visits)
+                      else 'finish' if plan.finish else None)
+            if target is None or target == self._current_location:
+                return None
+            departure = self._arena.service_areas[self._current_location].departure
+            return SlotMovement(departure.distance_mm, departure.lateral_position_mm, True)
+        if not config.enabled:
+            return None
+        if step.action == 'place_in_container':
+            color = (PlaceInContainer.Goal.RED if step.container_color == 'red'
+                     else PlaceInContainer.Goal.BLUE)
+            memory = self._container_observations.get((self._current_location, color))
+            return (SlotMovement(round(memory.wall_distance_mm), memory.lateral_position_mm)
+                    if memory is not None else None)
+        if step.action not in {'pick', 'stack'}:
+            return None
+        tag = step.support_tag_id if step.action == 'stack' else step.tag_id
+        if step.action == 'stack':
+            if self._stack_is_aligned(tag):
+                return None
+            viewpoint = self._placed_tag_viewpoints.get((self._current_location, tag))
+            if viewpoint is not None:
+                return SlotMovement(*viewpoint)
+        memory = self._tag_observations.get((self._current_location, tag))
+        return (SlotMovement(memory.pickup_wall_distance_mm, memory.pickup_lateral_position_mm)
+                if memory is not None else None)
+
+    def _slot_movement_is_opposite(self, slot_id: str, movement: SlotMovement) -> bool:
+        # FollowWall defines positive travel as right and negative travel as left.
+        slot_direction = {'left': -1, 'right': 1}.get(slot_id)
+        if slot_direction is None or self._current_wall_distance_mm is None:
+            return False
+        lateral = (movement.lateral_position_mm if movement.departure
+                   else self._clamp_lateral_position(movement.lateral_position_mm))
+        travel = round(lateral - self._current_lateral_position_mm)
+        tolerance = (self._arena.service_areas[self._current_location].departure.tolerance_mm
+                     if movement.departure else self._arena.pickup_recovery.travel_tolerance_mm)
+        return abs(travel) > tolerance and travel * slot_direction < 0
+
+    def _execute_slot_with_movement(
+        self, step, client, goal, timeout, tag_id, movement: SlotMovement,
+    ) -> Any:
+        ready = threading.Event()
+        finished = threading.Event()
+        results = []
+
+        def feedback(message):
+            # Both cargo actions publish APPROACHING only after their safe waypoint.
+            if message.feedback.status.phase == ManipulationFeedback.APPROACHING:
+                ready.set()
+
+        def transfer():
+            try:
+                result = self._call_manipulation_action(
+                    client, goal, f"passo '{step.step_id}' ({step.action})",
+                    timeout, step.action, tag_id, step.slot_id,
+                    feedback_callback=feedback,
+                )
+                failure = self._manipulation_failure(result)
+                if failure is not None:
+                    raise StepFailed(f"passo '{step.step_id}' ({step.action}) falhou: {failure}")
+                if not self._world_state.snapshot()[0]:
+                    raise StepFailed('Efeito da transferência no slot não confirmado; carga incerta.')
+                results.append(result)
+            finally:
+                finished.set()
+
+        def move():
+            while not ready.wait(0.05):
+                self._check_canceled()
+                if finished.is_set():
+                    return
+            self._check_canceled()
+            if finished.is_set():
+                return
+            if movement.departure:
+                self._depart_service_area(slot_overlap=True)
+            else:
+                config = self._arena.pickup_recovery
+                lateral = self._clamp_lateral_position(movement.lateral_position_mm)
+                travel = round(lateral - self._current_lateral_position_mm)
+                result = self._control_wall(
+                    movement.wall_distance_mm, config.wall_tolerance_mm, config.timeout_s,
+                    f'deslocamento durante {step.action} no slot {step.slot_id}',
+                    travel_distance_mm=travel,
+                    travel_tolerance_mm=config.travel_tolerance_mm,
+                    alignment_recovery_distance_mm=0,
+                    accept_safety_abort=True,
+                )
+                self._update_table_position(result)
+                self._remember_blocked_search_destination(lateral, travel)
+
+        self._run_with_manipulator_prepare(transfer, move)
+        return results[0]
+
+    def _execute_manipulation(
+        self, step: Step, slot_movement: SlotMovement | None = None
+    ) -> None:
         if step.action != 'pick':
             self._direct_pick_observation = None
         if step.action not in {'stack', 'retrieve', 'store'}:
@@ -2093,15 +2282,15 @@ class MissionManager(Node):
 
         if transition in {'store', 'retrieve'}:
             self._retreat_from_lateral_wall_before_slot_access(slot_id, transition)
-        result = self._call_manipulation_action(
-            client,
-            goal,
-            f"passo '{step.step_id}' ({step.action})",
-            timeout,
-            transition,
-            tag_id,
-            slot_id,
-        )
+        if (slot_movement is not None and transition in {'store', 'retrieve'}
+                and self._slot_movement_is_opposite(slot_id, slot_movement)):
+            result = self._execute_slot_with_movement(
+                step, client, goal, timeout, tag_id, slot_movement)
+        else:
+            result = self._call_manipulation_action(
+                client, goal, f"passo '{step.step_id}' ({step.action})",
+                timeout, transition, tag_id, slot_id,
+            )
         failure = self._manipulation_failure(result)
         if failure is not None:
             raise StepFailed(
@@ -2110,7 +2299,9 @@ class MissionManager(Node):
         if step.action == 'place_on_shelf' and area.area_type == 'SH':
             self._restore_shelf_observation_distance(area)
 
-    def _execute_step(self, step: Step) -> None:
+    def _execute_step(
+        self, step: Step, slot_movement: SlotMovement | None = None
+    ) -> None:
         if step.action != 'pick':
             self._direct_pick_observation = None
         if step.action in {'navigate', 'finish'}:
@@ -2121,7 +2312,10 @@ class MissionManager(Node):
         elif step.action == 'finish':
             self._navigate('finish')
         else:
-            self._execute_manipulation(step)
+            if slot_movement is None:
+                self._execute_manipulation(step)
+            else:
+                self._execute_manipulation(step, slot_movement)
 
     def _observe_visit(self) -> None:
         """Observe without requesting any particular object or physical pick."""
@@ -2235,7 +2429,13 @@ class MissionManager(Node):
                     self._report_scheduled_operation(goal_handle, plan, choice.step, task_id, description)
                     self._flexible_pick = choice.step.action == 'pick'
                     try:
-                        self._execute_step(replace(choice.step, step_id=task_id))
+                        step = replace(choice.step, step_id=task_id)
+                        movement = (self._next_slot_movement(scheduler, choice, plan)
+                                    if step.action in {'store', 'retrieve'} else None)
+                        if movement is None:
+                            self._execute_step(step)
+                        else:
+                            self._execute_step(step, slot_movement=movement)
                     except TaskNotFound:
                         continue
                     finally:
@@ -2322,6 +2522,7 @@ class MissionManager(Node):
     def _execute_callback(self, goal_handle: Any) -> ExecuteMission.Result:
         self._stack_alignment = None
         self._status = 'running'
+        self._departure_completed_for = None
         self._service_area_vision_active = False
         self._current_location = 'start'
         self._current_wall_distance_mm = None
@@ -2413,7 +2614,7 @@ class MissionManager(Node):
             self._publish_world_state()
             with self._lock:
                 self._busy = False
-                self._active_child = None
+                self._active_children = {}
 
     def destroy_node(self):
         self._cancel_event.set()

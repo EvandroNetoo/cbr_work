@@ -92,6 +92,15 @@ class TableObservation:
 
 
 @dataclass(frozen=True)
+class SlotMovement:
+    """Known next base destination that may overlap a cargo transfer."""
+
+    wall_distance_mm: int
+    lateral_position_mm: float
+    departure: bool = False
+
+
+@dataclass(frozen=True)
 class MapPose:
     x_m: float
     y_m: float

@@ -29,7 +29,7 @@ pickup:
     # Z do TCP = Z da tag (no topo) - metade do cubo + este ajuste.
     grasp_z_offset_m: 0.0
     # Y do TCP = Y detectado + offset; positivo aproxima o alvo do corpo.
-    grasp_y_offset_m: -0.03
+    grasp_y_offset_m: -0.02
     link3_to_link4_deg: 85.0
     link4_to_link5_deg: 90.0
     joint_tolerance_deg: 2.5

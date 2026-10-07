@@ -846,14 +846,12 @@ class ManipulationServer(Node):
             )
             self._feedback(
                 goal_handle, RetrieveObject, ManipulationFeedback.PREPARING,
-                0.10, f"Indo para a pose segura do compartimento '{slot_id}'",
+                0.10, f"Indo para a pose segura de '{slot_id}' com a garra em pre_grip",
             )
-            self._arm_state(slot.safe_state, 'Indo para a pose segura de retirada')
-            self._feedback(
-                goal_handle, RetrieveObject, ManipulationFeedback.PREPARING,
-                0.25, 'Preparando a abertura da garra para retirar o objeto',
+            self._motion.mover_braco_e_garra_para_estados(
+                slot.safe_state, 'pre_grip',
+                'Preparando braço e garra juntos para a retirada',
             )
-            self._gripper('pre_grip', 'Posicionando a garra em pre_grip')
             self._feedback(
                 goal_handle, RetrieveObject, ManipulationFeedback.APPROACHING,
                 0.45, 'Descendo até o objeto armazenado',
@@ -1745,7 +1743,7 @@ class ManipulationServer(Node):
                 self._mark_effect_unknown()
                 raise
             self._record_effect(ManipulationResult.LOCATION_DESTINATION)
-            self._safe(False)
+            self._transfer_state('Retornando para detect_apriltags após o depósito na prateleira')
             return (
                 'Objeto depositado na prateleira.',
                 ManipulationResult.LOCATION_DESTINATION,

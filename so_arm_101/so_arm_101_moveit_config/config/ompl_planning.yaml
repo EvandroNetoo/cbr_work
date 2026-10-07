@@ -28,3 +28,8 @@ gripper:
   planner_configs:
     - RRTConnect
   longest_valid_segment_fraction: 0.01
+
+arm_gripper:
+  planner_configs:
+    - RRTConnect
+  longest_valid_segment_fraction: 0.01

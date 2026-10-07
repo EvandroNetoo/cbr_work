@@ -1073,7 +1073,7 @@ def test_hsv_partial_container_deposits_at_visible_center():
     assert any('centro da parte visível' in message for message in feedback)
 
 
-def test_shelf_deposit_uses_fixed_high_state_then_releases_and_returns_safe():
+def test_shelf_deposit_uses_fixed_high_state_then_releases_and_returns_to_observation():
     server = _operation_only_server()
     profile = _cartesian_profile()
     from dataclasses import replace
@@ -1087,7 +1087,8 @@ def test_shelf_deposit_uses_fixed_high_state_then_releases_and_returns_safe():
     server._arm_state = lambda state, _description: events.append(('arm', state))
     server._gripper = lambda state, _description: events.append(('gripper', state))
     server._record_effect = lambda location: events.append(('effect', location))
-    server._safe = lambda loaded: events.append(('safe', loaded))
+    server._safe = lambda _loaded: pytest.fail('Depósito na prateleira não deve retornar a home')
+    server._transfer_state = lambda _description: events.append(('arm', 'detect_apriltags'))
 
     message, location = server._execute_place_on_shelf(
         SimpleNamespace(request=PlaceOnShelf.Goal()))
@@ -1095,5 +1096,5 @@ def test_shelf_deposit_uses_fixed_high_state_then_releases_and_returns_safe():
     assert location == ManipulationResult.LOCATION_DESTINATION
     assert events == [
         ('arm', 'place_on_shelf_high'), ('gripper', 'open'),
-        ('effect', ManipulationResult.LOCATION_DESTINATION), ('safe', False),
+        ('effect', ManipulationResult.LOCATION_DESTINATION), ('arm', 'detect_apriltags'),
     ]

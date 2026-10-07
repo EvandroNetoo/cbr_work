@@ -7,7 +7,5 @@ finish: true
 visits:
 - target: sh_1
   tasks:
-  - action: pick
-    tag_id: 1
-  - action: place_on_shelf
-    tag_id: 1
+    - {action: pick, tag_id: 6}
+    - {action: place_on_shelf, tag_id: 6}

@@ -213,9 +213,10 @@ Toda retirada começa pela pose de observação `detect_apriltags`, configurada
 em `pickup.tabletop.observation_state`, antes de entrar no compartimento.
 Na retirada, `safe_state` é a pose segura de entrada e saída, enquanto
 `retrieve_state` é a pose baixa onde a garra alcança o objeto. Para o
-compartimento `left`, a sequência completa é `detect_apriltags` → `safe_cube_left` → `pre_grip` →
+compartimento `left`, a sequência completa é `detect_apriltags` → (`safe_cube_left` + `pre_grip`, juntos) →
 `pick_cube_left` → fechar em `grip` → `safe_cube_left`. No lado direito, a
-mesma lógica usa `safe_cube_right` e `pick_cube_right`. O armazenamento usa
+mesma lógica usa `safe_cube_right` e `pick_cube_right`. Braço e garra usam
+um único goal do grupo MoveIt `arm_gripper`; a descida aguarda o término dos dois. O armazenamento usa
 `store_state` (`deposit_cube_left/right`) para liberar o objeto; `home` fica
 para a preparação da navegação da base.
 
@@ -285,5 +286,6 @@ ros2 action send_goal manipulation/place_on_shelf interfaces/action/PlaceOnShelf
 
 O perfil `shelf` está habilitado e usa `place_on_shelf_high` no SRDF. Essa
 pose contém valores **fictícios** em radianos: substitua-os pela calibração
-antes de executar no robô. A action não recebe altura nem pose de destino.
+antes de executar no robô. A action não recebe altura nem pose de destino. Após liberar o objeto, retorna
+diretamente à pose de observação `detect_apriltags`, sem passar por `home`.
 Os compartimentos internos `left` e `right` mantêm suas poses medidas no SRDF.

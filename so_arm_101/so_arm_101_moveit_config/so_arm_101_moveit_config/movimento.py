@@ -21,8 +21,11 @@ from sensor_msgs.msg import JointState
 
 from .configuracao import (
     ACELERACAO_MAXIMA,
+    ACELERACAO_MAXIMA_DA_GARRA,
     AMOSTRAS_ESTAVEIS_NECESSARIAS,
     ESTADOS_DOS_GRUPOS,
+    GRUPO_BRACO,
+    GRUPO_BRACO_GARRA,
     GRUPO_GARRA,
     REFERENCIAL_BASE,
     TENTATIVAS_DE_PLANEJAMENTO,
@@ -32,10 +35,12 @@ from .configuracao import (
     TEMPO_LIMITE_DE_ASSENTAMENTO,
     TOLERANCIA_DE_ASSENTAMENTO_DA_GARRA,
     TOLERANCIA_DE_ASSENTAMENTO_DO_BRACO,
+    TOLERANCIA_DA_JUNTA_DA_GARRA,
     TOLERANCIA_DAS_JUNTAS_DE_ESTADOS,
     VELOCIDADE_DE_ASSENTAMENTO_DA_GARRA,
     VELOCIDADE_DE_ASSENTAMENTO_DO_BRACO,
     VELOCIDADE_MAXIMA,
+    VELOCIDADE_MAXIMA_DA_GARRA,
     PosicoesJuntas,
 )
 from .restricoes import ListaDeRestricoes, restricoes_de_posicao_inicial
@@ -469,6 +474,35 @@ class ExecutorDoMoveIt:
             aceleracao,
         )
 
+    def mover_braco_e_garra_para_estados(
+        self, estado_braco: str, estado_garra: str, descricao: str,
+    ) -> None:
+        """Usa um único goal para não preemptar movimentos no mesmo MoveGroup."""
+        try:
+            braco = ESTADOS_DOS_GRUPOS[GRUPO_BRACO][estado_braco]
+            garra = ESTADOS_DOS_GRUPOS[GRUPO_GARRA][estado_garra]
+        except KeyError as erro:
+            raise ValueError(
+                f'Estados combinados desconhecidos: {estado_braco}/{estado_garra}.'
+            ) from erro
+        if (self._estado_articular_ja_atingido(
+                GRUPO_BRACO, braco, TOLERANCIA_DAS_JUNTAS_DE_ESTADOS)
+                and self._estado_articular_ja_atingido(
+                    GRUPO_GARRA, garra, TOLERANCIA_DA_JUNTA_DA_GARRA)):
+            self.no.get_logger().info(f'{descricao}: estados já atingidos; movimento omitido.')
+            return
+        restricoes = restricoes_de_posicao_inicial(braco, TOLERANCIA_DAS_JUNTAS_DE_ESTADOS)
+        restricoes[0].joint_constraints.extend(
+            restricoes_de_posicao_inicial(garra, TOLERANCIA_DA_JUNTA_DA_GARRA)[0].joint_constraints)
+        self.no.get_logger().info(descricao)
+        self.executar_objetivo(
+            GRUPO_BRACO_GARRA, restricoes,
+            min(VELOCIDADE_MAXIMA, VELOCIDADE_MAXIMA_DA_GARRA),
+            min(ACELERACAO_MAXIMA, ACELERACAO_MAXIMA_DA_GARRA),
+            tentativas_de_planejamento=TENTATIVAS_DE_PLANEJAMENTO_ARTICULAR,
+            tempo_de_planejamento=TEMPO_DE_PLANEJAMENTO_ARTICULAR,
+        )
+
     def mover_para_posicoes_das_juntas(
         self,
         grupo: str,
@@ -628,6 +662,11 @@ class ExecutorDoMoveIt:
         if grupo == GRUPO_GARRA:
             tolerancia = TOLERANCIA_DE_ASSENTAMENTO_DA_GARRA
             velocidade_maxima = VELOCIDADE_DE_ASSENTAMENTO_DA_GARRA
+        elif grupo == GRUPO_BRACO_GARRA:
+            tolerancia = min(TOLERANCIA_DE_ASSENTAMENTO_DO_BRACO,
+                             TOLERANCIA_DE_ASSENTAMENTO_DA_GARRA)
+            velocidade_maxima = min(VELOCIDADE_DE_ASSENTAMENTO_DO_BRACO,
+                                    VELOCIDADE_DE_ASSENTAMENTO_DA_GARRA)
         else:
             tolerancia = TOLERANCIA_DE_ASSENTAMENTO_DO_BRACO
             velocidade_maxima = VELOCIDADE_DE_ASSENTAMENTO_DO_BRACO
@@ -662,7 +701,8 @@ class ExecutorDoMoveIt:
             juntas_exigidas = [
                 nome
                 for nome in alvos
-                if not (grupo == GRUPO_GARRA and nome == "left_clamp")
+                if not (grupo in (GRUPO_GARRA, GRUPO_BRACO_GARRA)
+                        and nome == "left_clamp")
             ]
             if not juntas_exigidas or any(
                 nome not in posicoes_lidas for nome in juntas_exigidas

@@ -18,6 +18,12 @@
     <joint name="left_clamp"/>
   </group>
 
+  <!-- Planeja e executa braço e garra juntos em uma única trajetória. -->
+  <group name="arm_gripper">
+    <group name="arm"/>
+    <group name="gripper"/>
+  </group>
+
   <end_effector name="gripper" parent_link="link5_1" group="gripper"
                 parent_group="arm"/>
 

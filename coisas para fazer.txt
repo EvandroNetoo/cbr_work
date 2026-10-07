@@ -1,4 +1,3 @@
 async 
-mudar como é passado missao
 mesa de precisao
 na hora de depositar em container, ignorar se o containee tiver muito em cima para nao pegar ocntainer da outra ws
