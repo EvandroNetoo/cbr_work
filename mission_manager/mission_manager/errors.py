@@ -27,3 +27,7 @@ class TaskNotFound(StepFailed):
 
 class PrecisionSlotOccupied(StepFailed):
     """The final PP snapshot blocked release while the object remains held."""
+
+
+class PrecisionObjectAlreadyCorrect(MissionError):
+    """A fresh PP observation made a pending pickup unnecessary."""

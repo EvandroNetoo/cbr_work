@@ -2786,3 +2786,28 @@ def test_pp_persistent_place_failure_exhausts_bounded_retries_with_cube_held():
         manager._execute_manipulation(Step('pp', 'place_on_precision_table', tag_id=5, reference_tag_id=4))
     assert len(calls) == 3
     assert manager._world_state.snapshot()[:2] == (True, 5)
+
+
+def test_pp_pick_refresh_recognizes_correct_pair_before_calling_physical_action():
+    from mission_manager.errors import PrecisionObjectAlreadyCorrect
+    manager = _stack_search_manager()
+    manager._world_state.commit_place()
+    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._pp_organizing = True
+    manager._pp_final_state = {4: 5}
+    manager._pp_verified = set()
+    manager._pp_direct_pick_tag = manager._pp_skip_correct_pick_tag = 5
+    manager._last_pp_scene = None
+    manager._take_direct_pick_detection = lambda _tag: None
+    reference = _pp_reference_detection(4, 0., -.267)
+    obj = _detection(5, 0., -.267 + manager._arena.precision_perception.slot_offset_y_m)
+    def observe():
+        manager._last_pp_scene = ('ws_1', 200., 0., {4: reference}, {5: obj})
+    manager._observe_visit = observe
+    def action(*_args, **_kwargs):
+        pytest.fail('An already-correct cube must not invoke a physical pick.')
+    manager._call_manipulation_action = action
+    with pytest.raises(PrecisionObjectAlreadyCorrect):
+        manager._execute_pick_impl(Step('pick', 'pick', tag_id=5), 120.)
+    assert manager._pp_verified == {4}
+    assert manager._world_state.snapshot()[:2] == (True, EMPTY)

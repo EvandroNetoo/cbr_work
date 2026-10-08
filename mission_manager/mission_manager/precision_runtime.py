@@ -1,7 +1,7 @@
 """Reactive PP organization with role-separated perception and two cargo slots."""
 import math
 
-from .errors import StepFailed, PrecisionSlotOccupied
+from .errors import StepFailed, PrecisionSlotOccupied, PrecisionObjectAlreadyCorrect
 from .models import Step, DeliveryOutcome
 from .precision_perception import slot_occupant
 from .world_state import EMPTY
@@ -27,7 +27,44 @@ class PrecisionRuntime:
                 or abs(scene[1] - self._current_wall_distance_mm) > 1
                 or abs(scene[2] - self._current_lateral_position_mm) > 1):
             raise StepFailed('PP: ocupação exige observação nova na posição atual.')
+        self._pp_update_verified(scene[3], scene[4])
         return scene[3], scene[4]
+
+    def _pp_update_verified(self, references, objects):
+        """Recognize correct pairs from every new scene, including search images."""
+        if not getattr(self, '_pp_organizing', False):
+            return
+        final = getattr(self, '_pp_final_state', {})
+        verified = getattr(self, '_pp_verified', set())
+        _known, held, cargo = self._world_state.snapshot()
+        on_robot = {cube for cube in cargo.values() if cube != EMPTY}
+        if held != EMPTY:
+            on_robot.add(held)
+        for target, desired in final.items():
+            if target not in references or desired in on_robot:
+                continue
+            try:
+                occupant = slot_occupant(target, references, objects,
+                                         self._arena.precision_perception)
+            except StepFailed:
+                # An ambiguous pair is not evidence of a correct placement.
+                verified.discard(target)
+                continue
+            if occupant == desired:
+                verified.add(target)
+            elif occupant is not None:
+                verified.discard(target)
+
+    def _pp_skip_confirmed_pick(self, tag_id):
+        if getattr(self, '_pp_skip_correct_pick_tag', None) != tag_id:
+            return
+        try:
+            self._pp_scene()
+        except StepFailed:
+            pass
+        for target, desired in getattr(self, '_pp_final_state', {}).items():
+            if desired == tag_id and target in getattr(self, '_pp_verified', set()):
+                raise PrecisionObjectAlreadyCorrect(f'PP: objeto {tag_id} já está no alojamento {target}.')
 
     def _pp_search_points(self):
         config = self._arena.pickup_recovery
@@ -186,7 +223,7 @@ class PrecisionRuntime:
             self._delivery_outcomes.append(DeliveryOutcome(step.step_id, tag_id, visit.target,
                                                           action, action, reference_tag_id=reference_tag_id))
 
-    def _pp_pick_store(self, goal_handle, plan, visit, tag_id, *, observed=False):
+    def _pp_pick_store(self, goal_handle, plan, visit, tag_id, *, observed=False, skip_if_correct=False):
         known, held, cargo = self._world_state.snapshot()
         free = next((slot for slot, tag in cargo.items() if tag == EMPTY), None)
         if not known or held != EMPTY or free is None:
@@ -202,10 +239,15 @@ class PrecisionRuntime:
             self._pp_find_object(tag_id)
         # The immediate pick must consume the supplied pose without normal base alignment.
         self._pp_direct_pick_tag = tag_id
+        self._pp_skip_correct_pick_tag = tag_id if skip_if_correct else None
         try:
+            self._pp_skip_confirmed_pick(tag_id)
             self._pp_run_operation(goal_handle, plan, visit, 'pick', tag_id=tag_id)
+        except PrecisionObjectAlreadyCorrect:
+            return None
         finally:
             self._pp_direct_pick_tag = None
+            self._pp_skip_correct_pick_tag = None
         self._pp_run_operation(goal_handle, plan, visit, 'store', tag_id=tag_id, slot_id=free)
         self._pp_owned_slots.add(free)
         return free
@@ -282,18 +324,15 @@ class PrecisionRuntime:
         final = dict(visit.pp_final_state)
         destinations = {tag: reference for reference, tag in final.items() if tag is not None}
         verified = set()
+        self._pp_final_state = final
+        self._pp_verified = verified
         self._pp_owned_slots = set()
         self._pp_aligned_reference = None
         self._pp_organizing = True
         self._pp_reference_views = {}
         try:
             self._observe_visit()
-            # Reuse the initial scene to leave already correct cubes untouched.
-            refs, objects = self._pp_scene()
-            for target, desired in final.items():
-                if target in refs and slot_occupant(target, refs, objects,
-                                                    self._arena.precision_perception) == desired:
-                    verified.add(target)
+            self._pp_scene()
             # Every successful iteration fixes a prescribed cavity, or drains a surplus cube.
             for _iteration in range(84):
                 self._check_canceled()
@@ -358,7 +397,9 @@ class PrecisionRuntime:
                         # No reference search/analysis before picking this cube.
                     else:
                         target = destinations[cube]
-                    selected_slot = self._pp_pick_store(goal_handle, plan, visit, cube)
+                    selected_slot = self._pp_pick_store(goal_handle, plan, visit, cube, skip_if_correct=True)
+                    if selected_slot is None:
+                        continue  # Search proved this pending cube is already correct.
                 occupant = self._pp_seek_reference(target)
                 if occupant is not None:
                     if occupant == cube:
@@ -399,6 +440,9 @@ class PrecisionRuntime:
             raise StepFailed('PP: limite de organização atingido sem confirmar final_state.')
         finally:
             self._pp_organizing = False
+            self._pp_final_state = {}
+            self._pp_verified = set()
+            self._pp_skip_correct_pick_tag = None
             known, held, cargo = self._world_state.snapshot()
             self._pp_inventory_pending = (not known or held != EMPTY
                                           or any(tag != EMPTY for tag in cargo.values()))

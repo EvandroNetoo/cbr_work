@@ -555,6 +555,12 @@ considerar o slot vazio. Ausência da referência, frames sem TF e detecção
 ambígua interrompem a operação em vez de presumir uma cavidade livre.
 
 O fluxo prioriza objetos observados fora do destino e objetos já armazenados.
+Cada nova análise, inclusive durante a busca de um objeto, reconhece os pares
+referência/objeto já corretos e os marca como concluídos. Antes do pick, essa
+decisão é reavaliada com a imagem disponível: se o objeto procurado já estiver
+em seu destino, a coleta é dispensada e a organização segue para os pendentes.
+Isso não exige uma foto adicional nem conhecer a referência antes de buscar o
+cubo. Um slot ainda não observado não é considerado vazio nem incorreto.
 A referência de destino não precisa ser conhecida antes da coleta: ela é
 procurada depois de coletar e armazenar o cubo. Referências já memorizadas permitem
 ir diretamente à posição preferida, com uma única análise da ocupação no destino.

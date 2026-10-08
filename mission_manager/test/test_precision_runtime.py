@@ -402,3 +402,74 @@ def test_reference_view_history_is_specific_to_distance_area_and_lighting():
     robot._search_led_off = False
     robot._current_location = 'pp_other'
     assert not robot._pp_reference_view_excludes(7, 200, 0)
+
+
+def test_correct_board_seen_across_three_viewpoints_never_manipulates():
+    robot = Robot({**{i: i for i in range(1, 7)}, 7: None})
+    robot._arena.pickup_recovery.search_positions_mm = (0, 325, -325)
+    views = {0: {3, 4}, 325: {5, 6, 7}, -325: {1, 2}}
+    scenes = []
+    def move(wall, lateral, *_args):
+        robot._current_wall_distance_mm, robot._current_lateral_position_mm = wall, lateral
+        robot._last_pp_scene = None
+    def scene():
+        lateral = robot._current_lateral_position_mm
+        scenes.append(lateral)
+        visible = views[lateral]
+        refs = {slot: tag(slot, slot * .1, .02) for slot in visible}
+        objects = {cube: tag(cube, slot * .1, .065) for slot, cube in robot.board.items()
+                   if slot in visible and cube is not None}
+        robot._last_pp_scene = ('pp_1', 200, lateral, refs, objects)
+        for slot, detection in refs.items():
+            robot._pp_reference_observations[('pp_1', slot)] = TagObservation(
+                'pp_1', 200, lateral, 200, lateral, detection)
+        for cube, detection in objects.items():
+            robot._tag_observations[('pp_1', cube)] = TagObservation(
+                'pp_1', 200, lateral, 200, lateral, detection)
+    robot._observe_visit, robot._move_to_table_position = scene, move
+    visit = Visit('pp', 'pp_1', (), None, tuple((i, i) for i in range(1, 7)))
+    robot._run_precision_organization(None, Plan('test', (visit,)), visit)
+    assert 325 in scenes and -325 in scenes
+    assert scenes.count(325) == scenes.count(-325) == 1
+    assert robot.events == []
+    assert robot._completed_steps == 0 and robot._delivery_outcomes == []
+    assert robot.board == {**{i: i for i in range(1, 7)}, 7: None}
+
+
+def test_pending_pick_is_reconsidered_if_its_own_refresh_finds_correct_pair():
+    robot = Robot({1: 1, **{i: None for i in range(2, 8)}})
+    observe, execute = robot._observe_visit, robot._execute_step
+    scenes = 0
+    def scene():
+        nonlocal scenes
+        scenes += 1
+        observe()
+        robot._last_pp_scene[3].pop(1)  # Unknown reference permits selection before pickup.
+        robot._pp_reference_observations.pop(('pp_1', 1), None)
+    def step(value):
+        if value.action == 'pick':
+            # A late refresh (e.g. the direct pose disappeared) finds both tags.
+            observe()
+            robot._pp_skip_confirmed_pick(value.tag_id)
+        execute(value)
+    robot._observe_visit, robot._execute_step = scene, step
+    visit = Visit('pp', 'pp_1', (), None, ((1, 1),))
+    robot._run_precision_organization(None, Plan('test', (visit,)), visit)
+    assert scenes == 1
+    assert robot.events == [] and robot.board[1] == 1
+    assert robot._pp_skip_correct_pick_tag is None
+
+
+def test_unseen_destination_reference_does_not_prevent_wrong_cube_pick():
+    robot = Robot({1: 2, 2: None, **{i: None for i in range(3, 8)}})
+    observe = robot._observe_visit
+    def scene():
+        observe()
+        if not robot.events:
+            robot._last_pp_scene[3].pop(2)
+            robot._pp_reference_observations.pop(('pp_1', 2), None)
+    robot._observe_visit = scene
+    visit = Visit('pp', 'pp_1', (), None, ((2, 2),))
+    robot._run_precision_organization(None, Plan('test', (visit,)), visit)
+    assert [event[0] for event in robot.events] == ['pick', 'store', 'retrieve', 'place_on_precision_table']
+    assert robot.board[2] == 2

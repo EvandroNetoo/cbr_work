@@ -891,6 +891,7 @@ class MissionManager(PrecisionRuntime, Node):
                 self._last_pp_scene = (self._current_location, self._current_wall_distance_mm,
                                        self._current_lateral_position_mm, references, objects)
                 self._pp_record_reference_view(references)
+                self._pp_update_verified(references, objects)
             detections = list(objects.values())
         config = self._pickup_config()
         if abs(self._current_wall_distance_mm - config.safety_search_distance_mm) <= config.wall_tolerance_mm:
@@ -1756,6 +1757,7 @@ class MissionManager(PrecisionRuntime, Node):
             self._observe_visit()
             self._pp_find_object(int(step.tag_id))
             direct_detection = self._take_direct_pick_detection(int(step.tag_id))
+        self._pp_skip_confirmed_pick(int(step.tag_id))
         original_observation = None
         pp_search_attempts = set()
         if config.enabled and direct_detection is None:
@@ -1784,6 +1786,7 @@ class MissionManager(PrecisionRuntime, Node):
                     )
         reposition_count = 0
         while True:
+            self._pp_skip_confirmed_pick(int(step.tag_id))
             goal = PickObject.Goal()
             goal.tag_id = int(step.tag_id)
             goal.profile = 'shelf_front' if shelf_pick else ''
