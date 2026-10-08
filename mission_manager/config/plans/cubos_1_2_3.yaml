@@ -7,5 +7,5 @@ finish: false
 visits:
 - target: pp_1
   tasks:
-  - start_state: {21: null, 22: 1, 23: 2, 24: 3, 25: 4, 26: 5, 27: 6}
-  - final_state: {21: 1, 22: 2, 23: 3, 24: 4, 25: 5, 26: 6, 27: null}
+  - start_state: {21: null, 22: 4, 23: 1, 24: 6, 25: 3, 26: 5, 27: 2}
+  - final_state: {21: 5, 22: 2, 23: 6, 24: 1, 25: 4, 26: 3, 27: null}

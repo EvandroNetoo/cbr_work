@@ -326,3 +326,17 @@ ros2 action send_goal manipulation/place_on_precision_table interfaces/action/Pl
 O Mission Manager usa `require_alignment: true` na primeira chamada, alinha a
 base a partir da pose detectada e solicita uma nova detecção antes do depósito.
 A seleção de detectores é `vision_detectors.place_on_precision_table: [apriltags]`.
+
+
+### Armazenamento seguido de retirada imediata
+
+`StoreObject` aceita `prepare_retrieve: true` para terminar com o braço em
+`safe_state` do compartimento e a garra em `pre_grip`. Uma retirada imediata do
+mesmo slot usa essa preparação para seguir a `retrieve_state`, fechar a garra
+e retornar a `safe_state`, sem passar por `detect_apriltags` entre as actions.
+Qualquer outra operação invalida a preparação. O valor padrão `false` mantém o
+armazenamento independente com retorno a `detect_apriltags`.
+
+O Mission Manager usa essa opção nos pares consecutivos `store → retrieve`.
+Em missões PP, cada coleta exige esse ciclo antes do depósito para padronizar a
+posição do cubo na garra.

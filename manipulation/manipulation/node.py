@@ -548,6 +548,8 @@ class ManipulationServer(Node):
         scene_observation: SceneObservation | None = None,
     ) -> Any:
         self._set_active(operation_name)
+        if operation_name != 'retrieve':
+            self._prepared_cargo_retrieve = None
         self._effect_known = True
         self._effect_location = ManipulationResult.LOCATION_UNKNOWN
         monitorando_estados = False
@@ -838,9 +840,16 @@ class ManipulationServer(Node):
                 self._mark_effect_unknown()
                 raise
             self._record_effect(ManipulationResult.LOCATION_CARGO)
-            self._transfer_state(
-                'Retornando do compartimento para detect_apriltags'
-            )
+            if goal_handle.request.prepare_retrieve:
+                self._motion.mover_braco_e_garra_para_estados(
+                    slot.safe_state, 'pre_grip',
+                    'Preparando retirada imediata do objeto armazenado',
+                )
+                self._prepared_cargo_retrieve = slot_id
+            else:
+                self._transfer_state(
+                    'Retornando do compartimento para detect_apriltags'
+                )
             return (
                 f"Objeto armazenado em '{slot_id}'.",
                 ManipulationResult.LOCATION_CARGO,
@@ -855,17 +864,21 @@ class ManipulationServer(Node):
             slot = self._profiles.cargo_slots.get(slot_id)
             if slot is None:
                 raise ConfigurationError(f"Compartimento não configurado: '{slot_id}'.")
-            self._transfer_state(
-                'Garantindo detect_apriltags antes da retirada do compartimento'
-            )
+            prepared = getattr(self, '_prepared_cargo_retrieve', None) == slot_id
+            self._prepared_cargo_retrieve = None
+            if not prepared:
+                self._transfer_state(
+                    'Garantindo detect_apriltags antes da retirada do compartimento'
+                )
             self._feedback(
                 goal_handle, RetrieveObject, ManipulationFeedback.PREPARING,
                 0.10, f"Indo para a pose segura de '{slot_id}' com a garra em pre_grip",
             )
-            self._motion.mover_braco_e_garra_para_estados(
-                slot.safe_state, 'pre_grip',
-                'Preparando braço e garra juntos para a retirada',
-            )
+            if not prepared:
+                self._motion.mover_braco_e_garra_para_estados(
+                    slot.safe_state, 'pre_grip',
+                    'Preparando braço e garra juntos para a retirada',
+                )
             self._feedback(
                 goal_handle, RetrieveObject, ManipulationFeedback.APPROACHING,
                 0.45, 'Descendo até o objeto armazenado',

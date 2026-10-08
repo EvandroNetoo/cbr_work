@@ -155,6 +155,7 @@ class Step:
     support_tag_id: int | None = None
     tag_ids: tuple[int, ...] = ()
     reference_tag_id: int | None = None
+    prepare_retrieve: bool = False
 
 
 @dataclass(frozen=True)

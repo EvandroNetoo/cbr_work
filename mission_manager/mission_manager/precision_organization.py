@@ -1,8 +1,9 @@
 """Compile a PP permutation into ordered picks and tag-relative placements.
 
-A null PP slot is a legal temporary buffer. With a full table, one cube can
-stay in the robot while its cycle is resolved; Scheduler inserts cargo
-store/retrieve operations using the configured capacity.
+Every PP placement requires a cargo store/retrieve since the last pick.
+With two cargo slots, a cycle pivot stays on-board while other cubes are
+regrasped in the free compartment. With one cargo slot, an empty PP slot
+serves as a temporary buffer. Scheduler inserts physical cargo operations.
 """
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ from .models import Step
 
 
 def organize_precision_slots(
-    start: dict[int, int | None], final: dict[int, int | None],
+    start: dict[int, int | None], final: dict[int, int | None], *, cargo_capacity: int = 2,
 ) -> tuple[Step, ...]:
     if not start or set(start) != set(final):
         raise ConfigurationError('start_state e final_state devem ter os mesmos alojamentos, não vazios.')
@@ -62,10 +63,11 @@ def organize_precision_slots(
         source = next(s for s in slots if current[s] is not None and current[s] != final[s])
         empty = next((s for s in slots if current[s] is None), None)
         cube = pick(source)
-        if empty is not None:
+        if empty is not None and cargo_capacity < 2:
             place(cube, empty)
         else:
-            # No table buffer: the next pick forces an automatic cargo store.
+            # Park one cube internally to avoid an extra PP placement. Two
+            # cargo slots allow the other cubes to be stored/retrieved as well.
             assert parked is None
             parked = cube
     return tuple(tasks)

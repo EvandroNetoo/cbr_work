@@ -516,11 +516,25 @@ visits:
 
 O gerenciador gera uma sequência ordenada de coletas e depósitos
 `place_on_precision_table`, usando a tag fixa do slot de destino como
-`reference_tag_id`. Cubos já corretos permanecem no lugar. Um alojamento vazio
-pode receber um cubo temporariamente para desfazer ciclos, inclusive quando o
-estado final exige que ele fique vazio. Se todos os alojamentos estiverem
-ocupados, um cubo é guardado temporariamente em um compartimento interno; as
-operações de armazenamento e retirada usam a capacidade configurada do robô.
+`reference_tag_id`. Cubos já corretos permanecem no lugar. Todo cubo coletado
+precisa ser armazenado e retirado do robô antes de qualquer depósito PP,
+inclusive depósitos temporários. Uma nova coleta exige um novo ciclo de
+armazenamento e retirada, mesmo para um cubo que já passou pelo robô.
+
+Com dois compartimentos internos, um cubo de apoio fica armazenado enquanto
+os demais passam pelo compartimento livre. Isso resolve ciclos sem um depósito
+PP temporário. Com apenas um compartimento, usa-se um alojamento PP vazio como
+apoio; uma mesa cheia com ciclo de troca exige dois compartimentos para cumprir
+a retirada obrigatória de todos os cubos. Missões incompatíveis com a capacidade
+configurada são rejeitadas antes da execução.
+
+Quando a retirada é a próxima operação no mesmo compartimento, o armazenamento
+usa `StoreObject.prepare_retrieve: true`: deposita e solta o cubo, prepara
+`safe_state` e `pre_grip`; a retirada reaproveita essa preparação, desce até
+`retrieve_state`, fecha a garra e retorna a `safe_state`. Assim evita a ida a
+`detect_apriltags` entre armazenamento e retirada. A preparação só pode ser
+reutilizada na operação seguinte e no mesmo compartimento.
+
 Não há depósito em espaço livre da mesa, contêiner ou outra zona.
 
 A ordem gerada é obrigatória: as observações não podem antecipar um depósito

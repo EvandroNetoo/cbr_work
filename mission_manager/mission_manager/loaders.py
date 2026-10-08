@@ -541,7 +541,7 @@ def _task(raw_value: Any, context: str) -> Step:
                 reference_tag_id=reference)
 
 
-def load_plan(path: str | Path) -> Plan:
+def load_plan(path: str | Path, *, cargo_capacity: int = 2) -> Plan:
     root = _load_yaml(path, schema_version=2)
     _only_keys(root, {'schema_version', 'plan_id', 'initial_location', 'visits', 'finish'}, 'plan')
     plan_id = _identifier(root.get('plan_id'), 'plan.plan_id')
@@ -601,7 +601,8 @@ def load_plan(path: str | Path) -> Plan:
             if set(states) != {'start_state', 'final_state'}:
                 raise ConfigurationError(f'{context}: start_state e final_state são obrigatórios juntos.')
             from .precision_organization import organize_precision_slots
-            generated = organize_precision_slots(states['start_state'], states['final_state'])
+            generated = organize_precision_slots(
+                states['start_state'], states['final_state'], cargo_capacity=cargo_capacity)
             pp_start = tuple(sorted(states['start_state'].items()))
             pp_final = tuple(sorted(states['final_state'].items()))
             tasks = tuple(replace(task, step_id=allocate(

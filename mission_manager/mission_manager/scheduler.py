@@ -22,6 +22,7 @@ class State:
     slots: tuple[int, ...]
     locations: tuple[str | None, ...]
     tops: tuple[int, ...]
+    regrasped: int = 0
 
 
 @dataclass(frozen=True)
@@ -115,15 +116,20 @@ class Scheduler:
             tag = task.tag_id
             locations = list(state.locations)
             tops = list(state.tops)
+            regrasped = state.regrasped
             if task.action == 'pick':
                 if state.gripper != EMPTY or locations[self.tag_indices[tag]] != visit.target:
                     continue
                 if not self._available_support(state, tag, visit.target):
                     continue
                 locations[self.tag_indices[tag]] = None
+                regrasped &= ~(1 << self.tag_indices[tag])
                 gripper = tag
             else:
                 if state.gripper != tag:
+                    continue
+                if (task.action == 'place_on_precision_table'
+                        and not state.regrasped & (1 << self.tag_indices[tag])):
                     continue
                 if group >= 0:
                     support = tops[group]
@@ -135,7 +141,7 @@ class Scheduler:
                 gripper = EMPTY
             result.append(Choice(task, replace(state, done=state.done | (1 << index),
                                                gripper=gripper, locations=tuple(locations),
-                                               tops=tuple(tops)), index, task.step_id))
+                                               tops=tuple(tops), regrasped=regrasped), index, task.step_id))
         if state.gripper != EMPTY:
             if EMPTY in state.slots:
                 slot = state.slots.index(EMPTY)
@@ -151,7 +157,8 @@ class Scheduler:
                     slots[slot] = EMPTY
                     result.append(Choice(Step('auto_retrieve', 'retrieve', tag_id=tag,
                                               slot_id=self.slot_ids[slot]),
-                                         replace(state, gripper=tag, slots=tuple(slots))))
+                                         replace(state, gripper=tag, slots=tuple(slots),
+                                                 regrasped=state.regrasped | (1 << self.tag_indices[tag]))))
         return tuple(result)
 
     def feasible(self, state: State) -> bool:

@@ -1,4 +1,6 @@
 string slot_id
+# End at safe_state with pre_grip for an immediate retrieval from this slot.
+bool prepare_retrieve
 ---
 interfaces/ManipulationResult outcome
 ---

@@ -2274,6 +2274,7 @@ class MissionManager(Node):
                 self._world_state.validate_store(tag_id, slot_id)
                 goal = StoreObject.Goal()
                 goal.slot_id = slot_id
+                goal.prepare_retrieve = step.prepare_retrieve
                 client = self._store_client
                 transition = 'store'
             elif step.action == 'retrieve':
@@ -2506,6 +2507,13 @@ class MissionManager(Node):
                                 step.reference_tag_id not in pp_slots or pp_slots[step.reference_tag_id] is not None
                             ):
                                 raise StepFailed(f'Organização PP: alojamento {step.reference_tag_id} não está vazio.')
+                        if step.action == 'store':
+                            following = scheduler.select(
+                                choice.next_state, self._scheduler_observations(),
+                                self._current_lateral_position_mm, allow_unobserved=True)
+                            if (following is not None and following.step.action == 'retrieve'
+                                    and following.step.slot_id == step.slot_id):
+                                step = replace(step, prepare_retrieve=True)
                         movement = (self._next_slot_movement(scheduler, choice, plan)
                                     if step.action in {'store', 'retrieve'} else None)
                         if movement is None:
@@ -2556,7 +2564,7 @@ class MissionManager(Node):
         ).resolve()
         plan_path = plans_root / f'{plan_id}.yaml'
         arena = load_arena(arena_path)
-        plan = load_plan(plan_path)
+        plan = load_plan(plan_path, cargo_capacity=len(self._world_state.snapshot()[2]))
         if plan.plan_id != plan_id:
             raise ConfigurationError(
                 f"O arquivo solicitado como '{plan_id}' declara plan_id "

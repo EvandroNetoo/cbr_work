@@ -531,4 +531,5 @@ def test_pp_organization_executes_only_in_slots_and_retrieves_cargo(full_table):
     assert manager._completed_steps == plan.total_steps
     assert all(d.actual_action == 'place_on_precision_table' for d in manager._delivery_outcomes)
     stores = len(manager._store_client.goals)
-    assert stores == len(manager._retrieve_client.goals) == int(full_table)
+    assert stores == len(manager._retrieve_client.goals) == 3
+    assert sum(goal.prepare_retrieve for goal in manager._store_client.goals) == 2
