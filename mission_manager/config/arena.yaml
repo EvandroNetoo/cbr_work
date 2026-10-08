@@ -47,7 +47,7 @@ pickup_recovery:
   shelf_preferred_tag_y_m: -0.32
   # Stack: alvo XY da tag de apoio no referencial do braço, independente da SH.
   # O alinhamento é tentado mesmo com pickup_recovery.enabled: false.
-  stack_preferred_tag_x_m: 0.0
+  stack_preferred_tag_x_m: 0.015
   stack_preferred_tag_y_m: -0.22
   # Alvo da tag de referência PP no referencial do braço; calibrar com o offset.
   precision_preferred_tag_x_m: 0.0

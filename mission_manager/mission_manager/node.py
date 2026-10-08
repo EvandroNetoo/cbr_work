@@ -1834,6 +1834,7 @@ class MissionManager(PrecisionRuntime, Node):
                 and result.recovery_reason != PickObject.Result.RECOVERY_NONE
             )
             if recoverable:
+                self._pp_skip_confirmed_pick(int(step.tag_id))
                 if reposition_count >= config.max_reposition_attempts:
                     raise StepFailed(
                         f"passo '{step.step_id}' (pick) falhou: {failure}"
@@ -1841,6 +1842,16 @@ class MissionManager(PrecisionRuntime, Node):
                 self._recover_pick(result, step)
                 alignment_completed = False
                 reposition_count += 1
+                if (area.area_type == 'PP' and
+                        getattr(self, '_pp_skip_correct_pick_tag', None) == int(step.tag_id)):
+                    # Inspect the full scene before a new physical pick. Otherwise
+                    # manipulation learns the reference only inside its next pick,
+                    # and the manager receives that image after the cube was taken.
+                    self._observe_visit()
+                    self._pp_skip_confirmed_pick(int(step.tag_id))
+                    self._pp_find_object(int(step.tag_id))
+                    self._pp_skip_confirmed_pick(int(step.tag_id))
+                    direct_detection = self._take_direct_pick_detection(int(step.tag_id))
                 continue
             if (getattr(self, '_flexible_pick', False)
                     and (area.area_type != 'PP' or not config.enabled)

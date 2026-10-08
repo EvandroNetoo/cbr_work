@@ -2811,3 +2811,52 @@ def test_pp_pick_refresh_recognizes_correct_pair_before_calling_physical_action(
         manager._execute_pick_impl(Step('pick', 'pick', tag_id=5), 120.)
     assert manager._pp_verified == {4}
     assert manager._world_state.snapshot()[:2] == (True, EMPTY)
+
+
+@pytest.mark.parametrize('already_correct', [True, False])
+def test_pp_reach_recovery_rechecks_slot_before_retrying_pick(already_correct):
+    from mission_manager.errors import PrecisionObjectAlreadyCorrect
+    manager = _stack_search_manager()
+    manager._world_state.commit_place()
+    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._pp_organizing = True
+    manager._pp_final_state, manager._pp_verified = {2: 2}, set()
+    manager._pp_direct_pick_tag = manager._pp_skip_correct_pick_tag = 2
+    manager._pick_client = object()
+    old = _detection(2, .4, -.179)
+    manager._last_pp_scene = ('ws_1', 200., 0., {}, {2: old})
+    manager._take_direct_pick_detection = lambda identifier: (
+        manager._last_pp_scene[4].get(identifier) if manager._last_pp_scene else None)
+    calls, observations = [], []
+    def action(_client, goal, *_args, **_kwargs):
+        calls.append(goal)
+        if len(calls) == 1:
+            result = _pick_result(ManipulationResult.MOTION_FAILED, 'fora do alcance')
+            result.has_detected_pose = True
+            result.recovery_reason = PickObject.Result.RECOVERY_OUT_OF_REACH
+            return result
+        assert goal.use_observed_detection
+        assert goal.observed_detection.pose.position.x == pytest.approx(.15)
+        manager._world_state.commit_pick(2)
+        return _pick_result(ManipulationResult.SUCCESS)
+    def recover(*_args, **_kwargs):
+        manager._current_lateral_position_mm = 50.
+        manager._last_pp_scene = None
+    def observe():
+        observations.append(True)
+        reference = _pp_reference_detection(2, -.011, -.240)
+        obj = _detection(2, -.008 if already_correct else .15, -.179)
+        manager._last_pp_scene = ('ws_1', 200., 50., {2: reference}, {2: obj})
+    manager._call_manipulation_action, manager._recover_pick = action, recover
+    manager._observe_visit = observe
+    step = Step('pick_2', 'pick', tag_id=2)
+    if already_correct:
+        with pytest.raises(PrecisionObjectAlreadyCorrect):
+            manager._execute_pick_impl(step, 120.)
+        assert len(calls) == 1 and manager._pp_verified == {2}
+        assert manager._world_state.snapshot()[:2] == (True, EMPTY)
+    else:
+        manager._execute_pick_impl(step, 120.)
+        assert len(calls) == 2
+        assert manager._world_state.snapshot()[:2] == (True, 2)
+    assert len(observations) == 1

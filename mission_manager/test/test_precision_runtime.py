@@ -523,3 +523,73 @@ def test_select_work_prioritizes_visible_wrong_cube_over_distant_memory():
     selected = robot._pp_select_work(final, {i: i for i in range(1, 5)}, robot._pp_verified)
     assert selected[0] in {3, 4}
     assert robot.events == []
+
+
+def test_after_moving_six_keeps_scan_history_and_goes_directly_to_unseen_side():
+    robot = Robot({1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: None, 7: 6})
+    robot._arena.pickup_recovery.search_positions_mm = (0, 325, -325)
+    scenes, moves, after_place = [], [], []
+    execute = robot._execute_step
+    def move(wall, lateral, *_args):
+        moves.append(lateral)
+        robot._current_wall_distance_mm, robot._current_lateral_position_mm = wall, lateral
+        robot._last_pp_scene = None
+    def scene():
+        wall, lateral = robot._current_wall_distance_mm, robot._current_lateral_position_mm
+        scenes.append(lateral)
+        if robot.board[6] == 6:
+            after_place.append(lateral)
+        visible = {5, 6, 7} if lateral > 100 else {1, 2} if lateral < -100 else {3, 4}
+        refs = {slot: tag(slot, slot * .1, .02) for slot in visible}
+        objects = {cube: tag(cube, slot * .1, .065) for slot, cube in robot.board.items()
+                   if slot in visible and cube is not None}
+        robot._last_pp_scene = ('pp_1', wall, lateral, refs, objects)
+        robot._pp_record_reference_view(refs)
+        for slot, detection in refs.items():
+            robot._pp_reference_observations[('pp_1', slot)] = TagObservation(
+                'pp_1', wall, lateral, int(wall), lateral, detection)
+        for cube, detection in objects.items():
+            robot._tag_observations[('pp_1', cube)] = TagObservation(
+                'pp_1', wall, lateral, int(wall), lateral, detection)
+    robot._observe_visit, robot._move_to_table_position = scene, move
+    robot._precision_memory_destination = lambda _memory: (190, 310)
+    visit = Visit('pp', 'pp_1', (), None, tuple((i, i) for i in range(1, 7)))
+    robot._run_precision_organization(None, Plan('test', (visit,)), visit)
+    assert scenes == [0, 325, 310, -325]
+    assert moves == [325, 310, -325]
+    assert after_place == [-325]
+    assert [event[0] for event in robot.events] == ['pick', 'store', 'retrieve', 'place_on_precision_table']
+    assert robot.board == {**{i: i for i in range(1, 7)}, 7: None}
+    assert robot._pp_expected_occupancy[6] == 6
+    assert robot._pp_expected_occupancy[7] is None
+    assert ('pp_1', 6) not in robot._tag_observations
+    assert {0, 325, 310, -325} <= {view[2] for view in robot._pp_selection_views}
+
+
+def test_selection_revisits_old_scan_only_after_unseen_viewpoints_fail():
+    robot = Robot({1: 1, **{i: None for i in range(2, 8)}})
+    robot._arena.pickup_recovery.search_positions_mm = (0, 325, -325)
+    robot._pp_organizing = True
+    robot._pp_final_state, robot._pp_verified = {1: 1}, set()
+    robot._pp_selection_views = {('pp_1', 200, 0, False), ('pp_1', 200, 325, False)}
+    robot._current_lateral_position_mm = 310
+    robot._last_pp_scene = None
+    robot._tag_observations = {}
+    robot._pp_reference_observations = {}
+    scenes = []
+    def move(wall, lateral, *_args):
+        robot._current_wall_distance_mm, robot._current_lateral_position_mm = wall, lateral
+        robot._last_pp_scene = None
+    def scene():
+        lateral = robot._current_lateral_position_mm
+        scenes.append(lateral)
+        refs, objects = ({1: tag(1, .1, .02)}, {1: tag(1, .1, .065)}) if lateral == 0 else ({}, {})
+        robot._last_pp_scene = ('pp_1', 200, lateral, refs, objects)
+        for cube, detection in objects.items():
+            robot._tag_observations[('pp_1', cube)] = TagObservation('pp_1', 200, lateral, 200, lateral, detection)
+        for ref, detection in refs.items():
+            robot._pp_reference_observations[('pp_1', ref)] = TagObservation('pp_1', 200, lateral, 200, lateral, detection)
+    robot._move_to_table_position, robot._observe_visit = move, scene
+    assert robot._pp_select_work({1: 1}, {1: 1}, robot._pp_verified) is None
+    assert scenes == [-325, 0]
+    assert robot._pp_verified == {1}

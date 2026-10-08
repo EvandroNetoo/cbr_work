@@ -561,13 +561,25 @@ o primeiro ID pendente do YAML. A cada imagem, prefere candidatos visíveis na
 posição atual antes de retornar a objetos memorizados em outros pontos. Pontos
 já analisados na mesma distância e iluminação são dispensados nessa varredura;
 assim, a análise inicial em 0 não é repetida antes de ir a 325 ou -325. Coletas
-e depósitos invalidam essa varredura porque alteram a ocupação da mesa.
+e depósitos preservam o histórico da varredura: a origem conhecida é marcada
+como liberada após coleta confirmada, a posição antiga do objeto é removida e
+o destino recebe o objeto após depósito confirmado. Esses efeitos atualizam
+a ocupação esperada, sem transformar uma imagem antiga em pose válida de pick.
+Depois do depósito, a seleção pode seguir diretamente ao próximo ponto ainda
+não analisado, sem uma análise extra na posição de soltura. Só após esgotar os
+pontos restantes revisita as posições antigas uma vez, se ainda houver pares
+não confirmados. A ocupação para decidir o depósito continua exigindo imagem
+atual.
 Cada nova análise, inclusive durante a busca de um objeto, reconhece os pares
 referência/objeto já corretos e os marca como concluídos. Antes do pick, essa
 decisão é reavaliada com a imagem disponível: se o objeto procurado já estiver
 em seu destino, a coleta é dispensada e a organização segue para os pendentes.
 Isso não exige uma foto adicional nem conhecer a referência antes de buscar o
 cubo. Um slot ainda não observado não é considerado vazio nem incorreto.
+Após recuperar o alcance reposicionando a base, a organização faz a análise
+antes de repetir o pick. Se a referência agora visível confirmar o cubo correto,
+dispensa a coleta. Caso contrário, fornece a pose dessa análise ao pick para
+evitar uma segunda análise dentro da action.
 A referência de destino não precisa ser conhecida antes da coleta: ela é
 procurada depois de coletar e armazenar o cubo. Referências já memorizadas permitem
 ir diretamente à posição preferida, com uma única análise da ocupação no destino.

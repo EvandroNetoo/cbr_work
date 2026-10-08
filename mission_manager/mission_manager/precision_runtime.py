@@ -40,6 +40,15 @@ class PrecisionRuntime:
         on_robot = {cube for cube in cargo.values() if cube != EMPTY}
         if held != EMPTY:
             on_robot.add(held)
+        if not hasattr(self, '_pp_expected_occupancy'):
+            self._pp_expected_occupancy = {}
+        table_objects = {tag: obj for tag, obj in objects.items() if tag not in on_robot}
+        for reference in references:
+            try:
+                self._pp_expected_occupancy[reference] = slot_occupant(
+                    reference, references, table_objects, self._arena.precision_perception)
+            except StepFailed:
+                self._pp_expected_occupancy.pop(reference, None)
         for target, desired in final.items():
             if target not in references or desired in on_robot:
                 continue
@@ -214,6 +223,8 @@ class PrecisionRuntime:
                     tag_id=tag_id, reference_tag_id=reference_tag_id, slot_id=slot_id)
         self._report_scheduled_operation(goal_handle, plan, step, step.step_id,
                                          f'PP: {action} objeto {tag_id}, referência {reference_tag_id}')
+        sources = [reference for reference, cube in
+                   getattr(self, '_pp_expected_occupancy', {}).items() if cube == tag_id]
         self._execute_step(step)
         known, held, cargo = self._world_state.snapshot()
         correct = {'pick': held == tag_id, 'store': held == EMPTY and cargo.get(slot_id) == tag_id,
@@ -223,10 +234,16 @@ class PrecisionRuntime:
             raise StepFailed(f'PP: efeito físico de {action} não confirmado.')
         self._completed_steps += 1
         self._last_pp_scene = None
-        if action in {'pick', 'place_on_precision_table'}:
-            # Only changes to the table invalidate previous selection scans.
-            self._pp_selection_views = set()
+        if action == 'pick':
+            self._tag_observations.pop((self._current_location, tag_id), None)
+            if len(sources) == 1:
+                source = sources[0]
+                self._pp_expected_occupancy[source] = None
+                getattr(self, '_pp_verified', set()).discard(source)
+                if source in getattr(self, '_pp_final_state', {}) and self._pp_final_state[source] is None:
+                    self._pp_verified.add(source)
         if action == 'place_on_precision_table':
+            self._pp_expected_occupancy[reference_tag_id] = tag_id
             self._delivery_outcomes.append(DeliveryOutcome(step.step_id, tag_id, visit.target,
                                                           action, action, reference_tag_id=reference_tag_id))
 
@@ -286,37 +303,48 @@ class PrecisionRuntime:
 
     def _pp_select_work(self, final, destinations, verified):
         """Scan for useful work rather than search a predetermined object ID."""
-        attempted = set()
         config = self._arena.pickup_recovery
+        attempted = {point for point in self._pp_search_points()
+                     if any(area == self._current_location
+                            and led == bool(getattr(self, '_search_led_off', False))
+                            and abs(wall - point[0]) <= config.wall_tolerance_mm
+                            and abs(lateral - point[1]) <= config.travel_tolerance_mm
+                            for area, wall, lateral, led in getattr(self, '_pp_selection_views', set()))}
+        deferred = attempted.copy()
         while True:
             try:
                 refs, objects = self._pp_scene()
             except StepFailed:
-                self._observe_visit()
-                refs, objects = self._pp_scene()
-            self._pp_record_reference_view(refs)
+                refs = objects = None
+            if refs is not None:
+                self._pp_record_reference_view(refs)
+                for point in self._pp_search_points():
+                    if (abs(point[0] - self._current_wall_distance_mm) <= config.wall_tolerance_mm
+                            and abs(point[1] - self._current_lateral_position_mm) <= config.travel_tolerance_mm):
+                        attempted.add(point)
+                        deferred.discard(point)
             if len(verified) == len(final):
                 return None
             # Prefer a wrong cube visible here before traveling to cached ones.
-            cube = self._pp_known_wrong_object(destinations, verified, visible_only=True)
+            cube = (self._pp_known_wrong_object(destinations, verified, visible_only=True)
+                    if refs is not None else None)
             if cube is not None:
                 return cube, destinations[cube], False
             for target, desired in final.items():
-                if desired is None and target not in verified and target in refs:
+                if desired is None and target not in verified and refs is not None and target in refs:
                     occupant = slot_occupant(target, refs, objects, self._arena.precision_perception)
                     if occupant is not None:
                         return occupant, target, True
             cube = self._pp_known_wrong_object(destinations, verified)
             if cube is not None:
                 return cube, destinations[cube], False
-            for wall, lateral in self._pp_search_points():
-                if any(area == self._current_location
-                       and led == bool(getattr(self, '_search_led_off', False))
-                       and abs(observed_wall - wall) <= config.wall_tolerance_mm
-                       and abs(observed_lateral - lateral) <= config.travel_tolerance_mm
-                       for area, observed_wall, observed_lateral, led in self._pp_selection_views):
-                    attempted.add((wall, lateral))
             if not self._pp_move_to_next_search_point(None, reference=False, attempted=attempted):
+                if deferred:
+                    # Explore unseen regions first; old pictures may have missed
+                    # an occluded pair. Revisit those points only once, if needed.
+                    attempted.difference_update(deferred)
+                    deferred.clear()
+                    continue
                 missing = [str(desired) for target, desired in final.items()
                            if target not in verified and desired is not None]
                 if missing:
@@ -382,6 +410,7 @@ class PrecisionRuntime:
         self._pp_organizing = True
         self._pp_reference_views = {}
         self._pp_selection_views = set()
+        self._pp_expected_occupancy = {}
         try:
             self._observe_visit()
             self._pp_scene()
