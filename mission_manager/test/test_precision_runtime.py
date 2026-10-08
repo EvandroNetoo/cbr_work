@@ -350,3 +350,55 @@ def test_changed_final_scene_reopens_a_previously_correct_slot():
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert [robot.board[i] for i in (1, 2, 3)] == [1, 2, 3]
     assert robot.held == EMPTY and all(cube == EMPTY for cube in robot.cargo.values())
+
+
+@pytest.mark.parametrize('needs_retry', [False, True])
+def test_unknown_reference_skips_prior_negative_views_after_pickup(needs_retry):
+    robot = Robot({1: 7, **{i: None for i in range(2, 8)}})
+    observe = robot._observe_visit
+    scenes, moves = [], []
+    recovering = False
+    def move(wall, lateral, *_args):
+        moves.append(lateral)
+        robot._current_wall_distance_mm, robot._current_lateral_position_mm = wall, lateral
+        robot._last_pp_scene = None
+    def scene():
+        observe()
+        lateral = robot._current_lateral_position_mm
+        scenes.append(lateral)
+        visible = recovering and (lateral == 325 if needs_retry else lateral == -325)
+        if not visible:
+            robot._last_pp_scene[3].pop(7)
+            robot._pp_reference_observations.pop(('pp_1', 7), None)
+        robot._last_pp_scene = ('pp_1', robot._current_wall_distance_mm, lateral,
+                                *robot._last_pp_scene[3:])
+        robot._pp_record_reference_view(robot._last_pp_scene[3])
+    robot._arena.pickup_recovery.search_positions_mm = (0, 325, -325)
+    robot._observe_visit, robot._move_to_table_position = scene, move
+    robot._precision_memory_destination = lambda _memory: (200, robot._current_lateral_position_mm)
+    scene()
+    move(200, 325)
+    scene()
+    # Same ID object was observed, but fixed reference 7 was absent.
+    assert ('pp_1', 7) in robot._tag_observations
+    assert ('pp_1', 7) not in robot._pp_reference_observations
+    robot._last_pp_scene = None  # Pick/store invalidates occupancy, not reference-search history.
+    scenes.clear()
+    moves.clear()
+    recovering = True
+    assert robot._pp_seek_reference(7) is None
+    assert scenes == ([-325, 0, 325] if needs_retry else [-325])
+    assert moves == scenes
+
+
+def test_reference_view_history_is_specific_to_distance_area_and_lighting():
+    robot = Robot({i: None for i in range(1, 8)})
+    robot._pp_record_reference_view({1: object()})
+    assert robot._pp_reference_view_excludes(7, 200, 0)
+    assert not robot._pp_reference_view_excludes(1, 200, 0)
+    assert not robot._pp_reference_view_excludes(7, 60, 0)
+    robot._search_led_off = True
+    assert not robot._pp_reference_view_excludes(7, 200, 0)
+    robot._search_led_off = False
+    robot._current_location = 'pp_other'
+    assert not robot._pp_reference_view_excludes(7, 200, 0)

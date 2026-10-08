@@ -163,6 +163,7 @@ class MissionManager(PrecisionRuntime, Node):
         self._last_lateral_travel_direction = 0
         self._tag_observations: dict[tuple[str, int], TagObservation] = {}
         self._pp_reference_observations = {}
+        self._pp_reference_views = {}
         self._last_pp_scene = None
         self._placed_tag_viewpoints: dict[tuple[str, int], tuple[int, float]] = {}
         self._container_observations: dict[
@@ -889,6 +890,7 @@ class MissionManager(PrecisionRuntime, Node):
             if apriltag_observation_completed:
                 self._last_pp_scene = (self._current_location, self._current_wall_distance_mm,
                                        self._current_lateral_position_mm, references, objects)
+                self._pp_record_reference_view(references)
             detections = list(objects.values())
         config = self._pickup_config()
         if abs(self._current_wall_distance_mm - config.safety_search_distance_mm) <= config.wall_tolerance_mm:
@@ -2729,6 +2731,7 @@ class MissionManager(PrecisionRuntime, Node):
         self._pp_reference_observations = {}
         self._last_pp_scene = None
         self._pp_aligned_reference = None
+        self._pp_reference_views = {}
         self._pp_direct_pick_tag = None
         self._placed_tag_viewpoints.clear()
         self._container_observations.clear()

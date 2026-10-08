@@ -40,6 +40,24 @@ class PrecisionRuntime:
                     points.append((wall, lateral))
         return points
 
+    def _pp_record_reference_view(self, references):
+        """Fixed-reference visibility survives cube pickup and cargo transfers."""
+        if not hasattr(self, '_pp_reference_views'):
+            self._pp_reference_views = {}
+        key = (self._current_location, self._current_wall_distance_mm,
+               self._current_lateral_position_mm, bool(getattr(self, '_search_led_off', False)))
+        self._pp_reference_views[key] = frozenset(references)
+
+    def _pp_reference_view_excludes(self, tag_id, wall, lateral, tolerance=1):
+        for (area, observed_wall, observed_lateral, led_off), ids in reversed(
+                tuple(getattr(self, '_pp_reference_views', {}).items())):
+            if (area == self._current_location
+                    and led_off == bool(getattr(self, '_search_led_off', False))
+                    and abs(observed_wall - wall) <= tolerance
+                    and abs(observed_lateral - lateral) <= tolerance):
+                return tag_id not in ids
+        return False
+
     def _pp_move_to_next_search_point(self, tag_id, *, reference, attempted):
         # Each recovery owns its attempts. Object-search history must not suppress
         # a fresh reference search, or searches after a cargo/base movement.
@@ -54,14 +72,21 @@ class PrecisionRuntime:
             return True
         return False
 
-    def _pp_scan_for(self, tag_id, *, reference, attempted=None):
+    def _pp_scan_for(self, tag_id, *, reference, attempted=None, deferred=None):
         """Search all configured viewpoints before reporting a missing tag."""
         attempted = set() if attempted is None else attempted
-        while self._pp_move_to_next_search_point(tag_id, reference=reference, attempted=attempted):
-            self._observe_visit()
-            refs, objects = self._pp_scene()
-            if tag_id is None or tag_id in (refs if reference else objects):
-                return
+        while True:
+            while self._pp_move_to_next_search_point(tag_id, reference=reference, attempted=attempted):
+                self._observe_visit()
+                refs, objects = self._pp_scene()
+                if tag_id is None or tag_id in (refs if reference else objects):
+                    return
+            if not deferred:
+                break
+            # Only after every unexplored viewpoint failed, retry old negatives:
+            # pickup can have uncovered a previously occluded fixed reference.
+            attempted.difference_update(deferred)
+            deferred = None
         raise StepFailed(f'PP: {"referência" if reference else "objeto"} {tag_id} não encontrado após busca.')
 
     def _pp_destination_is_aligned(self, tag_id):
@@ -76,6 +101,17 @@ class PrecisionRuntime:
         attempted = set()
         config = self._arena.pickup_recovery
         memory = getattr(self, '_pp_reference_observations', {}).get((self._current_location, tag_id))
+        deferred = set()
+        if memory is None:
+            for wall, lateral in self._pp_search_points():
+                if self._pp_reference_view_excludes(tag_id, wall, lateral):
+                    attempted.add((wall, lateral))
+            deferred = attempted.copy()
+            if self._pp_reference_view_excludes(tag_id, self._current_wall_distance_mm,
+                                               self._current_lateral_position_mm):
+                self._pp_scan_for(tag_id, reference=True, attempted=attempted, deferred=deferred)
+                deferred = set()
+                memory = self._pp_reference_observations[(self._current_location, tag_id)]
         while True:
             if memory is not None:
                 wall, lateral = self._precision_memory_destination(memory)
@@ -99,7 +135,8 @@ class PrecisionRuntime:
                     if (abs(point[0] - self._current_wall_distance_mm) <= config.wall_tolerance_mm
                             and abs(point[1] - self._current_lateral_position_mm) <= config.travel_tolerance_mm):
                         attempted.add(point)
-                self._pp_scan_for(tag_id, reference=True, attempted=attempted)
+                self._pp_scan_for(tag_id, reference=True, attempted=attempted, deferred=deferred)
+                deferred = set()
                 memory = self._pp_reference_observations[(self._current_location, tag_id)]
                 continue
             if memory is None:
@@ -248,6 +285,7 @@ class PrecisionRuntime:
         self._pp_owned_slots = set()
         self._pp_aligned_reference = None
         self._pp_organizing = True
+        self._pp_reference_views = {}
         try:
             self._observe_visit()
             # Reuse the initial scene to leave already correct cubes untouched.

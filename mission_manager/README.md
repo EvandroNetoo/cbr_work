@@ -601,9 +601,18 @@ A busca de referências e objetos usa `pickup_recovery.search_positions_mm`
 e, depois, `safety_search_positions_mm` na distância de segurança. Se uma
 referência memorizada não aparecer depois do alinhamento, o gerenciador busca
 nessas posições antes de falhar. O mesmo vale para um ocupante que sumiu da
-análise e para tags ausentes nas actions de pick/place em PP. Cada recuperação
-tem suas próprias tentativas: uma posição visitada ao procurar outro objeto
-não elimina a busca de uma nova referência. Só a busca esgotada causa falha por
+análise e para tags ausentes nas actions de pick/place em PP. Para uma referência
+ainda não localizada, a organização reaproveita as análises válidas da visita:
+primeiro busca em posições onde sua presença ainda não foi verificada. Pegar e
+armazenar um cubo invalida a ocupação, mas mantém o histórico de referências
+fixas. Exemplo: após analisar 0 e 325 sem ver a referência, busca primeiro em
+-325, sem repetir a análise em 325 nem voltar antes a 0. O histórico distingue
+área, distância frontal, posição lateral, iluminação e IDs de referências
+(independentes dos IDs de objetos). Se todas as posições restantes falharem,
+revisita as negativas antigas uma vez: uma coleta pode revelar uma tag antes
+encoberta. Referências já conhecidas que sumirem após alinhamento mantêm busca
+própria, e a ocupação do destino continua exigindo observação atual.
+Só a busca esgotada causa falha por
 tag ausente; cancelamento, falhas de percepção e incerteza física continuam
 interrompendo a execução. A carga física permanece registrada. O número de operações é decidido durante a
 execução; o total no feedback começa como estimativa e cresce se necessário.
