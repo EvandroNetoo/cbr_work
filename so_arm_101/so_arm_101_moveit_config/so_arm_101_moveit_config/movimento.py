@@ -217,6 +217,8 @@ class ExecutorDoMoveIt:
         mesa_y_min_m: float = 0.0,
         mesa_y_max_m: float = 0.0,
         resolucao_grade_m: float = 0.0,
+        pp_reference_z_m: float | None = None,
+        pp_reference_z_tolerance_m: float = 0.015,
     ) -> tuple[
         list[AprilTagStampedDetection],
         list[ContainerStampedDetection],
@@ -254,6 +256,10 @@ class ExecutorDoMoveIt:
             )
 
         objetivo = AnalyzeScene.Goal()
+        if pp_reference_z_m is not None:
+            objetivo.classify_pp_tags = True
+            objetivo.pp_reference_z_m = float(pp_reference_z_m)
+            objetivo.pp_reference_z_tolerance_m = float(pp_reference_z_tolerance_m)
         objetivo.requested_detectors = 0
         if analisar_apriltags:
             objetivo.requested_detectors |= AnalyzeScene.Goal.APRILTAGS

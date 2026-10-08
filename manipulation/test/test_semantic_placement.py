@@ -1182,3 +1182,43 @@ def test_precision_missing_reference_never_releases():
     with pytest.raises(ObjectNotFound):
         server._execute_place_on_precision_table(SimpleNamespace(
             request=PlaceOnPrecisionTable.Goal(reference_tag_id=42)))
+
+
+@pytest.mark.parametrize('blocked', [False, True])
+def test_pp_same_id_reference_and_object_never_confuse_release_target(blocked):
+    from interfaces.action import PlaceOnPrecisionTable
+    server = _operation_only_server()
+    profile = replace(_cartesian_profile(), name='precision_table', strategy='tag_relative',
+                      calibrated_reference=True, reference_offset_xyz=(0.0, .06, 0.0))
+    server._profiles = SimpleNamespace(placements={'precision_table': profile},
+                  pickup_profile=lambda _: SimpleNamespace(observation_state='detect_apriltags'))
+    server._arm_state = lambda *_: None
+    server.get_parameter = lambda _: SimpleNamespace(value=2.0)
+    ref = AprilTagStampedDetection()
+    ref.id = 1
+    ref.header.frame_id = 'arm_base_link'
+    ref.pose.position.y = -.22
+    ref.pose.position.z = .02
+    obj = AprilTagStampedDetection()
+    obj.id = 1
+    obj.header.frame_id = 'arm_base_link'
+    obj.pose.position.y = -.16 if blocked else .2
+    obj.pose.position.z = .07
+    server._analyze_for_operation = lambda *args, **kwargs: ([obj, ref], [], None)
+    def pose(tags, tag, duration):
+        assert tags == [ref]
+        p = tags[0].pose.position
+        return p.x, p.y, p.z, 0.0
+    server._motion = SimpleNamespace(pose_da_april_tag=pose)
+    releases = []
+    server._release_at_pose = lambda *args: releases.append(args[2])
+    goal = PlaceOnPrecisionTable.Goal(reference_tag_id=1, classify_pp_tags=True,
+              pp_reference_z_m=.02, pp_reference_z_tolerance_m=.015,
+              require_empty_slot=True, occupancy_radius_m=.025, held_tag_id=2)
+    if blocked:
+        with pytest.raises(NoFreeSpace, match='ocupada'):
+            server._execute_place_on_precision_table(SimpleNamespace(request=goal))
+        assert not releases
+    else:
+        server._execute_place_on_precision_table(SimpleNamespace(request=goal))
+        assert releases[0].pose.position.z == pytest.approx(.02)

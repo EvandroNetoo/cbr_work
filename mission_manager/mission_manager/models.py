@@ -122,6 +122,16 @@ class ServiceArea:
 
 
 @dataclass(frozen=True)
+class PrecisionPerceptionConfig:
+    # Z in arm_base_link; calibrate with the real table and arm origin.
+    reference_z_m: float = 0.02
+    reference_z_tolerance_m: float = 0.015
+    slot_offset_x_m: float = 0.0
+    slot_offset_y_m: float = 0.0675
+    occupancy_radius_m: float = 0.025
+
+
+@dataclass(frozen=True)
 class Arena:
     frame_id: str
     start: MapPose
@@ -132,6 +142,8 @@ class Arena:
     service_areas: dict[str, ServiceArea]
     table_place_search_positions_mm: tuple[int, ...] | None = None
     shelf_place_alignment_defaults: AlignmentConfig = AlignmentConfig(40, 5, 10.0)
+
+    precision_perception: PrecisionPerceptionConfig = PrecisionPerceptionConfig()
 
     def pose_for(self, target: str) -> MapPose:
         if target == 'start':
@@ -178,7 +190,9 @@ class Plan:
     def total_steps(self) -> int:
         return len(self.visits) + int(self.finish) + sum(
             len(task.tag_ids) if task.action == 'stack' else 1
-            for visit in self.visits for task in visit.tasks)
+            for visit in self.visits for task in visit.tasks) + sum(
+                4 * sum(cube is not None for _slot, cube in visit.pp_final_state)
+                for visit in self.visits if visit.pp_final_state is not None and visit.pp_start_state is None)
 
 
 @dataclass(frozen=True)

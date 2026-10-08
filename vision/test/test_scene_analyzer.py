@@ -966,3 +966,54 @@ def test_vision_only_releases_resources_it_enabled(initially_on, hold_led_off):
             ('led', True), ('camera', True),
             ('camera', False), ('led', False),
         ]
+
+
+@pytest.mark.parametrize('pp,expected_count', [(True, 2), (False, 1)])
+def test_frame_preserves_equal_tag_ids_by_pp_height_only(pp, expected_count):
+    from sensor_msgs.msg import CameraInfo
+    goal = AnalyzeScene.Goal(requested_detectors=AnalyzeScene.Goal.APRILTAGS,
+               classify_pp_tags=pp, pp_reference_z_m=.02, pp_reference_z_tolerance_m=.015)
+    session = Session(goal_handle=SimpleNamespace(request=goal, is_cancel_requested=False),
+                      duration=1, requested_detectors=goal.requested_detectors, work_surface_height_m=0)
+    analyzer = object.__new__(SceneAnalyzer)
+    analyzer.session = session
+    analyzer.sessions_lock = threading.Lock()
+    info = CameraInfo()
+    info.header.frame_id = 'camera'
+    info.p = [100., 0., 50., 0., 0., 100., 50., 0., 0., 0., 1., 0.]
+    analyzer.camera_info = info
+    transform = TransformStamped()
+    transform.transform.rotation.w = 1.
+    analyzer.tf_buffer = SimpleNamespace(lookup_transform=lambda *_a, **_k: transform)
+    analyzer.last_detection_time = 0
+    analyzer.detection_period = 0
+    analyzer.publish_debug_image = False
+    analyzer.base_frame = 'arm_base_link'
+    analyzer.tag_frame_prefix = 'tag'
+    analyzer.tag_size_m = .02
+    analyzer.max_hamming = 0
+    analyzer.min_decision_margin = 10
+    analyzer.red_ranges = ((0, 12), (168, 179))
+    analyzer.blue_range = (92, 138)
+    analyzer.min_saturation = 80
+    analyzer.min_value = 45
+    analyzer.image_to_bgr8 = lambda _m: np.zeros((100, 100, 3), dtype=np.uint8)
+    detections = [SimpleNamespace(tag_id=1, tag_family=b'tag36h11', hamming=0, decision_margin=50.,
+              pose_t=np.array([[0.], [0.], [z]]), pose_R=np.eye(3), pose_err=.01,
+              corners=np.array([[40., 40.], [60., 40.], [60., 60.], [40., 60.]])) for z in (.02, .07)]
+    analyzer.apriltag_detector = SimpleNamespace(detect=lambda *_a, **_k: detections)
+    publisher = SimpleNamespace(publish=lambda _v: None)
+    analyzer.camera_pose_publisher = publisher
+    analyzer.camera_detection_publisher = publisher
+    analyzer.pose_publisher = publisher
+    analyzer.detection_publisher = publisher
+    transforms = []
+    analyzer.tf_broadcaster = SimpleNamespace(sendTransform=transforms.extend)
+    message = Image()
+    message.header.frame_id = 'camera'
+    analyzer._process_image(message)
+    assert session.frames_with_base_transform == 1
+    assert len(session.best_base) == len(session.best_camera) == expected_count
+    if pp:
+        assert {item.pose.position.z for item in session.best_base.values()} == {.02, .07}
+        assert {item.child_frame_id for item in transforms} == {'tag_tag36h11_1_reference', 'tag_tag36h11_1_object'}

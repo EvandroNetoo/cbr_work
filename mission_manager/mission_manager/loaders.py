@@ -17,6 +17,7 @@ from .models import (
     DepartureConfig,
     MapPose,
     PickupRecoveryConfig,
+    PrecisionPerceptionConfig,
     Plan,
     SERVICE_AREA_TYPES,
     ServiceArea,
@@ -382,7 +383,7 @@ def load_arena(path: str | Path) -> Arena:
             'departure_defaults', 'pickup_recovery',
             'table_place_search_positions_mm',
             'start', 'finish', 'service_areas',
-            'shelf_place_alignment_defaults',
+            'shelf_place_alignment_defaults', 'precision_perception',
         },
         'arena',
     )
@@ -479,7 +480,16 @@ def load_arena(path: str | Path) -> Arena:
                 departure_defaults,
             ),
         )
+    pp_raw = _mapping(root.get('precision_perception', {}), 'arena.precision_perception')
+    pp_defaults = PrecisionPerceptionConfig()
+    _only_keys(pp_raw, set(pp_defaults.__dataclass_fields__), 'arena.precision_perception')
+    pp_config = PrecisionPerceptionConfig(**{
+        key: _number(pp_raw.get(key, getattr(pp_defaults, key)),
+                     f'arena.precision_perception.{key}',
+                     positive=key in {'reference_z_tolerance_m', 'occupancy_radius_m'})
+        for key in pp_defaults.__dataclass_fields__})
     return Arena(
+        precision_perception=pp_config,
         frame_id=frame_id,
         start=_pose(root.get('start'), 'arena.start'),
         finish=_pose(root.get('finish'), 'arena.finish'),
@@ -535,8 +545,6 @@ def _task(raw_value: Any, context: str) -> Step:
     if action == 'place_on_precision_table':
         reference = _integer(raw.get('reference_tag_id'),
                              f'{context}.reference_tag_id', nonnegative=True)
-        if reference == tag:
-            raise ConfigurationError(f'{context}: referência não pode ser o objeto na garra.')
     return Step(task_id, action, tag_id=tag, container_color=color,
                 reference_tag_id=reference)
 
@@ -598,8 +606,16 @@ def load_plan(path: str | Path, *, cargo_capacity: int = 2) -> Plan:
                 if name in states:
                     raise ConfigurationError(f'{context}: {name} duplicado.')
                 states[name] = _mapping(entry[name], f'{context}.{name}')
-            if set(states) != {'start_state', 'final_state'}:
-                raise ConfigurationError(f'{context}: start_state e final_state são obrigatórios juntos.')
+            if 'final_state' not in states:
+                raise ConfigurationError(f'{context}: final_state é obrigatório.')
+            from .precision_perception import validate_final_state
+            validate_final_state(states['final_state'])
+            if 'start_state' not in states:
+                if cargo_capacity < 2:
+                    raise ConfigurationError('Organização PP descoberta exige pelo menos dois compartimentos livres.')
+                visits.append(Visit(visit_id, target, (), None,
+                                    tuple(sorted(states['final_state'].items()))))
+                continue
             from .precision_organization import organize_precision_slots
             generated = organize_precision_slots(
                 states['start_state'], states['final_state'], cargo_capacity=cargo_capacity)
@@ -636,9 +652,9 @@ def validate_plan(plan: Plan, arena: Arena, cargo_slot_ids=('left', 'right'),
     for visit in plan.visits:
         if not arena.has_target(visit.target):
             raise ConfigurationError(f"Visita '{visit.visit_id}': target desconhecido '{visit.target}'.")
-        if (visit.tasks or visit.pp_start_state is not None) and visit.target not in arena.service_areas:
+        if (visit.tasks or visit.pp_final_state is not None) and visit.target not in arena.service_areas:
             raise ConfigurationError(f"Visita '{visit.visit_id}': manipulação fora de uma área de serviço.")
-        if (visit.pp_start_state is not None
+        if (visit.pp_final_state is not None
                 and arena.service_areas[visit.target].area_type != 'PP'):
             raise ConfigurationError(f"Visita '{visit.visit_id}': organização de alojamentos exige área PP.")
         for task in visit.tasks:

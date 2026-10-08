@@ -51,7 +51,7 @@ pickup_recovery:
   stack_preferred_tag_y_m: -0.22
   # Alvo da tag de referência PP no referencial do braço; calibrar com o offset.
   precision_preferred_tag_x_m: 0.0
-  precision_preferred_tag_y_m: -0.30
+  precision_preferred_tag_y_m: -0.267
   wall_tolerance_mm: 5
   travel_tolerance_mm: 10
   timeout_s: 15.0
@@ -63,6 +63,16 @@ pickup_recovery:
   # mesmos sete pontos com LED apagado durante toda a varredura.
   safety_search_distance_mm: 60
   safety_search_positions_mm: [-375, -250, -125, 0, 125, 250, 375]
+
+# Usado SOMENTE em PP. Alturas no referencial arm_base_link (não no mapa/chão).
+# Calibre reference_z_m medindo as tags fixas reais; objetos ficam fora da faixa.
+precision_perception:
+  reference_z_m: 0.02
+  reference_z_tolerance_m: 0.015
+  # Centro XY da cavidade em relação à tag; manter igual ao offset de precision_table.
+  slot_offset_x_m: 0.0
+  slot_offset_y_m: 0.0675
+  occupancy_radius_m: 0.04
 
 # Posições fixas de busca de espaço livre para place_on_table, em milímetros.
 # Coleta e depósito em contêiner continuam usando pickup_recovery.search_positions_mm.
@@ -133,6 +143,19 @@ service_areas:
     height_cm: 16.0
     type: WS
 
+  pp_67:
+    x_m: 2.55
+    y_m: 3.31
+    yaw_rad: 1.570
+    height_cm: 11.0
+    type: PP
+
+  ws_67:
+    x_m: 2.55
+    y_m: 4.51
+    yaw_rad: -1.570
+    height_cm: 11.0
+    type: WS
 
 
   # Exemplo completo de área de serviço (valores ilustrativos).

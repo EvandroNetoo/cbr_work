@@ -15,6 +15,11 @@ float64 table_search_x_max_m
 float64 table_search_y_min_m
 float64 table_search_y_max_m
 float64 table_grid_resolution_m
+# PP only: distinguish fixed references from object tags in arm_base_link.
+# Reference iff abs(z - pp_reference_z_m) <= pp_reference_z_tolerance_m.
+bool classify_pp_tags
+float64 pp_reference_z_m
+float64 pp_reference_z_tolerance_m
 ---
 interfaces/AprilTagStampedDetection[] best_apriltags_camera
 interfaces/AprilTagStampedDetection[] best_apriltags_base

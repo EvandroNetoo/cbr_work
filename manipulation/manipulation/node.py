@@ -91,6 +91,8 @@ def _interfaces_are_compatible() -> bool:
         hasattr(PickObject.Result(), 'observed_detections'),
         hasattr(PickObject.Result(), 'scene_observation'),
         hasattr(PickObject.Goal(), 'alignment_completed'),
+        hasattr(PickObject.Goal(), 'classify_pp_tags'),
+        hasattr(PlaceOnPrecisionTable.Goal(), 'require_empty_slot'),
         hasattr(PickObject.Goal(), 'use_observed_detection'),
         hasattr(PickObject.Result(), 'used_observed_detection'),
         hasattr(PickObject.Result, 'RECOVERY_ALIGNMENT_REQUIRED'),
@@ -100,6 +102,18 @@ def _interfaces_are_compatible() -> bool:
         hasattr(SceneObservation, 'CONTAINERS_HSV'),
         hasattr(ContainerStampedDetection(), 'mask_area_px'),
     ))
+
+
+def _pp_is_reference(tag, request):
+    if tag.header.frame_id != 'arm_base_link':
+        raise ConfigurationError('Classificação PP exige arm_base_link.')
+    p = tag.pose.position
+    if not all(math.isfinite(v) for v in (p.x, p.y, p.z)):
+        raise ConfigurationError('Posição PP inválida.')
+    tolerance = float(request.pp_reference_z_tolerance_m)
+    if not math.isfinite(tolerance) or tolerance <= 0 or not math.isfinite(request.pp_reference_z_m):
+        raise ConfigurationError('Faixa Z de referência PP inválida.')
+    return abs(p.z - request.pp_reference_z_m) <= tolerance + 1e-9
 
 
 class ManipulationServer(Node):
@@ -446,14 +460,17 @@ class ManipulationServer(Node):
         observation: SceneObservation,
         apriltags: list[Any],
         containers: list[Any],
+        pp_request=None,
     ) -> None:
         """Merge one successful camera session into the action observation."""
         observation.completed = True
-        tags_by_id = {int(item.id): item for item in observation.apriltags}
-        tags_by_id.update({int(item.id): item for item in apriltags})
-        observation.apriltags = [
-            copy.deepcopy(tags_by_id[tag_id]) for tag_id in sorted(tags_by_id)
-        ]
+        def key(item):
+            if getattr(pp_request, 'classify_pp_tags', False):
+                return (int(item.id), _pp_is_reference(item, pp_request))
+            return int(item.id)
+        tags_by_id = {key(item): item for item in observation.apriltags}
+        tags_by_id.update({key(item): item for item in apriltags})
+        observation.apriltags = [copy.deepcopy(item) for item in tags_by_id.values()]
         observation.containers.extend(copy.deepcopy(containers))
 
     def _analyze_for_operation(
@@ -464,12 +481,18 @@ class ManipulationServer(Node):
         *,
         work_surface_height_m: float,
         table_bounds: tuple[float, float, float, float, float] | None = None,
+        pp_request=None,
     ) -> tuple[list[Any], list[Any], TableSurfaceGrid | None]:
         mask = int(observation.requested_detectors)
         table_requested = bool(mask & SceneObservation.TABLE_SURFACE)
         bounds = table_bounds or (0.0, 0.0, 0.0, 0.0, 0.0)
+        pp_kwargs = {}
+        if getattr(pp_request, 'classify_pp_tags', False):
+            pp_kwargs = dict(pp_reference_z_m=pp_request.pp_reference_z_m,
+                             pp_reference_z_tolerance_m=pp_request.pp_reference_z_tolerance_m)
         result = self._motion.analisar_cena(
             duration,
+            **pp_kwargs,
             analisar_apriltags=bool(mask & SceneObservation.APRILTAGS),
             analisar_containers_hsv=bool(mask & SceneObservation.CONTAINERS_HSV),
             analisar_mesa_branca=table_requested,
@@ -488,7 +511,7 @@ class ManipulationServer(Node):
         apriltags = list(apriltags)
         containers = list(containers)
         self._record_scene_observation(
-            observation, apriltags, containers)
+            observation, apriltags, containers, pp_request)
         return apriltags, containers, table_grid
 
     def _record_effect(self, location: int) -> None:
@@ -618,10 +641,17 @@ class ManipulationServer(Node):
         tag_id = int(goal_handle.request.tag_id)
         observed_detections: list[Any] = []
         scene_observation = self._new_scene_observation('pick')
+        if getattr(goal_handle.request, 'classify_pp_tags', False):
+            scene_observation.requested_detectors = SceneObservation.APRILTAGS
 
         def remember(detections: list[Any]) -> None:
-            by_id = {int(item.id): item for item in observed_detections}
-            by_id.update({int(item.id): item for item in detections})
+            request = goal_handle.request
+            def key(item):
+                if getattr(request, 'classify_pp_tags', False):
+                    return (int(item.id), _pp_is_reference(item, request))
+                return int(item.id)
+            by_id = {key(item): item for item in observed_detections}
+            by_id.update({key(item): item for item in detections})
             observed_detections[:] = [
                 by_id[item_id] for item_id in sorted(by_id)
             ]
@@ -633,6 +663,8 @@ class ManipulationServer(Node):
             request = goal_handle.request
             if request.use_observed_detection:
                 detection = request.observed_detection
+                if getattr(request, 'classify_pp_tags', False) and _pp_is_reference(detection, request):
+                    raise ConfigurationError('Pick PP recusado: detecção é uma referência fixa.')
                 if detection.id != tag_id:
                     raise ConfigurationError('A detecção fornecida não corresponde à tag solicitada.')
                 pose = PoseStamped()
@@ -667,10 +699,13 @@ class ManipulationServer(Node):
                         try:
                             tags, _containers, _table = self._analyze_for_operation(
                                 'pick', duration, scene_observation,
-                                work_surface_height_m=float(request.ws_height_cm) / 100.0)
-                            snapshot_tags = list(tags)
+                                work_surface_height_m=float(request.ws_height_cm) / 100.0,
+                                pp_request=request)
+                            pick_tags = ([tag for tag in tags if not _pp_is_reference(tag, request)]
+                                         if getattr(request, 'classify_pp_tags', False) else tags)
+                            snapshot_tags = list(pick_tags)
                             attempt_detections.extend(tags)
-                            x, y, tag_z, yaw = self._motion.pose_da_april_tag(tags, tag_id, duration)
+                            x, y, tag_z, yaw = self._motion.pose_da_april_tag(pick_tags, tag_id, duration)
                         finally:
                             remember(attempt_detections)
                     detected_pose = criar_pose(x, y, tag_z, yaw)
@@ -1767,12 +1802,15 @@ class ManipulationServer(Node):
             try:
                 tags, _containers, _table = self._analyze_for_operation(
                     operation_name, duration, scene_observation,
-                    work_surface_height_m=(
-                        float(goal_handle.request.ws_height_cm) / 100.0
-                    ),
+                    work_surface_height_m=(float(goal_handle.request.ws_height_cm) / 100.0),
+                    pp_request=goal_handle.request if profile_name == 'precision_table' else None,
                 )
+                reference_tags = tags
+                request = goal_handle.request
+                if profile_name == 'precision_table' and getattr(request, 'classify_pp_tags', False):
+                    reference_tags = [tag for tag in tags if _pp_is_reference(tag, request)]
                 x, y, z, yaw = self._motion.pose_da_april_tag(
-                    tags, reference_tag_id, duration)
+                    reference_tags, reference_tag_id, duration)
             except RuntimeError as error:
                 if 'não encontrada' in str(error).lower():
                     raise ObjectNotFound(str(error)) from error
@@ -1784,6 +1822,16 @@ class ManipulationServer(Node):
                     criar_pose(x, y, z, yaw),
                     action_type.Result.RECOVERY_ALIGNMENT_REQUIRED,
                 )
+            if profile_name == 'precision_table' and getattr(request, 'require_empty_slot', False):
+                if (not request.classify_pp_tags or not math.isfinite(request.occupancy_radius_m)
+                        or request.occupancy_radius_m <= 0):
+                    raise ConfigurationError('Verificação PP exige classificação Z e raio positivo.')
+                blockers = [tag.id for tag in tags
+                            if not _pp_is_reference(tag, request) and tag.id != request.held_tag_id
+                            and math.hypot(tag.pose.position.x - (x + dx),
+                                           tag.pose.position.y - (y + dy)) <= request.occupancy_radius_m]
+                if blockers:
+                    raise NoFreeSpace(f'Cavidade PP ocupada por {blockers}; depósito recusado.')
             release_pose = criar_pose(
                 x + dx,
                 y + dy,

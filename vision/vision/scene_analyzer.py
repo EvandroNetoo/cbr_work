@@ -163,8 +163,8 @@ class Session:
     started: float = field(default_factory=time.monotonic)
     frames_processed: int = 0
     frames_with_base_transform: int = 0
-    best_camera: dict[int, AprilTagStampedDetection] = field(default_factory=dict)
-    best_base: dict[int, AprilTagStampedDetection] = field(default_factory=dict)
+    best_camera: dict[object, AprilTagStampedDetection] = field(default_factory=dict)
+    best_base: dict[object, AprilTagStampedDetection] = field(default_factory=dict)
     cube_color_votes: dict[int, list[tuple[int, float]]] = field(default_factory=dict)
     latest_camera: list[AprilTagStampedDetection] = field(default_factory=list)
     latest_base: list[AprilTagStampedDetection] = field(default_factory=list)
@@ -522,6 +522,11 @@ class SceneAnalyzer(
         if not math.isfinite(float(goal_request.work_surface_height_m)):
             self.get_logger().warning('Rejecting non-finite work surface height.')
             return GoalResponse.REJECT
+        if getattr(goal_request, 'classify_pp_tags', False):
+            if (not math.isfinite(goal_request.pp_reference_z_m)
+                    or not math.isfinite(goal_request.pp_reference_z_tolerance_m)
+                    or goal_request.pp_reference_z_tolerance_m <= 0):
+                return GoalResponse.REJECT
         requested = int(goal_request.requested_detectors)
         known = APRILTAGS | TABLE_SURFACE | CONTAINERS_HSV
         if requested == 0 or requested & ~known:
@@ -1258,6 +1263,13 @@ class SceneAnalyzer(
                 self.pose_array(camera_frame, message, camera_poses))
             self.camera_detection_publisher.publish(
                 self.detection_array(camera_frame, message, camera_items))
+            request = getattr(session.goal_handle, 'request', None)
+            if getattr(request, 'classify_pp_tags', False):
+                # Keep TF frames independent too when references share object IDs.
+                for transform, item in zip(transforms, base_items):
+                    reference = abs(item.pose.position.z - request.pp_reference_z_m) <= request.pp_reference_z_tolerance_m + 1e-9
+                    transform.child_frame_id += '_reference' if reference else '_object'
+                transforms = transforms[:len(base_items)]
             if transforms:
                 self.tf_broadcaster.sendTransform(transforms)
             self.pose_publisher.publish(
@@ -1308,10 +1320,21 @@ class SceneAnalyzer(
                 # A bounded window also keeps continuous sessions responsive
                 # when the robot moves and the lighting changes.
                 del votes[:-20]
-            for item in camera_items:
-                self._update_best(session.best_camera, item)
+            request = getattr(session.goal_handle, 'request', None)
+            if getattr(request, 'classify_pp_tags', False):
+                # Camera/base lists have the same order after a successful TF.
+                for camera, base in zip(camera_items, base_items):
+                    reference = abs(base.pose.position.z - request.pp_reference_z_m) <= request.pp_reference_z_tolerance_m + 1e-9
+                    self._update_best(session.best_camera, camera, key=(camera.id, reference))
+            else:
+                for item in camera_items:
+                    self._update_best(session.best_camera, item)
             for item in base_items:
-                self._update_best(session.best_base, item)
+                key = item.id
+                if getattr(request, 'classify_pp_tags', False):
+                    reference = abs(item.pose.position.z - request.pp_reference_z_m) <= request.pp_reference_z_tolerance_m + 1e-9
+                    key = (item.id, reference)
+                self._update_best(session.best_base, item, key=key)
             if active_detectors & CONTAINERS_HSV:
                 update_tracks(session.hsv_container_tracks, hsv_observations,
                               self.hsv_center_tolerance)
@@ -1381,8 +1404,9 @@ class SceneAnalyzer(
         return pose
 
     @staticmethod
-    def _update_best(best, item) -> None:
-        old = best.get(item.id)
+    def _update_best(best, item, *, key=None) -> None:
+        key = item.id if key is None else key
+        old = best.get(key)
         item_time = (
             int(item.header.stamp.sec), int(item.header.stamp.nanosec))
         old_time = (
@@ -1397,7 +1421,7 @@ class SceneAnalyzer(
                 (-old_time[0], -old_time[1])
             ) if old is not None else None)
         if old is None or score < old_score:
-            best[item.id] = SceneAnalyzer.copy_stamped(item)
+            best[key] = SceneAnalyzer.copy_stamped(item)
 
     @staticmethod
     def copy_stamped(item):

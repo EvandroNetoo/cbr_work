@@ -1,15 +1,7 @@
-# Organizar os cubos somente nos alojamentos da mesa PP.
-# Chaves: AprilTags fixas dos slots. Valores: tags dos cubos; null = vazio.
-# Exemplo corrigido: slot 26 contém o cubo 3, em vez de repetir o cubo 5.
 schema_version: 2
 plan_id: cubos_1_2_3
 finish: false
 visits:
-- target: pp_1
-  tasks:
-    - {action: pick, tag_id: 1}
-    - {action: place_on_precision_table, tag_id: 1, reference_tag_id: 22} 
-  # - start_state: {21: 5, 22: 2, 23: 6, 24: 1, 25: 4, 26: 3, 27: null}
-  # - final_state: {21: null, 22: 4, 23: 1, 24: 6, 25: 3, 26: 5, 27: 2}
-  # - start_state: {21: null, 22: 4, 23: 1, 24: 6, 25: 3, 26: 5, 27: 2}
-  # - final_state: {21: 5, 22: 2, 23: 6, 24: 1, 25: 4, 26: 3, 27: null}
+- target: pp_67
+  tasks: 
+  - final_state: {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}

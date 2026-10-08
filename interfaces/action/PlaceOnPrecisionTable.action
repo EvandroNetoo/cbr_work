@@ -4,6 +4,15 @@ int32 reference_tag_id
 float32 ws_height_cm
 # Detect first and request base alignment before releasing (Mission Manager).
 bool require_alignment
+# PP only: distinguish fixed references from object tags in arm_base_link.
+# Reference iff abs(z - pp_reference_z_m) <= pp_reference_z_tolerance_m.
+bool classify_pp_tags
+float64 pp_reference_z_m
+float64 pp_reference_z_tolerance_m
+# Refuse release if another object is detected near the calibrated cavity center.
+bool require_empty_slot
+int32 held_tag_id
+float64 occupancy_radius_m
 ---
 uint8 RECOVERY_NONE=0
 uint8 RECOVERY_ALIGNMENT_REQUIRED=3

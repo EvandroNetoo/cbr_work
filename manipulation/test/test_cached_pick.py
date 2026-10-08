@@ -115,3 +115,31 @@ def test_standalone_pick_retry_reuses_the_first_capture_at_the_same_base():
     assert sum(event[0] == 'capture' for event in events) == 1
     assert sum(event[0] == 'arm' for event in events) == 1
     assert ('gripper', 'grip') in events
+
+
+def test_pp_cached_reference_is_refused_before_moving_or_opening():
+    server, goal, events = server_and_goal((.12, -.18, .02))
+    goal.classify_pp_tags = True
+    goal.pp_reference_z_m = .02
+    goal.pp_reference_z_tolerance_m = .015
+    with pytest.raises(ConfigurationError, match='referência fixa'):
+        server._execute_pick(SimpleNamespace(request=goal))
+    assert not events
+
+
+def test_pp_uncached_pick_preserves_both_roles_but_only_grasps_object():
+    server, goal, events = server_and_goal()
+    goal.use_observed_detection = False
+    goal.classify_pp_tags = True
+    goal.pp_reference_z_m = .02
+    goal.pp_reference_z_tolerance_m = .015
+    reference = AprilTagStampedDetection()
+    reference.id = goal.tag_id
+    reference.header.frame_id = 'arm_base_link'
+    reference.pose.position.z = .02
+    reference.pose.orientation.w = 1.0
+    server._motion.analisar_cena = lambda *args, **kwargs: ([reference, goal.observed_detection], [])
+    result = server._execute_pick(SimpleNamespace(request=goal))
+    assert ('pose', (.12, -.18, .10)) in events
+    assert len(result.scene_observation.apriltags) == 2
+    assert len(result.observed_detections) == 2

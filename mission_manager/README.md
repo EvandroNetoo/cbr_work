@@ -499,9 +499,9 @@ marque `calibrated_reference: true` no perfil PP.
 
 ### Organizar os alojamentos PP (Advanced Manipulation Test)
 
-Uma visita pode declarar a distribuição inicial e a desejada, sem listar cada
-movimento. As chaves são IDs das AprilTags fixas que referenciam os alojamentos;
-os valores são IDs das tags dos cubos. `null` significa alojamento vazio:
+Declare apenas o destino desejado. O estado inicial e as cavidades vazias são
+observados durante a execução; a mesa possui sete cavidades, inclusive quando
+as sete estão ocupadas:
 
 ```yaml
 schema_version: 2
@@ -510,48 +510,83 @@ finish: false
 visits:
 - target: pp_1
   tasks:
-  - start_state: {21: 4, 22: 1, 23: 2, 24: 5, 25: 6, 26: 3, 27: null}
-  - final_state: {21: 1, 22: 2, 23: 3, 24: 4, 25: 5, 26: 6, 27: null}
+  - final_state: {1: 1, 2: 2, 3: 3, 5: 4, 6: 5, 4: 6}
 ```
 
-O gerenciador gera uma sequência ordenada de coletas e depósitos
-`place_on_precision_table`, usando a tag fixa do slot de destino como
-`reference_tag_id`. Cubos já corretos permanecem no lugar. Todo cubo coletado
-precisa ser armazenado e retirado do robô antes de qualquer depósito PP,
-inclusive depósitos temporários. Uma nova coleta exige um novo ciclo de
-armazenamento e retirada, mesmo para um cubo que já passou pelo robô.
+Cada chave identifica a AprilTag fixa de uma cavidade; o valor identifica a
+AprilTag do objeto destinado a ela. Referências e objetos podem usar o mesmo ID.
+`null` exige a cavidade vazia. Cavidades omitidas não têm ocupação final prescrita
+e podem receber objetos excedentes. Objetos já confirmados no destino ficam no
+lugar. IDs de objetos devem ser únicos dentro de `final_state`.
 
-Com dois compartimentos internos, um cubo de apoio fica armazenado enquanto
-os demais passam pelo compartimento livre. Isso resolve ciclos sem um depósito
-PP temporário. Com apenas um compartimento, usa-se um alojamento PP vazio como
-apoio; uma mesa cheia com ciclo de troca exige dois compartimentos para cumprir
-a retirada obrigatória de todos os cubos. Missões incompatíveis com a capacidade
-configurada são rejeitadas antes da execução.
+Somente em PP, a visão preserva duas detecções do mesmo ID, uma por função.
+O gerenciador mantém memórias separadas para objetos e referências. O pick recebe
+somente objetos; o place recebe somente referências. A função é determinada
+pelo Z detectado em **arm_base_link**:
 
-Quando a retirada é a próxima operação no mesmo compartimento, o armazenamento
-usa `StoreObject.prepare_retrieve: true`: deposita e solta o cubo, prepara
-`safe_state` e `pre_grip`; a retirada reaproveita essa preparação, desce até
-`retrieve_state`, fecha a garra e retorna a `safe_state`. Assim evita a ida a
-`detect_apriltags` entre armazenamento e retirada. A preparação só pode ser
-reutilizada na operação seguinte e no mesmo compartimento.
+```yaml
+# config/arena.yaml — valores de exemplo, calibrar no robô real
+precision_perception:
+  reference_z_m: 0.02
+  reference_z_tolerance_m: 0.015
+  slot_offset_x_m: 0.0
+  slot_offset_y_m: 0.0675
+  occupancy_radius_m: 0.025
+```
 
-Não há depósito em espaço livre da mesa, contêiner ou outra zona.
+Uma tag na faixa `[reference_z_m - reference_z_tolerance_m,
+reference_z_m + reference_z_tolerance_m]` é referência, incluindo os limites;
+fora dela é objeto. Meça a altura das referências reais neste referencial e
+ajuste a tolerância para separar os cubos. Essas alturas não são a altura da mesa
+em relação ao chão. WS e SH mantêm sua classificação anterior.
 
-A ordem gerada é obrigatória: as observações não podem antecipar um depósito
-sobre um slot ocupado. A ocupação esperada é atualizada após o resultado
-confirmar a transferência, e a visita só termina ao atingir `final_state`.
+Os offsets XY indicam o centro da cavidade em relação à referência e devem
+coincidir com XY de `placements.precision_table.reference_offset_xyz` em
+`manipulation/config/profiles.yaml`. O raio XY determina quando um objeto
+observado ocupa a cavidade; calibre-o para distinguir cavidades vizinhas.
+A referência precisa aparecer em uma análise válida na posição atual para
+considerar o slot vazio. Ausência da referência, frames sem TF e detecção
+ambígua interrompem a operação em vez de presumir uma cavidade livre.
 
-`start_state` é uma declaração da distribuição física inicial, não uma leitura
-automática de quais cubos ocupam cada slot. Confira essa distribuição antes de
-iniciar. As actions continuam detectando os cubos e as referências para os
-movimentos; a confirmação de soltura não certifica visualmente o encaixe final.
+O fluxo prioriza objetos observados fora do destino e objetos já armazenados.
+A referência de destino não precisa ser conhecida antes da coleta: ela é
+procurada depois de coletar e armazenar o cubo. Referências já memorizadas permitem
+ir diretamente à posição preferida, com uma única análise da ocupação no destino.
+Se ocupada, a pose dessa mesma análise é usada para coletar o ocupante, sem nova
+análise ou alinhamento de coleta. Depois: armazenar o ocupante → recuperar o cubo
+correto → analisar e depositar na própria action de place. O ocupante deslocado
+é o próximo a organizar. Não há análise intermediária para confirmar que a
+cavidade esvaziou, nem análise após o depósito para confirmar a tag colocada.
+O resultado físico de coleta/soltura atualiza o estado esperado dos slots.
 
-Os dois mapas devem declarar os mesmos alojamentos e os mesmos cubos, sem IDs
-duplicados. Tags dos slots e dos cubos devem ser distintas. A visita precisa
-ter `type: PP` na arena. Não misture actions explícitas com esses dois mapas
-na mesma visita. O offset de `placements.precision_table` deve estar calibrado
-e ser válido para todas as referências dos slots usados.
+A posição de alinhamento é reaproveitada no place. Só é necessário retornar à
+referência se a base tiver mudado ao acessar a carga; falhas de alcance mantêm
+os mecanismos de recuperação. A análise final no próprio place localiza a
+referência e recusa liberar sobre outro objeto antes de abrir a garra.
 
-No exemplo inicialmente proposto, o cubo 5 aparecia duas vezes e o cubo 3
-estava ausente. Isso é rejeitado antes de movimentar o robô; o arquivo de
-exemplo usa o cubo 3 no alojamento 26.
+Todo cubo passa por armazenamento e retirada antes de cada depósito PP.
+A visita requer garra vazia e pelo menos dois compartimentos internos livres;
+isso resolve ciclos mesmo com a mesa cheia. Um objeto sem destino pode ficar
+armazenado enquanto a cadeia avança para uma cavidade livre. Ao terminar, objetos
+excedentes usam cavidades omitidas disponíveis ou permanecem na carga interna,
+respeitando a capacidade. A carga restante é considerada nas próximas visitas da mesma missão. Uma nova
+missão não apaga o inventário PP remanescente: exige recuperação dessa carga.
+Não se usa uma zona livre da mesa ou um contêiner como apoio. Os movimentos de
+rebolada configurados em `placements.precision_table.base_wiggle` continuam
+antes da abertura da garra.
+
+A busca de referências e objetos usa `pickup_recovery.search_positions_mm`
+e, depois, `safety_search_positions_mm` na distância de segurança. Se uma
+referência memorizada não aparecer depois do alinhamento, o gerenciador busca
+nessas posições antes de falhar. O mesmo vale para um ocupante que sumiu da
+análise e para tags ausentes nas actions de pick/place em PP. Cada recuperação
+tem suas próprias tentativas: uma posição visitada ao procurar outro objeto
+não elimina a busca de uma nova referência. Só a busca esgotada causa falha por
+tag ausente; cancelamento, falhas de percepção e incerteza física continuam
+interrompendo a execução. A carga física permanece registrada. O número de operações é decidido durante a
+execução; o total no feedback começa como estimativa e cresce se necessário.
+
+O formato antigo com `start_state` e `final_state` continua aceito e usa o
+planejador da distribuição declarada. Esses dois mapas precisam ter os mesmos
+slots e objetos. A organização exige `type: PP`, offset calibrado e não pode ser
+misturada com actions explícitas dentro da mesma visita.

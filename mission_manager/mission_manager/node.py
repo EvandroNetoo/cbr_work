@@ -57,9 +57,10 @@ from .models import (
 )
 from .world_state import EMPTY, WorldState
 from .scheduler import Scheduler
+from .precision_runtime import PrecisionRuntime
 
 
-class MissionManager(Node):
+class MissionManager(PrecisionRuntime, Node):
     """Own one mission at a time and compose existing semantic action servers."""
 
     def __init__(self) -> None:
@@ -68,6 +69,9 @@ class MissionManager(Node):
             not hasattr(PickObject.Result(), 'observed_detections')
             or not hasattr(PickObject.Result(), 'scene_observation')
             or not hasattr(PickObject.Goal(), 'alignment_completed')
+            or not hasattr(PickObject.Goal(), 'classify_pp_tags')
+            or not hasattr(AnalyzeScene.Goal(), 'classify_pp_tags')
+            or not hasattr(PlaceOnPrecisionTable.Goal(), 'require_empty_slot')
             or not hasattr(PickObject.Goal(), 'use_observed_detection')
             or not hasattr(PickObject.Result(), 'used_observed_detection')
             or not hasattr(PickObject.Result, 'RECOVERY_ALIGNMENT_REQUIRED')
@@ -158,6 +162,8 @@ class MissionManager(Node):
         self._last_follow_wall_result: FollowWall.Result | None = None
         self._last_lateral_travel_direction = 0
         self._tag_observations: dict[tuple[str, int], TagObservation] = {}
+        self._pp_reference_observations = {}
+        self._last_pp_scene = None
         self._placed_tag_viewpoints: dict[tuple[str, int], tuple[int, float]] = {}
         self._container_observations: dict[
             tuple[str, int], ContainerObservation
@@ -855,6 +861,14 @@ class MissionManager(Node):
                 )
             )
             container_observation_completed = False
+        references = {}
+        if self._is_precision_area():
+            from .precision_perception import split_detections
+            references, objects = split_detections(detections, arena.precision_perception)
+            if apriltag_observation_completed:
+                self._last_pp_scene = (self._current_location, self._current_wall_distance_mm,
+                                       self._current_lateral_position_mm, references, objects)
+            detections = list(objects.values())
         config = self._pickup_config()
         if abs(self._current_wall_distance_mm - config.safety_search_distance_mm) <= config.wall_tolerance_mm:
             for detector, completed in (('apriltags', apriltag_observation_completed), ('containers', container_observation_completed)):
@@ -927,7 +941,9 @@ class MissionManager(Node):
                     ):
                         positions.add(position)
 
-        for detection in detections:
+        if not hasattr(self, '_pp_reference_observations'):
+            self._pp_reference_observations = {}
+        for detection in list(references.values()) + detections:
             pose = detection.pose.position
             pickup_wall, pickup_travel = self._pickup_recovery_correction(
                 self._current_wall_distance_mm,
@@ -945,9 +961,13 @@ class MissionManager(Node):
                 ),
                 detection=copy.deepcopy(detection),
             )
-            self._tag_observations[
-                (self._current_location, int(detection.id))
-            ] = observation
+            from .precision_perception import is_reference
+            memory = (self._pp_reference_observations if self._is_precision_area()
+                      and is_reference(detection, arena.precision_perception) else self._tag_observations)
+            memory[(self._current_location, int(detection.id))] = observation
+
+        if sum(area == self._current_location for area, _tag in self._pp_reference_observations) > 7:
+            raise StepFailed('PP: mais de sete referências detectadas; confira a faixa Z e as tags da mesa.')
 
         container_memory = getattr(self, '_container_observations', None)
         if container_memory is None:
@@ -1709,7 +1729,12 @@ class MissionManager(Node):
         shelf_pick = area.area_type == 'SH'
         alignment_completed = False
         direct_detection = self._take_direct_pick_detection(int(step.tag_id))
+        if getattr(self, '_pp_direct_pick_tag', None) == int(step.tag_id) and direct_detection is None:
+            self._observe_visit()
+            self._pp_find_object(int(step.tag_id))
+            direct_detection = self._take_direct_pick_detection(int(step.tag_id))
         original_observation = None
+        pp_search_attempts = set()
         if config.enabled and direct_detection is None:
             original_observation = self._position_from_memory(int(step.tag_id))
             if (
@@ -1723,7 +1748,11 @@ class MissionManager(Node):
                     f'AprilTag {step.tag_id} não localizada nas observações '
                     'da posição atual; evitando uma nova detecção no mesmo local.'
                 )
-                if not self._move_to_next_search_position(int(step.tag_id)):
+                searching = (self._pp_move_to_next_search_point(int(step.tag_id), reference=False,
+                                                               attempted=pp_search_attempts)
+                             if area.area_type == 'PP'
+                             else self._move_to_next_search_position(int(step.tag_id)))
+                if not searching:
                     raise StepFailed(
                         f"passo '{step.step_id}' (pick) falhou: AprilTag "
                         f'{step.tag_id} não apareceu nas observações e '
@@ -1735,6 +1764,7 @@ class MissionManager(Node):
             goal = PickObject.Goal()
             goal.tag_id = int(step.tag_id)
             goal.profile = 'shelf_front' if shelf_pick else ''
+            self._configure_pp_goal(goal)
             if direct_detection is not None:
                 goal.use_observed_detection = True
                 goal.observed_detection = direct_detection
@@ -1787,6 +1817,7 @@ class MissionManager(Node):
                 reposition_count += 1
                 continue
             if (getattr(self, '_flexible_pick', False)
+                    and (area.area_type != 'PP' or not config.enabled)
                     and result.outcome.code == ManipulationResult.OBJECT_NOT_FOUND):
                 self._tag_observations.pop((self._current_location, int(step.tag_id)), None)
                 raise TaskNotFound(f"AprilTag {step.tag_id} não encontrada nesta observação.")
@@ -1794,7 +1825,11 @@ class MissionManager(Node):
                 config.enabled
                 and result.outcome.code == ManipulationResult.OBJECT_NOT_FOUND
             ):
-                if self._move_to_next_search_position(int(step.tag_id)):
+                searching = (self._pp_move_to_next_search_point(int(step.tag_id), reference=False,
+                                                               attempted=pp_search_attempts)
+                             if area.area_type == 'PP'
+                             else self._move_to_next_search_position(int(step.tag_id)))
+                if searching:
                     alignment_completed = False
                     continue
             raise StepFailed(
@@ -1983,13 +2018,14 @@ class MissionManager(Node):
                                if precision else self._arena.pickup_recovery.stack_preferred_tag_y_m),
         )
         original_observation = None
-        alignment_completed = not precision and self._stack_is_aligned(reference_tag_id)
-        if config.enabled and (precision or not self._stack_is_aligned(reference_tag_id)):
+        alignment_completed = (self._pp_destination_is_aligned(reference_tag_id) if precision
+                               else self._stack_is_aligned(reference_tag_id))
+        if config.enabled and not alignment_completed:
             placed_viewpoint = (False if precision else
                                 self._position_from_placed_tag_memory(reference_tag_id))
             if not placed_viewpoint:
                 if precision:
-                    original_observation = self._tag_observations.get(
+                    original_observation = getattr(self, '_pp_reference_observations', {}).get(
                         (self._current_location, reference_tag_id))
                     if original_observation is not None:
                         wall, lateral = self._precision_memory_destination(original_observation)
@@ -2008,8 +2044,8 @@ class MissionManager(Node):
                 not placed_viewpoint
                 and original_observation is None
                 and (
-                    self._current_observation_excludes(reference_tag_id)
-                    or self._current_search_position_visited()
+                    (not precision and self._current_observation_excludes(reference_tag_id))
+                    or (not precision and self._current_search_position_visited())
                 )
             ):
                 self.get_logger().info(
@@ -2025,6 +2061,7 @@ class MissionManager(Node):
                         'ou bloqueadas por proteção.'
                     )
         original_fallback_pending = original_observation is not None
+        pp_search_attempts = set()
         while True:
             goal.require_alignment = not alignment_completed
             result = self._call_manipulation_action(
@@ -2082,7 +2119,10 @@ class MissionManager(Node):
                     ):
                         alignment_completed = False
                         continue
-                if self._move_to_next_search_position(reference_tag_id):
+                searching = (self._pp_move_to_next_search_point(reference_tag_id, reference=True,
+                                                               attempted=pp_search_attempts)
+                             if precision else self._move_to_next_search_position(reference_tag_id))
+                if searching:
                     alignment_completed = False
                     continue
             raise StepFailed(
@@ -2316,6 +2356,10 @@ class MissionManager(Node):
                         raise ConfigurationError('place_on_precision_table exige área PP.')
                     goal = PlaceOnPrecisionTable.Goal()
                     goal.reference_tag_id = int(step.reference_tag_id)
+                    self._configure_pp_goal(goal)
+                    goal.require_empty_slot = getattr(self, '_pp_organizing', False)
+                    goal.held_tag_id = int(tag_id)
+                    goal.occupancy_radius_m = self._arena.precision_perception.occupancy_radius_m
                     goal.ws_height_cm = float(area.height_cm)
                     client = self._place_precision_client
                 elif step.action == 'place_on_shelf':
@@ -2373,6 +2417,7 @@ class MissionManager(Node):
             self._direct_pick_observation = None
         if step.action in {'navigate', 'finish'}:
             self._stack_alignment = None
+            self._pp_aligned_reference = None
         if step.action == 'navigate':
             assert step.target is not None
             self._navigate(step.target)
@@ -2392,6 +2437,9 @@ class MissionManager(Node):
         self._prepare_for_pick_observation()
         goal = AnalyzeScene.Goal()
         goal.requested_detectors = AnalyzeScene.Goal.APRILTAGS | AnalyzeScene.Goal.CONTAINERS_HSV
+        self._configure_pp_goal(goal)
+        if self._is_precision_area():
+            goal.requested_detectors = AnalyzeScene.Goal.APRILTAGS
         goal.duration = self._duration(2.0)
         goal.work_surface_height_m = self._arena.service_areas[self._current_location].height_cm / 100.0
         result = self._call_action(self._vision_client, goal, 'observação da visita',
@@ -2404,11 +2452,16 @@ class MissionManager(Node):
         scene.apriltags = result.best_apriltags_base
         scene.containers = result.best_containers_base
         # Negative observations invalidate memories at this same viewpoint.
+        visible_object_ids = {int(tag.id) for tag in scene.apriltags}
+        if self._is_precision_area():
+            from .precision_perception import split_detections
+            _refs, _objects = split_detections(scene.apriltags, self._arena.precision_perception)
+            visible_object_ids = set(_objects)
         for key, memory in list(self._tag_observations.items()):
             if (key[0] == self._current_location
                     and abs(memory.wall_distance_mm - self._current_wall_distance_mm) <= 1
                     and abs(memory.lateral_position_mm - self._current_lateral_position_mm) <= 1
-                    and key[1] not in {int(tag.id) for tag in scene.apriltags}):
+                    and key[1] not in visible_object_ids):
                 del self._tag_observations[key]
         for key, memory in list(self._container_observations.items()):
             if (key[0] == self._current_location
@@ -2439,7 +2492,7 @@ class MissionManager(Node):
         self._current_step_index = self._completed_steps
         self._active_world_operation = step.action
         self._publish_world_state()
-        self._feedback(goal_handle, self._completed_steps, plan.total_steps,
+        self._feedback(goal_handle, self._completed_steps, max(plan.total_steps, self._completed_steps + 1),
                        replace(step, step_id=task_id), description)
 
     def _run_plan(self, goal_handle, plan: Plan) -> None:
@@ -2454,6 +2507,17 @@ class MissionManager(Node):
                                              f'Navegando para {visit.target}')
             self._execute_step(nav)
             self._completed_steps += 1
+            if visit.pp_final_state is not None and visit.pp_start_state is None:
+                with self._search_session():
+                    self._run_precision_organization(goal_handle, plan, visit)
+                known, held, cargo = self._world_state.snapshot()
+                if not known or held != EMPTY:
+                    raise StepFailed('PP: estado da carga não confirmado ao encerrar a visita.')
+                state = replace(state, visit=state.visit + 1,
+                                slots=tuple(cargo[slot] for slot in scheduler.slot_ids))
+                if not scheduler.feasible(state):
+                    raise StepFailed('Carga restante após PP impede as próximas tarefas.')
+                continue
             pp_slots = dict(visit.pp_start_state) if visit.pp_start_state is not None else None
             with self._search_session():
                 while state.visit < len(plan.visits) and plan.visits[state.visit] is visit:
@@ -2583,7 +2647,7 @@ class MissionManager(Node):
     ) -> None:
         feedback = ExecuteMission.Feedback()
         feedback.current_step_index = index
-        feedback.total_steps = total
+        feedback.total_steps = max(total, index + 1)
         feedback.step_id = step.step_id
         feedback.operation = step.action
         feedback.description = description
@@ -2621,6 +2685,10 @@ class MissionManager(Node):
         self._last_follow_wall_result = None
         self._last_lateral_travel_direction = 0
         self._tag_observations.clear()
+        self._pp_reference_observations = {}
+        self._last_pp_scene = None
+        self._pp_aligned_reference = None
+        self._pp_direct_pick_tag = None
         self._placed_tag_viewpoints.clear()
         self._container_observations.clear()
         self._safety_search_history = {}
@@ -2639,6 +2707,11 @@ class MissionManager(Node):
         self._delivery_outcomes = []
         self._flexible_pick = False
         try:
+            if getattr(self, '_pp_inventory_pending', False):
+                known, held, cargo = self._world_state.snapshot()
+                if not known or held != EMPTY or any(tag != EMPTY for tag in cargo.values()):
+                    raise StepFailed('Carga remanescente da organização PP: recupere a carga antes de iniciar outra missão.')
+                self._pp_inventory_pending = False
             arena, plan = self._load_goal_files(str(goal_handle.request.plan_id))
             self._arena = arena
             self._current_location = plan.initial_location

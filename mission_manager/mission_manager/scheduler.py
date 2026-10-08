@@ -95,12 +95,15 @@ class Scheduler:
             # the held object's destination. Stop at the next manipulation
             # visit so a loaded gripper cannot block its pending work.
             next_work_visit = next((vi for vi in range(state.visit + 1, len(self.plan.visits))
-                                    if self.masks[vi]), len(self.plan.visits))
+                                    if self.masks[vi] or self.plan.visits[vi].pp_final_state is not None), len(self.plan.visits))
             next_tags = {task.tag_id for vi, task, _ in self.tasks
                          if vi == next_work_visit and task.action != 'pick'}
-            if state.gripper == EMPTY or state.gripper in next_tags:
+            dynamic_ready = (visit.pp_final_state is None or visit.pp_start_state is not None
+                             or (state.gripper == EMPTY and state.slots.count(EMPTY) >= 2))
+            if dynamic_ready and (state.gripper == EMPTY or state.gripper in next_tags):
                 if state.visit + 1 < len(self.plan.visits) or (
-                        state.gripper == EMPTY and all(tag == EMPTY for tag in state.slots)):
+                        state.gripper == EMPTY and all(tag == EMPTY or tag not in self.tag_indices
+                                                     for tag in state.slots)):
                     return (Choice(Step(visit.visit_id, 'depart'),
                                    replace(state, visit=state.visit + 1), task_id=visit.visit_id),)
         result = []
@@ -152,7 +155,7 @@ class Scheduler:
                                      replace(state, gripper=EMPTY, slots=tuple(slots))))
         else:
             for slot, tag in enumerate(state.slots):
-                if tag != EMPTY:
+                if tag != EMPTY and tag in self.tag_indices:
                     slots = list(state.slots)
                     slots[slot] = EMPTY
                     result.append(Choice(Step('auto_retrieve', 'retrieve', tag_id=tag,

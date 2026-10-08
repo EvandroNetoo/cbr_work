@@ -24,8 +24,6 @@ def organize_precision_slots(
             raise ConfigurationError(f'{name}: cubos devem ser IDs inteiros não negativos ou null.')
         if len(cubes) != len(set(cubes)):
             raise ConfigurationError(f'{name}: IDs de cubos duplicados.')
-        if set(cubes) & set(state):
-            raise ConfigurationError(f'{name}: tags de cubos e de alojamentos devem ser distintas.')
     if {c for c in start.values() if c is not None} != {c for c in final.values() if c is not None}:
         raise ConfigurationError('start_state e final_state devem conter os mesmos cubos; não é possível criar ou remover objetos.')
 

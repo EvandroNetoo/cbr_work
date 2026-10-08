@@ -105,7 +105,6 @@ def test_full_swap_requires_two_cargo_slots_to_normalize_each_cube():
     ({}, {}, 'não vazios'),
     ({21: True}, {21: 1}, 'inteiros'),
     ({'21': 1}, {'21': 1}, 'inteiros'),
-    ({21: 21}, {21: 21}, 'distintas'),
     ({21: -1}, {21: -1}, 'inteiros'),
 ])
 def test_invalid_board_is_rejected(start, final, message):
@@ -138,7 +137,6 @@ def test_load_organization_with_requested_yaml_shape_and_validate_area(tmp_path)
 
 @pytest.mark.parametrize('tasks', [
     [{'start_state': {21: 1}}],
-    [{'final_state': {21: 1}}],
     [{'start_state': {21: 1}}, {'start_state': {21: 1}}, {'final_state': {21: 1}}],
     [{'start_state': {21: 1}}, {'final_state': {21: 1}}, {'action': 'pick', 'tag_id': 1}],
     [{'start_state': {21: 1}, 'final_state': {21: 1}}],
@@ -148,10 +146,12 @@ def test_malformed_or_mixed_organization_is_rejected(tmp_path, tasks):
         load_plan(write_plan(tmp_path, tasks))
 
 
-def test_six_cube_example_reaches_final_state_with_regrasp_before_every_placement():
+def test_six_cube_example_discovers_initial_state_and_allows_overlapping_ids():
     plan = load_plan(PACKAGE / 'config/plans/cubos_1_2_3.yaml')
     visit = plan.visits[0]
-    scheduled_organization(dict(visit.pp_start_state), dict(visit.pp_final_state))
+    assert visit.pp_start_state is None
+    declared = yaml.safe_load((PACKAGE / 'config/plans/cubos_1_2_3.yaml').read_text())
+    assert dict(visit.pp_final_state) == declared['visits'][0]['tasks'][0]['final_state']
 
 
 def test_single_cargo_slot_uses_empty_pp_buffer_and_normalizes_every_pick():

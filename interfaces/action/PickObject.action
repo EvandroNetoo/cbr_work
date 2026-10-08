@@ -18,6 +18,11 @@ float32 alignment_tag_x_m
 float32 alignment_tag_y_m
 float32 alignment_tolerance_x_m
 float32 alignment_tolerance_y_m
+# PP only: distinguish fixed references from object tags in arm_base_link.
+# Reference iff abs(z - pp_reference_z_m) <= pp_reference_z_tolerance_m.
+bool classify_pp_tags
+float64 pp_reference_z_m
+float64 pp_reference_z_tolerance_m
 ---
 uint8 RECOVERY_NONE=0
 uint8 RECOVERY_OUT_OF_REACH=1

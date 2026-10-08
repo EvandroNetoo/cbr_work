@@ -533,3 +533,94 @@ def test_pp_organization_executes_only_in_slots_and_retrieves_cargo(full_table):
     stores = len(manager._store_client.goals)
     assert stores == len(manager._retrieve_client.goals) == 3
     assert sum(goal.prepare_retrieve for goal in manager._store_client.goals) == 2
+
+
+@pytest.mark.parametrize('extra', [False, True])
+@pytest.mark.parametrize('missing_after_place', [False, True])
+def test_final_only_pp_through_child_action_messages_with_overlapping_ids(extra, missing_after_place):
+    from interfaces.action import PlaceOnPrecisionTable
+    final = {i: i for i in range(1, 8)}
+    if extra:
+        final[7] = None
+    visit = Visit('pp', 'pp_1', (), None, tuple(final.items()))
+    plan = Plan('pp', (visit, Visit('exit', 'ws_1', ())))
+    manager, navs, _, _ = simulated_manager(plan)
+    board = {i: i % 7 + 1 for i in range(1, 8)}
+    operations = []
+    moves = []
+    missed_reference = False
+    move_base = manager._move_to_table_position
+    def move(wall, lateral, description):
+        moves.append((wall, lateral))
+        return move_base(wall, lateral, description)
+    manager._move_to_table_position = move
+    def scene(goal):
+        nonlocal missed_reference
+        assert goal.classify_pp_tags and goal.requested_detectors == AnalyzeScene.Goal.APRILTAGS
+        result = AnalyzeScene.Result(frames_processed=10, frames_with_base_transform=10)
+        tags = []
+        for slot, cube in board.items():
+            ref = detection(slot)
+            ref.pose.position.x = slot * .05 + manager._current_lateral_position_mm / 1000
+            ref.pose.position.y = -.02 - manager._current_wall_distance_mm / 1000
+            ref.pose.position.z = goal.pp_reference_z_m
+            tags.append(ref)
+            if cube is not None:
+                obj = detection(cube)
+                obj.pose.position.x = ref.pose.position.x + manager._arena.precision_perception.slot_offset_x_m
+                obj.pose.position.y = ref.pose.position.y + manager._arena.precision_perception.slot_offset_y_m
+                obj.pose.position.z = ref.pose.position.z + .05
+                tags.append(obj)
+        if missing_after_place and not missed_reference and operations and operations[-1] == ('place', 2):
+            # The next cached reference disappears only in the arrival snapshot.
+            tags = [tag for tag in tags if not (tag.id == 3 and tag.pose.position.z == goal.pp_reference_z_m)]
+            missed_reference = True
+        result.best_apriltags_base = tags
+        return result
+    manager._vision_client = SimulatedActionClient(scene)
+    def pick(goal):
+        assert goal.classify_pp_tags
+        if goal.use_observed_detection:
+            assert goal.observed_detection.pose.position.z > goal.pp_reference_z_m + goal.pp_reference_z_tolerance_m
+        source = next(slot for slot, cube in board.items() if cube == goal.tag_id)
+        board[source] = None
+        operations.append(('pick', goal.tag_id))
+        result = outcome(PickObject, ManipulationResult.LOCATION_GRIPPER)
+        result.used_observed_detection = goal.use_observed_detection
+        return result
+    manager._pick_client = SimulatedActionClient(pick)
+    def place(goal):
+        assert goal.classify_pp_tags and goal.require_empty_slot
+        assert board[goal.reference_tag_id] is None
+        cube = manager._world_state.snapshot()[1]
+        assert goal.held_tag_id == cube
+        assert cube in [g.tag_id for g in manager._pick_client.goals]
+        assert manager._retrieve_client.goals
+        board[goal.reference_tag_id] = cube
+        operations.append(('place', cube))
+        return outcome(PlaceOnPrecisionTable, ManipulationResult.LOCATION_DESTINATION)
+    manager._place_precision_client = SimulatedActionClient(place)
+    manager._run_plan(SimpleNamespace(publish_feedback=lambda _f: None), plan)
+    assert board == final
+    assert navs == ['pp_1', 'ws_1']
+    assert len(manager._store_client.goals) == 7
+    assert len(manager._retrieve_client.goals) == len(manager._delivery_outcomes) == (6 if extra else 7)
+    known, held, cargo = manager._world_state.snapshot()
+    assert known and held == EMPTY
+    assert sorted(cargo.values()) == ([EMPTY, 7] if extra else [EMPTY, EMPTY])
+    assert ('pp_1', 1) in manager._pp_reference_observations
+    assert all(goal.use_observed_detection for goal in manager._pick_client.goals)
+    if missing_after_place:
+        assert missed_reference
+    if not extra and not missing_after_place:
+        # Initial observation + one occupancy scene per destination. No post-release sessions.
+        assert len(manager._vision_client.goals) == 8
+        # One alignment per destination, with no movement before picking its occupant or placing.
+        assert len(moves) == 7
+    if extra:
+        before = manager._world_state.snapshot()
+        handle = SimpleNamespace(request=SimpleNamespace(plan_id='pp'), abort=lambda: None)
+        result = manager._execute_callback(handle)
+        assert result.code == ExecuteMission.Result.STEP_FAILED
+        assert 'Carga remanescente' in result.message
+        assert manager._world_state.snapshot() == before

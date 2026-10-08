@@ -86,11 +86,12 @@ ros2 action send_goal /manipulation/place_in_container interfaces/action/PlaceIn
 ros2 action send_goal /manipulation/stack interfaces/action/StackObject \
   "{support_tag_id: 5, ws_height_cm: 12.5}" --feedback
 
-# Depositar na cavidade da mesa de precisao (PP), usando a AprilTag de referencia 42
+# Depositar na cavidade da mesa de precisao (PP), usando a AprilTag de referencia 4
 # Offset XYZ em metros configurado em placements.precision_table no profiles.yaml.
 # require_alignment: false executa diretamente; o Mission Manager gerencia o alinhamento.
+# Faixa Z em arm_base_link: usar os mesmos valores calibrados de precision_perception em arena.yaml.
 ros2 action send_goal /manipulation/place_on_precision_table interfaces/action/PlaceOnPrecisionTable \
-  "{reference_tag_id: 4, ws_height_cm: 11.0, require_alignment: false}" --feedback
+  "{reference_tag_id: 4, ws_height_cm: 11.0, require_alignment: false, classify_pp_tags: true, pp_reference_z_m: 0.02, pp_reference_z_tolerance_m: 0.015}" --feedback
 
 # Colocar na prateleira fixa
 # O perfil shelf esta habilitado com pose FICTICIA: calibrar place_on_shelf_high no SRDF antes do uso.
