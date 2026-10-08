@@ -9,6 +9,27 @@ from mission_manager.loaders import load_arena, load_plan, validate_plan
 PACKAGE = Path(__file__).parents[1]
 
 
+def test_alignment_ignore_duration_is_individual_per_area(tmp_path):
+    import yaml
+    raw = yaml.safe_load(VALID_ARENA)
+    raw['service_areas']['ws_1']['alignment_error_ignore_sec'] = 0
+    raw['service_areas']['ws_3']['alignment_error_ignore_sec'] = 3.5
+    arena = load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
+    assert arena.service_areas['ws_1'].alignment_error_ignore_sec == 0.0
+    assert arena.service_areas['ws_3'].alignment_error_ignore_sec == 3.5
+    legacy = load_arena(_write(tmp_path, 'legacy.yaml', VALID_ARENA))
+    assert legacy.service_areas['ws_1'].alignment_error_ignore_sec is None
+
+
+@pytest.mark.parametrize('value', [-1, float('nan'), float('inf'), True, '1', None])
+def test_alignment_ignore_duration_rejects_invalid_values(tmp_path, value):
+    import yaml
+    raw = yaml.safe_load(VALID_ARENA)
+    raw['service_areas']['ws_1']['alignment_error_ignore_sec'] = value
+    with pytest.raises(ConfigurationError, match='alignment_error_ignore_sec'):
+        load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
+
+
 def test_stack_alignment_targets_are_independent(tmp_path):
     import yaml
     raw = yaml.safe_load(VALID_ARENA)

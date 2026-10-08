@@ -53,7 +53,7 @@ pickup_recovery:
   precision_preferred_tag_x_m: 0.0
   precision_preferred_tag_y_m: -0.267
   wall_tolerance_mm: 5
-  travel_tolerance_mm: 10
+  travel_tolerance_mm: 5
   timeout_s: 15.0
   max_reposition_attempts: 1
   # Coordenadas laterais absolutas relativas ao alinhamento inicial da área.
@@ -156,6 +156,10 @@ service_areas:
     yaw_rad: -1.570
     height_cm: 11.0
     type: WS
+    alignment_error_ignore_sec: 1.0
+    alignment:
+      distance_mm: 40         # Distância frontal desejada na chegada (> 0).
+      tolerance_mm: 5  
 
 
   # Exemplo completo de área de serviço (valores ilustrativos).
@@ -169,6 +173,7 @@ service_areas:
   #   yaw_rad: 1.5707963268     # Orientação no mapa, em radianos.
   #   height_cm: 10.0           # Altura da superfície usada na coleta, em cm.
   #   type: SH                  # Valores aceitos: WS, SH ou PP.
+  #   alignment_error_ignore_sec: 1.0  # Janela após primeira leitura VL53 válida (>= 0).
   #   shelf_place_alignment:    # Somente SH; herda shelf_place_alignment_defaults.
   #     distance_mm: 40         # Distância frontal obrigatória antes do depósito.
   #   # Na SH, place_on_shelf usa a pose fixa do perfil shelf, não height_cm.

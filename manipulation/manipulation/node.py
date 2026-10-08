@@ -71,7 +71,7 @@ from .errors import (
     PickRecoveryRequired,
     ServerUnavailable,
 )
-from .base_wiggle import run_base_wiggle
+from .base_wiggle import run_base_wiggle_sequence
 from .profiles import load_profiles, PickupProfile, PlacementProfile, ProfileSet
 
 
@@ -1432,15 +1432,19 @@ class ManipulationServer(Node):
                 raise OperacaoCancelada('Rebolada PP cancelada; base parada e garra mantida fechada.')
 
         check_active()
-        self._feedback(
-            goal_handle, action_type, ManipulationFeedback.APPROACHING,
-            0.65, 'Executando rebolada da base para assentar o cubo antes da soltura',
-        )
+        def on_stage(index, total, stage):
+            self._feedback(
+                goal_handle, action_type, ManipulationFeedback.APPROACHING,
+                0.65, f'Rebolada {index}/{total}: raio {stage.radius_m:.3f} m, '
+                f'{stage.cycles} ciclos antes da soltura',
+            )
+
         self._base_wiggle_active.set()
         try:
-            run_base_wiggle(
+            run_base_wiggle_sequence(
                 profile.base_wiggle, publish=self._publish_base_wiggle,
                 clock=time.monotonic, wait=self._cancel_event.wait, check_active=check_active,
+                on_stage=on_stage,
             )
         finally:
             self._base_wiggle_active.clear()

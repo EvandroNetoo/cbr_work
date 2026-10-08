@@ -289,3 +289,64 @@ def test_missing_occupant_detection_falls_back_to_object_search():
     robot._pp_owned_slots = set()
     assert robot._pp_pick_store(None, None, Visit('pp', 'pp_1', ()), 2, observed=True) == 'left'
     assert robot.cargo['left'] == 2 and robot.held == EMPTY
+
+
+@pytest.mark.parametrize('full_cargo, needs_buffer', [(False, False), (True, False), (True, True)])
+def test_final_occupancy_change_replans_without_losing_cargo(full_cargo, needs_buffer):
+    from mission_manager.errors import PrecisionSlotOccupied
+    board = ({1: 2, 2: 4, 3: 1, 4: 3} if needs_buffer else
+             {1: 2, 2: 3, 3: 1})
+    robot = Robot(board | {i: None for i in range(5, 8)})
+    final = {i: i for i in range(1, 5 if needs_buffer else 4)}
+    observe, execute = robot._observe_visit, robot._execute_step
+    refused = False
+    if not full_cargo:
+        def scene():
+            observe()
+            if not refused:
+                # A missed occupant makes the initial destination look vacant.
+                robot._last_pp_scene[4].pop(2, None)
+        robot._observe_visit = scene
+    def step(value):
+        nonlocal refused
+        if value.action == 'place_on_precision_table' and not refused:
+            refused = True
+            if full_cargo:
+                # Another cube becomes visible in the previously cleared cavity.
+                source = next(slot for slot, cube in robot.board.items() if cube == 3)
+                robot.board[source], robot.board[value.reference_tag_id] = None, 3
+            assert robot.held == value.tag_id
+            assert robot.board[value.reference_tag_id] is not None
+            observe()
+            raise PrecisionSlotOccupied('Cavidade PP ocupada; depósito recusado.')
+        execute(value)
+    robot._execute_step = step
+    visit = Visit('pp', 'pp_1', (), None, tuple(final.items()))
+    robot._run_precision_organization(None, Plan('test', (visit,)), visit)
+    assert refused and all(robot.board[slot] == cube for slot, cube in final.items())
+    assert robot.held == EMPTY and all(cube == EMPTY for cube in robot.cargo.values())
+    assert robot._pp_inventory_pending is False
+    assert len(robot._delivery_outcomes) == sum(e[0] == 'place_on_precision_table' for e in robot.events)
+    if needs_buffer:
+        assert any(action == 'place_on_precision_table' and final[target] != cube
+                   for action, cube, target, _slot in robot.events)
+
+
+def test_changed_final_scene_reopens_a_previously_correct_slot():
+    from mission_manager.errors import PrecisionSlotOccupied
+    robot = Robot({1: 2, 2: 1, 3: 3, **{i: None for i in range(4, 8)}})
+    execute = robot._execute_step
+    refused = False
+    def step(value):
+        nonlocal refused
+        if value.action == 'place_on_precision_table' and not refused:
+            refused = True
+            robot.board[3], robot.board[value.reference_tag_id] = None, 3
+            robot._observe_visit()
+            raise PrecisionSlotOccupied('Novo ocupante na análise final.')
+        execute(value)
+    robot._execute_step = step
+    visit = Visit('pp', 'pp_1', (), None, ((1, 1), (2, 2), (3, 3)))
+    robot._run_precision_organization(None, Plan('test', (visit,)), visit)
+    assert [robot.board[i] for i in (1, 2, 3)] == [1, 2, 3]
+    assert robot.held == EMPTY and all(cube == EMPTY for cube in robot.cargo.values())

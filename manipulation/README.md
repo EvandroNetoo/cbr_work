@@ -350,18 +350,33 @@ garra. O braço mantém a pose e a garra permanece fechada durante o movimento.
 ```yaml
 base_wiggle:
   enabled: true
-  radius_m: 0.005
   cycles: 2
-  period_s: 1.5
-  max_speed_m_s: 0.02
+  period_s: 2.0
+  max_speed_m_s: 0.1
   settle_s: 0.3
   rate_hz: 30.0
+  sequence:
+    - radius_m: 0.003
+    - radius_m: 0.006
+      cycles: 1
+      period_s: 1.5
+    - radius_m: 0.01
+      settle_s: 0.5
 ```
+
+`sequence` aceita N etapas, executadas na ordem da lista. Cada etapa pode definir
+`radius_m`, `cycles`, `period_s`, `max_speed_m_s`, `settle_s` e `rate_hz`.
+Parâmetros omitidos em uma etapa herdam os valores do bloco `base_wiggle`.
+A garra só abre depois da última etapa e de sua pausa. A lista deve ser não
+vazia; `enabled: false` desativa toda a sequência. O formato anterior sem
+`sequence` continua executando uma única rebolada com os parâmetros do bloco.
+O feedback informa a etapa atual e a quantidade total.
 
 A amplitude cresce suavemente e diminui até zero. São publicados comandos
 `TwistStamped` em `base_wiggle.cmd_vel_topic: /cmd_vel`, usando
 `base_wiggle.command_frame: base_footprint`. A duração é `cycles * period_s`,
-seguida de velocidade zero e uma pausa fixa de `settle_s` antes da soltura.
+por etapa, seguida de velocidade zero e uma pausa de `settle_s`.
+A duração total é a soma de `cycles * period_s + settle_s` de todas as etapas.
 Se a velocidade nominal exceder `max_speed_m_s`, toda a trajetória é escalada
 uniformemente; nesse caso, o raio comandado também diminui.
 

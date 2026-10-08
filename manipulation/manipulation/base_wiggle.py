@@ -19,6 +19,7 @@ class BaseWiggleProfile:
     max_speed_m_s: float = 0.01
     settle_s: float = 0.3
     rate_hz: float = 30.0
+    sequence: tuple[BaseWiggleProfile, ...] = ()
 
 
 def circular_target(elapsed: float, profile: BaseWiggleProfile):
@@ -60,5 +61,24 @@ def run_base_wiggle(
         while clock() < finish:
             check_active()
             wait(min(1.0 / profile.rate_hz, finish - clock()))
+    finally:
+        publish(0.0, 0.0, 0.0)
+
+
+def run_base_wiggle_sequence(
+    profile: BaseWiggleProfile, *, publish: Callable[[float, float, float], None],
+    clock: Callable[[], float], wait: Callable[[float], None],
+    check_active: Callable[[], None],
+    on_stage: Callable[[int, int, BaseWiggleProfile], None] | None = None,
+) -> None:
+    """Run each configured circle and its pause before allowing gripper release."""
+    stages = profile.sequence or (profile,)
+    try:
+        for index, stage in enumerate(stages, start=1):
+            check_active()
+            if on_stage is not None:
+                on_stage(index, len(stages), stage)
+            run_base_wiggle(stage, publish=publish, clock=clock, wait=wait,
+                            check_active=check_active)
     finally:
         publish(0.0, 0.0, 0.0)

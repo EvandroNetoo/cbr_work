@@ -41,7 +41,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_srvs.srv import SetBool
 
-from .errors import ConfigurationError, MissionCanceled, StateConflict, StepFailed, TaskNotFound
+from .errors import ConfigurationError, MissionCanceled, StateConflict, StepFailed, TaskNotFound, PrecisionSlotOccupied
 from .loaders import load_arena, load_plan, PLAN_ID_PATTERN, validate_plan
 from .models import (
     Arena,
@@ -475,6 +475,21 @@ class MissionManager(PrecisionRuntime, Node):
                 f'físico esperado para {operation}.'
             )
         if not effect_reported:
+            unchanged_locations = {
+                'pick': ManipulationResult.LOCATION_SOURCE,
+                'store': ManipulationResult.LOCATION_GRIPPER,
+                'retrieve': ManipulationResult.LOCATION_CARGO,
+                'place': ManipulationResult.LOCATION_GRIPPER,
+            }
+            if location == unchanged_locations[operation]:
+                known, held, cargo = self._world_state.snapshot()
+                unchanged = (held == tag_id if operation in {'store', 'place'} else
+                             cargo.get(slot_id) == tag_id if operation == 'retrieve' else
+                             held == EMPTY)
+                if known and unchanged:
+                    return
+                self._mark_world_unknown()
+                return
             if location not in (
                 ManipulationResult.LOCATION_UNKNOWN,
                 ManipulationResult.LOCATION_SOURCE,
@@ -644,9 +659,18 @@ class MissionManager(PrecisionRuntime, Node):
         )
         goal.max_alignment_error_mm = (
             configured_max_alignment_error if has_lateral_travel else 0)
+        arena = getattr(self, '_arena', None)
+        area = (
+            arena.service_areas.get(getattr(self, '_current_location', ''))
+            if arena is not None else None)
+        ignore_alignment_sec = (
+            area.alignment_error_ignore_sec
+            if area is not None and area.alignment_error_ignore_sec is not None
+            else self._wall_alignment_error_ignore_sec)
+        if goal.max_alignment_error_mm <= 0:
+            ignore_alignment_sec = 0.0
         goal.alignment_error_ignore_duration = self._duration(
-            self._wall_alignment_error_ignore_sec
-            if goal.max_alignment_error_mm > 0 else 0.0)
+            ignore_alignment_sec)
         goal.alignment_recovery_distance_mm = (
             configured_recovery_distance if has_lateral_travel else 0)
         goal.minimum_lateral_clearance_mm = (
@@ -655,9 +679,6 @@ class MissionManager(PrecisionRuntime, Node):
             else minimum_lateral_clearance_mm
         )
         goal.timeout = self._duration(timeout_s)
-        ignore_alignment_sec = (
-            self._wall_alignment_error_ignore_sec
-            if goal.max_alignment_error_mm > 0 else 0.0)
         self.get_logger().info(
             f'Iniciando FollowWall ({description}): parede alvo='
             f'{goal.wall_distance_mm}±{goal.wall_tolerance_mm} mm, '
@@ -2062,6 +2083,7 @@ class MissionManager(PrecisionRuntime, Node):
                     )
         original_fallback_pending = original_observation is not None
         pp_search_attempts = set()
+        pp_retry_count = 0
         while True:
             goal.require_alignment = not alignment_completed
             result = self._call_manipulation_action(
@@ -2096,11 +2118,30 @@ class MissionManager(PrecisionRuntime, Node):
                     f"passo '{step.step_id}' ({step.action}) não pode ser repetido "
                     f'com segurança: {failure}'
                 )
+            if (precision and getattr(self, '_pp_organizing', False)
+                    and result.outcome.code == ManipulationResult.NO_FREE_SPACE):
+                # The final scene has already been merged by the action wrapper.
+                # Let the organizer store the held cube and clear/replan this slot.
+                raise PrecisionSlotOccupied(failure)
             if result.recovery_reason == action_type.Result.RECOVERY_ALIGNMENT_REQUIRED:
                 if alignment_completed or not result.has_detected_pose:
-                    raise StepFailed('Solicitação de alinhamento do depósito sem pose válida ou repetida.')
+                    if not precision or pp_retry_count >= 2:
+                        raise StepFailed('Solicitação de alinhamento do depósito sem pose válida ou repetida.')
+                    pp_retry_count += 1
+                    self._check_canceled()
+                    if not result.has_detected_pose:
+                        continue  # Request a fresh snapshot rather than use an invalid pose.
                 self._recover_pick(result, step, alignment_only=True, config=config)
                 alignment_completed = True
+                continue
+            if (precision and pp_retry_count < 2 and result.outcome.code in {
+                    ManipulationResult.PERCEPTION_UNAVAILABLE, ManipulationResult.MOTION_FAILED,
+                    ManipulationResult.BUSY, ManipulationResult.SERVER_UNAVAILABLE}):
+                pp_retry_count += 1
+                self._check_canceled()
+                self.get_logger().warning(
+                    f'PP: repetindo depósito com cubo confirmado na garra '
+                    f'(tentativa de recuperação {pp_retry_count}/2): {failure}')
                 continue
             if (
                 config.enabled

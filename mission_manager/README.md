@@ -180,10 +180,16 @@ Os limites `follow_wall.max_alignment_error_mm` e
 usados nos demais goals com deslocamento lateral.
 `follow_wall.alignment_error_ignore_sec` define por quantos segundos, após a
 primeira leitura VL53 válida, o limite de desalinhamento fica suspenso nesses
-goals; o padrão é 2,0 s. Durante o alinhamento frontal de chegada, os três
+goals; o valor no YAML fornecido é 1,0 s (2,0 s no padrão do nó).
+Cada mesa pode sobrescrever essa janela com
+`service_areas.<mesa>.alignment_error_ignore_sec` no `arena.yaml`. O valor
+deve ser finito e não negativo; `0` aplica o limite imediatamente. Se omitido,
+usa o parâmetro global. A janela da mesa vale para todos os seus movimentos
+laterais, inclusive busca, reposicionamento e saída.
+Durante o alinhamento frontal de chegada, os três
 campos são enviados como `0`; no recuo de uma mesa, os limites do bloco
-`departure` são usados quando houver retorno lateral, com a mesma janela
-configurada no mission manager. Aborto
+`departure` são usados quando houver retorno lateral, com a janela
+configurada para a mesa ou, quando omitida, no mission manager. Aborto
 durante o percurso lateral por desalinhamento, conclusão da
 recuperação ou obstáculo na folga lateral mínima é registrado como aviso e o
 fluxo da missão continua usando o deslocamento efetivamente medido. Quando a
@@ -563,6 +569,22 @@ A posição de alinhamento é reaproveitada no place. Só é necessário retorna
 referência se a base tiver mudado ao acessar a carga; falhas de alcance mantêm
 os mecanismos de recuperação. A análise final no próprio place localiza a
 referência e recusa liberar sobre outro objeto antes de abrir a garra.
+
+Se essa análise final detectar ocupação que não apareceu antes, a organização
+continua: o cubo na garra volta ao compartimento liberado pelo retrieve, a
+ocupação atualiza o planejamento, o ocupante é retirado e armazenado e o depósito
+é tentado novamente. Com os dois compartimentos cheios, primeiro se deposita um
+cubo em seu destino vazio; se ambos os destinos estiverem ocupados, uma cavidade
+vazia pode servir de apoio temporário, respeitando o ciclo store/retrieve. Esse
+apoio não conta como conclusão do slot: o cubo será levado ao destino final.
+Os slots que a análise contradizer deixam de ser considerados concluídos.
+
+Falhas transitórias de percepção, movimento, servidor ocupado ou indisponível
+no place PP permitem até duas novas tentativas, somente se o resultado confirmar
+o cubo ainda na garra. Pedidos repetidos de alinhamento também têm recuperação
+limitada. Recuperações de ocupação podem replanejar dentro de até 84 iterações
+da organização; falhas persistentes e estado físico desconhecido continuam
+interrompendo a missão, preservando o inventário.
 
 Todo cubo passa por armazenamento e retirada antes de cada depósito PP.
 A visita requer garra vazia e pelo menos dois compartimentos internos livres;

@@ -23,3 +23,7 @@ class StateConflict(MissionError):
 
 class TaskNotFound(StepFailed):
     """A flexible pick observed an empty source; choose another task."""
+
+
+class PrecisionSlotOccupied(StepFailed):
+    """The final PP snapshot blocked release while the object remains held."""

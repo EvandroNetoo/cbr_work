@@ -151,3 +151,105 @@ def test_zero_radius_or_speed_sends_zero_without_aborting(radius, speed):
     base = TimedCommands()
     base.run(BaseWiggleProfile(radius_m=radius, max_speed_m_s=speed))
     assert all(command == (0.0, 0.0, 0.0) for command in base.commands)
+
+
+def test_sequence_inherits_common_values_and_accepts_per_stage_overrides(tmp_path):
+    raw = yaml.safe_load((PACKAGE / 'config/profiles.yaml').read_text())
+    raw['placements']['precision_table']['base_wiggle'] = {
+        'enabled': True, 'cycles': 2, 'period_s': 2., 'max_speed_m_s': .1,
+        'settle_s': .3, 'rate_hz': 30.,
+        'sequence': [{'radius_m': .003}, {'radius_m': .006, 'cycles': 1, 'period_s': 1.5},
+                     {'radius_m': .01, 'settle_s': .5, 'max_speed_m_s': .05, 'rate_hz': 50.}]}
+    path = tmp_path / 'profiles.yaml'
+    path.write_text(yaml.safe_dump(raw))
+    profile = load_profiles(path, PACKAGE / 'config/cargo_slots.yaml').placements['precision_table'].base_wiggle
+    a, b, c = profile.sequence
+    assert (a.radius_m, a.cycles, a.period_s, a.settle_s, a.rate_hz) == (.003, 2, 2., .3, 30.)
+    assert (b.radius_m, b.cycles, b.period_s, b.max_speed_m_s) == (.006, 1, 1.5, .1)
+    assert (c.radius_m, c.cycles, c.settle_s, c.max_speed_m_s, c.rate_hz) == (.01, 2, .5, .05, 50.)
+
+
+@pytest.mark.parametrize('sequence', [[], {}, None, [1], [{'cycles': 0}],
+    [{'period_s': 0}], [{'radius_m': -1}], [{'radius_m': float('nan')}],
+    [{'rate_hz': 0}], [{'sequence': [{'radius_m': .001}]}], [{'enabled': True}]])
+def test_invalid_sequences_are_rejected_before_motion(tmp_path, sequence):
+    raw = yaml.safe_load((PACKAGE / 'config/profiles.yaml').read_text())
+    raw['placements']['precision_table']['base_wiggle']['sequence'] = sequence
+    path = tmp_path / 'profiles.yaml'
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ConfigurationError, match='base_wiggle.sequence'):
+        load_profiles(path, PACKAGE / 'config/cargo_slots.yaml')
+
+
+def test_old_single_wiggle_yaml_is_still_supported(tmp_path):
+    raw = yaml.safe_load((PACKAGE / 'config/profiles.yaml').read_text())
+    raw['placements']['precision_table']['base_wiggle'] = {
+        'enabled': True, 'radius_m': .01, 'cycles': 2, 'period_s': 2.,
+        'max_speed_m_s': .1, 'settle_s': .3, 'rate_hz': 30.}
+    path = tmp_path / 'profiles.yaml'
+    path.write_text(yaml.safe_dump(raw))
+    profile = load_profiles(path, PACKAGE / 'config/cargo_slots.yaml').placements['precision_table'].base_wiggle
+    assert profile.sequence == () and profile.radius_m == .01
+    from manipulation.base_wiggle import run_base_wiggle_sequence
+    base = TimedCommands()
+    stages = []
+    run_base_wiggle_sequence(profile, publish=base.publish, clock=lambda: base.time,
+                            wait=base.wait, check_active=lambda: None,
+                            on_stage=lambda index, total, stage: stages.append((index, total)))
+    assert stages == [(1, 1)] and base.time == pytest.approx(4.3)
+
+
+def test_sequence_finishes_all_stages_and_pauses_in_order_before_release(monkeypatch):
+    import threading
+    from test_semantic_placement import _cartesian_profile, _pose
+    import manipulation.node as node_module
+    base = TimedCommands()
+    stages = (BaseWiggleProfile(radius_m=.003, cycles=1, period_s=.5, settle_s=.1, max_speed_m_s=.1),
+              BaseWiggleProfile(radius_m=.006, cycles=2, period_s=.7, settle_s=.2, max_speed_m_s=.1),
+              BaseWiggleProfile(radius_m=.01, cycles=1, period_s=1., settle_s=.3, max_speed_m_s=.1))
+    server = ManipulationServer.__new__(ManipulationServer)
+    server._base_wiggle_active = threading.Event()
+    server._cancel_event = SimpleNamespace(is_set=lambda: False, wait=base.wait)
+    server._publish_base_wiggle = base.publish
+    monkeypatch.setattr(node_module.rclpy, 'ok', lambda: True)
+    monkeypatch.setattr(node_module, 'time', SimpleNamespace(monotonic=lambda: base.time))
+    feedback = []
+    server._feedback = lambda _g, _a, _s, _p, message: feedback.append((base.time, message))
+    profile = replace(_cartesian_profile(), name='precision_table', approach_height_m=0, retreat_height_m=0,
+                      base_wiggle=BaseWiggleProfile(enabled=True, sequence=stages))
+    server._motion = SimpleNamespace(executar_objetivo=lambda *_: None)
+    opened = []
+    server._open_for_placement = lambda *_: opened.append(base.time)
+    server._return_after_placement = lambda: None
+    server._release_at_pose(SimpleNamespace(is_cancel_requested=False), PlaceOnPrecisionTable, _pose(), profile, 'PP')
+    assert [stamp for stamp, _message in feedback] == pytest.approx([0., .6, 2.2])
+    assert [f'Rebolada {index}/3' in message for index, (_, message) in enumerate(feedback, 1)] == [True] * 3
+    assert opened == pytest.approx([3.5])
+    assert not server._base_wiggle_active.is_set() and base.commands[-1] == (0., 0., 0.)
+
+
+def test_cancellation_in_second_stage_stops_sequence_and_keeps_gripper_closed(monkeypatch):
+    from test_semantic_placement import _cartesian_profile, _pose
+    from manipulation.base_wiggle import run_base_wiggle_sequence
+    base = TimedCommands()
+    stages = tuple(BaseWiggleProfile(radius_m=radius, cycles=1, period_s=.5, settle_s=.1)
+                   for radius in (.003, .006, .01))
+    profile = replace(_cartesian_profile(), approach_height_m=0, retreat_height_m=0,
+                      base_wiggle=BaseWiggleProfile(enabled=True, sequence=stages))
+    server = ManipulationServer.__new__(ManipulationServer)
+    server._motion = SimpleNamespace(executar_objetivo=lambda *_: None)
+    opened, started = [], []
+    server._open_for_placement = lambda *_: opened.append(True)
+    server._return_after_placement = lambda: None
+    def check():
+        if base.time >= .8:
+            raise OperacaoCancelada('cancelado')
+    def wiggle(*_):
+        run_base_wiggle_sequence(profile.base_wiggle, publish=base.publish, clock=lambda: base.time,
+                                wait=base.wait, check_active=check,
+                                on_stage=lambda index, total, stage: started.append(index))
+    server._wiggle_before_precision_release = wiggle
+    with pytest.raises(OperacaoCancelada):
+        server._release_at_pose(None, PlaceOnPrecisionTable, _pose(), profile, 'PP')
+    assert started == [1, 2] and not opened
+    assert base.commands[-1] == (0., 0., 0.)

@@ -119,6 +119,7 @@ class ServiceArea:
     alignment: AlignmentConfig
     departure: DepartureConfig
     shelf_place_alignment: AlignmentConfig | None = None
+    alignment_error_ignore_sec: float | None = None
 
 
 @dataclass(frozen=True)

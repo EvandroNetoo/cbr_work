@@ -437,7 +437,7 @@ def load_arena(path: str | Path) -> Arena:
             {
                 'x_m', 'y_m', 'yaw_rad', 'height_cm', 'type',
                 'alignment', 'departure',
-                'shelf_place_alignment',
+                'shelf_place_alignment', 'alignment_error_ignore_sec',
             },
             f'arena.service_areas.{area_name}',
         )
@@ -455,6 +455,12 @@ def load_arena(path: str | Path) -> Arena:
             {key: raw.get(key) for key in ('x_m', 'y_m', 'yaw_rad')},
             f'arena.service_areas.{area_name}',
         )
+        ignore_sec = None
+        if 'alignment_error_ignore_sec' in raw:
+            context = f'arena.service_areas.{area_name}.alignment_error_ignore_sec'
+            ignore_sec = _number(raw['alignment_error_ignore_sec'], context)
+            if ignore_sec < 0.0:
+                raise ConfigurationError(f'{context} não pode ser negativo.')
         areas[area_name] = ServiceArea(
             area_id=area_name,
             pose=pose,
@@ -463,6 +469,7 @@ def load_arena(path: str | Path) -> Arena:
                 f'arena.service_areas.{area_name}.height_cm',
             ),
             area_type=area_type,
+            alignment_error_ignore_sec=ignore_sec,
             shelf_place_alignment=(
                 _alignment(
                     raw.get('shelf_place_alignment', {}),

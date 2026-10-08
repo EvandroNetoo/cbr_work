@@ -147,12 +147,25 @@ def _base_wiggle(raw_value: Any, context: str) -> BaseWiggleProfile:
         raise ConfigurationError(f'{context}.cycles deve ser inteiro positivo.')
     values = {'enabled': enabled, 'cycles': cycles}
     for field in defaults.__dataclass_fields__:
-        if field not in values:
+        if field not in values and field != 'sequence':
             values[field] = _number(raw.get(field, getattr(defaults, field)),
                                     f'{context}.{field}', positive=field in {'period_s', 'rate_hz'})
     for field in ('radius_m', 'max_speed_m_s', 'settle_s'):
         if values[field] < 0:
             raise ConfigurationError(f'{context}.{field} deve ser maior ou igual a zero.')
+    if 'sequence' in raw:
+        sequence = raw['sequence']
+        if not isinstance(sequence, list) or not sequence:
+            raise ConfigurationError(f'{context}.sequence deve ser uma lista não vazia.')
+        stages = []
+        for index, entry in enumerate(sequence):
+            stage_context = f'{context}.sequence[{index}]'
+            stage = _mapping(entry, stage_context)
+            _only_keys(stage, (set(defaults.__dataclass_fields__) - {'enabled', 'sequence'}) | legacy,
+                       stage_context)
+            # Top-level timings/speed provide defaults; each stage can override them.
+            stages.append(_base_wiggle({**values, **stage}, stage_context))
+        values['sequence'] = tuple(stages)
     return BaseWiggleProfile(**values)
 
 

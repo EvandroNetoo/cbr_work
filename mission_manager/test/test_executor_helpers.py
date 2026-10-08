@@ -228,8 +228,27 @@ def test_wall_control_uses_zero_travel_for_alignment():
     assert 'parede final=0.0 mm' in logs[1]
 
 
-def test_wall_control_uses_configured_recovery_for_lateral_travel():
+@pytest.mark.parametrize(
+    'location, area_ignore_sec, travel, limit, expected',
+    [
+        ('ws_1', None, 500, 100, 2.0),
+        ('ws_1', 3.5, 500, 100, 3.5),
+        ('ws_1', 0.0, -250, 75, 0.0),
+        ('ws_1', 3.5, -250, 75, 3.5),
+        ('ws_1', 3.5, 0, 100, 0.0),
+        ('ws_1', 3.5, 500, 0, 0.0),
+        ('start', 3.5, 500, 100, 2.0),
+    ],
+)
+def test_wall_control_uses_configured_recovery_for_lateral_travel(
+    location, area_ignore_sec, travel, limit, expected,
+):
     manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._arena.service_areas['ws_1'] = replace(
+        manager._arena.service_areas['ws_1'],
+        alignment_error_ignore_sec=area_ignore_sec)
+    manager._current_location = location
     manager.get_logger = lambda: SimpleNamespace(info=lambda _text: None)
     manager._wall_control_client = object()
     manager._wall_max_alignment_error_mm = 100
@@ -246,12 +265,13 @@ def test_wall_control_uses_configured_recovery_for_lateral_travel():
         5,
         10.0,
         'movimento lateral',
-        travel_distance_mm=500,
+        travel_distance_mm=travel,
+        max_alignment_error_mm=limit,
     )
 
-    assert goals[0].max_alignment_error_mm == 100
-    assert goals[0].alignment_error_ignore_duration == 2.0
-    assert goals[0].alignment_recovery_distance_mm == 100
+    assert goals[0].max_alignment_error_mm == (limit if travel else 0)
+    assert goals[0].alignment_error_ignore_duration == expected
+    assert goals[0].alignment_recovery_distance_mm == (100 if travel else 0)
     assert goals[0].minimum_lateral_clearance_mm == 10
 
 
@@ -2701,3 +2721,68 @@ def test_pp_pick_missing_tag_searches_again_despite_previous_visit_history():
     manager._execute_pick(Step('pick', 'pick', tag_id=3), 120.)
     assert views == [0., 325., -325.]
     assert manager._world_state.snapshot()[1] == 3
+
+
+@pytest.mark.parametrize('effect_known', [True, False])
+def test_pp_occupied_final_snapshot_is_recoverable_only_with_known_held_cube(effect_known):
+    from interfaces.action import PlaceOnPrecisionTable
+    from mission_manager.errors import PrecisionSlotOccupied
+    manager = _stack_search_manager()
+    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._place_precision_client = object()
+    manager._pp_aligned_reference = ('ws_1', 4, 200., 0.)
+    manager._pp_organizing = True
+    result = _place_result(PlaceOnPrecisionTable, ManipulationResult.NO_FREE_SPACE,
+                           location=ManipulationResult.LOCATION_GRIPPER)
+    result.outcome.effect_known = effect_known
+    manager._call_action = lambda *_args, **_kwargs: result
+    with pytest.raises(PrecisionSlotOccupied if effect_known else StepFailed) as error:
+        manager._execute_manipulation(Step('pp', 'place_on_precision_table', tag_id=5, reference_tag_id=4))
+    assert isinstance(error.value, PrecisionSlotOccupied) is effect_known
+    assert manager._world_state.snapshot()[0] is effect_known
+    if effect_known:
+        assert manager._world_state.snapshot()[1] == 5
+
+
+@pytest.mark.parametrize('code', [ManipulationResult.PERCEPTION_UNAVAILABLE,
+                                  ManipulationResult.MOTION_FAILED,
+                                  ManipulationResult.BUSY,
+                                  ManipulationResult.SERVER_UNAVAILABLE])
+def test_pp_transient_place_failure_retries_with_known_held_cube(code):
+    from interfaces.action import PlaceOnPrecisionTable
+    manager = _stack_search_manager()
+    manager._check_canceled = lambda: None
+    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._place_precision_client = object()
+    manager._pp_aligned_reference = ('ws_1', 4, 200., 0.)
+    calls = []
+    def action(_client, goal, *_args, **_kwargs):
+        calls.append(goal.require_alignment)
+        assert manager._world_state.snapshot()[:2] == (True, 5)
+        return _place_result(PlaceOnPrecisionTable,
+                             code if len(calls) < 3 else ManipulationResult.SUCCESS,
+                             location=(ManipulationResult.LOCATION_GRIPPER if len(calls) < 3 else
+                                       ManipulationResult.LOCATION_DESTINATION))
+    manager._call_action = action
+    manager._execute_manipulation(Step('pp', 'place_on_precision_table', tag_id=5, reference_tag_id=4))
+    assert calls == [False, False, False]
+    assert manager._world_state.snapshot()[:2] == (True, EMPTY)
+
+
+def test_pp_persistent_place_failure_exhausts_bounded_retries_with_cube_held():
+    from interfaces.action import PlaceOnPrecisionTable
+    manager = _stack_search_manager()
+    manager._check_canceled = lambda: None
+    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._place_precision_client = object()
+    manager._pp_aligned_reference = ('ws_1', 4, 200., 0.)
+    calls = []
+    def action(*_args, **_kwargs):
+        calls.append(True)
+        return _place_result(PlaceOnPrecisionTable, ManipulationResult.PERCEPTION_UNAVAILABLE,
+                             location=ManipulationResult.LOCATION_GRIPPER)
+    manager._call_action = action
+    with pytest.raises(StepFailed):
+        manager._execute_manipulation(Step('pp', 'place_on_precision_table', tag_id=5, reference_tag_id=4))
+    assert len(calls) == 3
+    assert manager._world_state.snapshot()[:2] == (True, 5)

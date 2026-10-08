@@ -1,7 +1,7 @@
 """Reactive PP organization with role-separated perception and two cargo slots."""
 import math
 
-from .errors import StepFailed
+from .errors import StepFailed, PrecisionSlotOccupied
 from .models import Step, DeliveryOutcome
 from .precision_perception import slot_occupant
 from .world_state import EMPTY
@@ -213,6 +213,31 @@ class PrecisionRuntime:
                 return reference
         return None
 
+    def _pp_full_cargo_destination(self, carried, destinations):
+        """Drain a full cargo into a vacancy before picking another occupant."""
+        examined = set()
+        for slot, cube in carried:
+            target = destinations.get(cube)
+            if target is not None:
+                examined.add(target)
+                if self._pp_seek_reference(target) is None:
+                    return slot, cube, target
+        # A source cavity was emptied by pickup. It can temporarily buffer a
+        # normalized cube when both desired destinations are still occupied.
+        attempted = set()
+        while True:
+            references = list(getattr(self, '_pp_reference_observations', {}))
+            for area, target in references:
+                if area != self._current_location or target in examined:
+                    continue
+                examined.add(target)
+                if self._pp_seek_reference(target) is None:
+                    slot, cube = carried[0]
+                    return slot, cube, target
+            if not self._pp_move_to_next_search_point(None, reference=True, attempted=attempted):
+                raise StepFailed('PP: carga cheia e nenhum alojamento vazio encontrado após busca.')
+            self._observe_visit()
+
     def _run_precision_organization(self, goal_handle, plan, visit):
         known, held, cargo = self._world_state.snapshot()
         if not known or held != EMPTY or sum(tag == EMPTY for tag in cargo.values()) < 2:
@@ -232,7 +257,7 @@ class PrecisionRuntime:
                                                     self._arena.precision_perception) == desired:
                     verified.add(target)
             # Every successful iteration fixes a prescribed cavity, or drains a surplus cube.
-            for _iteration in range(28):
+            for _iteration in range(84):
                 self._check_canceled()
                 _, _, cargo = self._world_state.snapshot()
                 carried_items = [(slot, tag) for slot, tag in cargo.items()
@@ -244,6 +269,10 @@ class PrecisionRuntime:
                 if carried:
                     selected_slot, cube = carried
                     target = destinations.get(cube)
+                    if (any(tag in destinations for _slot, tag in carried_items)
+                            and all(tag != EMPTY for tag in cargo.values())):
+                        selected_slot, cube, target = self._pp_full_cargo_destination(
+                            carried_items, destinations)
                     if target is None:
                         target = self._pp_surplus_destination(final)
                         if target is None:
@@ -300,11 +329,35 @@ class PrecisionRuntime:
                     # Its confirmed pickup clears the slot. Retrieve next; the place
                     # action takes the final snapshot and realigns only if cargo access moved the base.
                 self._pp_run_operation(goal_handle, plan, visit, 'retrieve', tag_id=cube, slot_id=selected_slot)
-                self._pp_run_operation(goal_handle, plan, visit, 'place_on_precision_table',
-                                       tag_id=cube, reference_tag_id=target)
+                try:
+                    self._pp_run_operation(goal_handle, plan, visit, 'place_on_precision_table',
+                                           tag_id=cube, reference_tag_id=target)
+                except PrecisionSlotOccupied:
+                    # Retrieval freed this compartment. Return the held cube to
+                    # it, then plan from the new occupancy on the next iteration.
+                    verified.discard(target)
+                    try:
+                        refs, objects = self._pp_scene()
+                    except StepFailed:
+                        refs = objects = {}
+                    for reference in tuple(verified):
+                        if reference in refs:
+                            try:
+                                occupant = slot_occupant(reference, refs, objects,
+                                                         self._arena.precision_perception)
+                            except StepFailed:
+                                verified.discard(reference)
+                            else:
+                                if occupant != final[reference]:
+                                    verified.discard(reference)
+                    self._pp_run_operation(goal_handle, plan, visit, 'store',
+                                           tag_id=cube, slot_id=selected_slot)
+                    continue
                 # Trust the physical release result; no post-deposit camera session.
-                if target in final:
+                if target in final and final[target] == cube:
                     verified.add(target)
+                else:
+                    verified.discard(target)
             raise StepFailed('PP: limite de organização atingido sem confirmar final_state.')
         finally:
             self._pp_organizing = False
