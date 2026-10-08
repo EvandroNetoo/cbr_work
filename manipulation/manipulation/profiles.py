@@ -10,6 +10,7 @@ from typing import Any
 import yaml
 
 from .errors import ConfigurationError
+from .base_wiggle import BaseWiggleProfile
 
 
 def _mapping(value: Any, context: str) -> dict[str, Any]:
@@ -89,6 +90,7 @@ class PlacementProfile:
     search_step_m: float = 0.01
     link3_to_link4_max_deg: float = -10.0
     tilt_tolerance_deg: float | None = None
+    base_wiggle: BaseWiggleProfile = BaseWiggleProfile()
 
 
 @dataclass(frozen=True)
@@ -127,6 +129,31 @@ def _load_yaml(path: str | Path) -> dict[str, Any]:
     if root.get('schema_version') != 1:
         raise ConfigurationError(f"'{source}' deve usar schema_version: 1.")
     return root
+
+
+def _base_wiggle(raw_value: Any, context: str) -> BaseWiggleProfile:
+    raw = _mapping(raw_value, context)
+    defaults = BaseWiggleProfile()
+    # Older YAMLs may still supply feedback settings; they are ignored.
+    legacy = {'max_yaw_speed_rad_s', 'position_gain', 'yaw_gain',
+              'position_tolerance_m', 'yaw_tolerance_rad', 'tracking_tolerance_m',
+              'odom_timeout_s', 'return_timeout_s'}
+    _only_keys(raw, set(defaults.__dataclass_fields__) | legacy, context)
+    enabled = raw.get('enabled', False)
+    cycles = raw.get('cycles', defaults.cycles)
+    if not isinstance(enabled, bool):
+        raise ConfigurationError(f'{context}.enabled deve ser booleano.')
+    if isinstance(cycles, bool) or not isinstance(cycles, int) or cycles <= 0:
+        raise ConfigurationError(f'{context}.cycles deve ser inteiro positivo.')
+    values = {'enabled': enabled, 'cycles': cycles}
+    for field in defaults.__dataclass_fields__:
+        if field not in values:
+            values[field] = _number(raw.get(field, getattr(defaults, field)),
+                                    f'{context}.{field}', positive=field in {'period_s', 'rate_hz'})
+    for field in ('radius_m', 'max_speed_m_s', 'settle_s'):
+        if values[field] < 0:
+            raise ConfigurationError(f'{context}.{field} deve ser maior ou igual a zero.')
+    return BaseWiggleProfile(**values)
 
 
 def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileSet:
@@ -295,7 +322,7 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 'search_x_min_m', 'search_x_max_m',
                 'search_y_min_m', 'search_y_max_m', 'search_step_m',
                 'link3_to_link4_max_deg',
-                'tilt_tolerance_deg',
+                'tilt_tolerance_deg', 'base_wiggle',
             },
             f'placements.{name}',
         )
@@ -314,6 +341,7 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
         profile = PlacementProfile(
             name=name,
             strategy=strategy,
+            base_wiggle=_base_wiggle(raw.get('base_wiggle', {}), f'placements.{name}.base_wiggle'),
             enabled=bool(raw.get('enabled', False)),
             named_state=str(raw.get('named_state', '')),
             approach_height_m=_number(
@@ -428,6 +456,8 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
                 )
             ),
         )
+        if profile.base_wiggle.enabled and name != 'precision_table':
+            raise ConfigurationError('base_wiggle só pode ser habilitada em placements.precision_table.')
         for field in ('approach_height_m', 'retreat_height_m'):
             if getattr(profile, field) < 0.0:
                 raise ConfigurationError(

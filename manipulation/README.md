@@ -340,3 +340,39 @@ armazenamento independente com retorno a `detect_apriltags`.
 O Mission Manager usa essa opção nos pares consecutivos `store → retrieve`.
 Em missões PP, cada coleta exige esse ciclo antes do depósito para padronizar a
 posição do cubo na garra.
+
+### Rebolada da base antes da soltura na PP
+
+`placements.precision_table.base_wiggle` configura uma oscilação circular
+temporizada da base, depois de atingir a pose de soltura e antes de abrir a
+garra. O braço mantém a pose e a garra permanece fechada durante o movimento.
+
+```yaml
+base_wiggle:
+  enabled: true
+  radius_m: 0.005
+  cycles: 2
+  period_s: 1.5
+  max_speed_m_s: 0.02
+  settle_s: 0.3
+  rate_hz: 30.0
+```
+
+A amplitude cresce suavemente e diminui até zero. São publicados comandos
+`TwistStamped` em `base_wiggle.cmd_vel_topic: /cmd_vel`, usando
+`base_wiggle.command_frame: base_footprint`. A duração é `cycles * period_s`,
+seguida de velocidade zero e uma pausa fixa de `settle_s` antes da soltura.
+Se a velocidade nominal exceder `max_speed_m_s`, toda a trajetória é escalada
+uniformemente; nesse caso, o raio comandado também diminui.
+
+Não há leitura de odometria nem verificações de movimento inicial, velocidade
+medida, acompanhamento, deslocamento, retorno, orientação ou assinantes do
+tópico. O término depende apenas do tempo; o retorno físico à posição inicial
+não é confirmado. Os parâmetros antigos de feedback são aceitos e ignorados.
+As verificações de configuração se limitam a tipos e valores utilizáveis.
+
+A parada em velocidade zero é enviada ao terminar, cancelar ou falhar. O
+cancelamento padrão da action continua ativo e impede a abertura da garra.
+Não há controle de força nem ajuste automático de Z. Para desativar a etapa,
+use `enabled: false`. Durante a rebolada, a manipulação controla a base;
+o fluxo normal do Mission Manager não executa FollowWall simultaneamente.

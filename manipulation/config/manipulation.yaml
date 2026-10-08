@@ -6,6 +6,8 @@ manipulation_server:
     vision_action: /vision/analyze_scene
     container_target_topic: /manipulation/container_release_target
     joint_states_topic: /joint_states
+    base_wiggle.cmd_vel_topic: /cmd_vel
+    base_wiggle.command_frame: base_footprint
     pick_action: manipulation/pick
     store_action: manipulation/store
     retrieve_action: manipulation/retrieve

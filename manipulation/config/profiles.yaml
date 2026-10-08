@@ -117,11 +117,21 @@ placements:
     # Calibrar a pose de soltura do TCP em relação à tag da mesa PP.
     # Somar XYZ em arm_base_link, em metros (não nos eixos locais da tag).
     calibrated_reference: true
-    reference_offset_xyz: [0.0, 0.0675, -0.015]
+    reference_offset_xyz: [0.0, 0.067, -0.015]
     yaw_offset_deg: 0.0
     approach_height_m: 0.015
     retreat_height_m: 0.0
     tilt_tolerance_deg: null
+
+    # Rebolada da base com a garra fechada, antes de soltar o cubo.
+    base_wiggle:
+      enabled: true
+      radius_m: 0.01
+      cycles: 2
+      period_s: 2.0
+      max_speed_m_s: 0.1
+      settle_s: 0.3
+      rate_hz: 30.0
 
   shelf:
     strategy: named_state

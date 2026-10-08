@@ -7,10 +7,11 @@ import math
 from pathlib import Path
 import random
 import threading
+import time
 from typing import Any, Callable
 
 from ament_index_python.packages import get_package_share_directory
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, TwistStamped
 from interfaces.action import (
     PickObject,
     PlaceAtPose,
@@ -70,6 +71,7 @@ from .errors import (
     PickRecoveryRequired,
     ServerUnavailable,
 )
+from .base_wiggle import run_base_wiggle
 from .profiles import load_profiles, PickupProfile, PlacementProfile, ProfileSet
 
 
@@ -119,6 +121,8 @@ class ManipulationServer(Node):
             'vision_action': '/vision/analyze_scene',
             'container_target_topic': '/manipulation/container_release_target',
             'joint_states_topic': '/joint_states',
+            'base_wiggle.cmd_vel_topic': '/cmd_vel',
+            'base_wiggle.command_frame': 'base_footprint',
             'pick_action': 'manipulation/pick',
             'store_action': 'manipulation/store',
             'retrieve_action': 'manipulation/retrieve',
@@ -181,6 +185,10 @@ class ManipulationServer(Node):
         self._effect_known = True
         self._effect_location = ManipulationResult.LOCATION_UNKNOWN
         self._lock = threading.RLock()
+        self._base_wiggle_active = threading.Event()
+        self._base_command_frame = str(self.get_parameter('base_wiggle.command_frame').value)
+        self._base_wiggle_publisher = self.create_publisher(
+            TwistStamped, str(self.get_parameter('base_wiggle.cmd_vel_topic').value), 1)
         self._cancel_event = threading.Event()
         self._motion = ExecutorDoMoveIt(
             self,
@@ -299,6 +307,8 @@ class ManipulationServer(Node):
 
     def _cancel_callback(self, _goal_handle: Any) -> CancelResponse:
         self._cancel_event.set()
+        if getattr(self, '_base_wiggle_active', None) is not None and self._base_wiggle_active.is_set():
+            self._publish_base_wiggle(0.0, 0.0, 0.0)
         self._motion.cancelar_objetivo_ativo()
         return CancelResponse.ACCEPT
 
@@ -1372,6 +1382,34 @@ class ManipulationServer(Node):
             )
         return profile
 
+    def _publish_base_wiggle(self, vx: float, vy: float, wz: float) -> None:
+        message = TwistStamped()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.header.frame_id = self._base_command_frame
+        message.twist.linear.x = float(vx)
+        message.twist.linear.y = float(vy)
+        message.twist.angular.z = float(wz)
+        self._base_wiggle_publisher.publish(message)
+
+    def _wiggle_before_precision_release(self, goal_handle, action_type, profile) -> None:
+        def check_active():
+            if self._cancel_event.is_set() or goal_handle.is_cancel_requested or not rclpy.ok():
+                raise OperacaoCancelada('Rebolada PP cancelada; base parada e garra mantida fechada.')
+
+        check_active()
+        self._feedback(
+            goal_handle, action_type, ManipulationFeedback.APPROACHING,
+            0.65, 'Executando rebolada da base para assentar o cubo antes da soltura',
+        )
+        self._base_wiggle_active.set()
+        try:
+            run_base_wiggle(
+                profile.base_wiggle, publish=self._publish_base_wiggle,
+                clock=time.monotonic, wait=self._cancel_event.wait, check_active=check_active,
+            )
+        finally:
+            self._base_wiggle_active.clear()
+
     def _release_at_pose(
         self,
         goal_handle: Any,
@@ -1401,6 +1439,8 @@ class ManipulationServer(Node):
             GRUPO_BRACO, restricoes_de_pegada(release_pose, **release_options),
             VELOCIDADE_MAXIMA, ACELERACAO_MAXIMA,
         )
+        if action_type is PlaceOnPrecisionTable and profile.base_wiggle.enabled:
+            self._wiggle_before_precision_release(goal_handle, action_type, profile)
         self._open_for_placement(goal_handle, action_type, destination)
         if profile.retreat_height_m > 0.0:
             retreat_pose = copy.deepcopy(release_pose)
@@ -1833,6 +1873,8 @@ class ManipulationServer(Node):
     def destroy_node(self):
         """Cancel child work before destroying the ROS node."""
         self._cancel_event.set()
+        if getattr(self, '_base_wiggle_active', None) is not None and self._base_wiggle_active.is_set():
+            self._publish_base_wiggle(0.0, 0.0, 0.0)
         self._motion.cancelar_objetivo_ativo()
         self._motion.parar_monitoramento_dos_estados()
         for server in self._servers:
