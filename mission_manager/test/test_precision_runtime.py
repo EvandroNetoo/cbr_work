@@ -429,8 +429,7 @@ def test_correct_board_seen_across_three_viewpoints_never_manipulates():
     robot._observe_visit, robot._move_to_table_position = scene, move
     visit = Visit('pp', 'pp_1', (), None, tuple((i, i) for i in range(1, 7)))
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)
-    assert 325 in scenes and -325 in scenes
-    assert scenes.count(325) == scenes.count(-325) == 1
+    assert scenes == [0, 325, -325]
     assert robot.events == []
     assert robot._completed_steps == 0 and robot._delivery_outcomes == []
     assert robot.board == {**{i: i for i in range(1, 7)}, 7: None}
@@ -473,3 +472,54 @@ def test_unseen_destination_reference_does_not_prevent_wrong_cube_pick():
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert [event[0] for event in robot.events] == ['pick', 'store', 'retrieve', 'place_on_precision_table']
     assert robot.board[2] == 2
+
+
+def test_selection_finds_other_wrong_cube_without_searching_for_object_one():
+    robot = Robot({1: 1, 2: 2, 3: 3, 4: 4, 5: 6, 6: 5, 7: None})
+    robot._arena.pickup_recovery.search_positions_mm = (0, 325, -325)
+    views = {0: {3, 4}, 325: {5, 6, 7}, -325: {1, 2}}
+    scenes = []
+    def move(wall, lateral, *_args):
+        robot._current_wall_distance_mm, robot._current_lateral_position_mm = wall, lateral
+        robot._last_pp_scene = None
+    def scene():
+        lateral = robot._current_lateral_position_mm
+        scenes.append(lateral)
+        visible = views[lateral]
+        refs = {slot: tag(slot, slot * .1, .02) for slot in visible}
+        objects = {cube: tag(cube, slot * .1, .065) for slot, cube in robot.board.items()
+                   if slot in visible and cube is not None}
+        robot._last_pp_scene = ('pp_1', 200, lateral, refs, objects)
+        for slot, detection in refs.items():
+            robot._pp_reference_observations[('pp_1', slot)] = TagObservation(
+                'pp_1', 200, lateral, 200, lateral, detection)
+        for cube, detection in objects.items():
+            robot._tag_observations[('pp_1', cube)] = TagObservation(
+                'pp_1', 200, lateral, 200, lateral, detection)
+    robot._observe_visit, robot._move_to_table_position = scene, move
+    robot._pp_organizing = True
+    final = {i: i for i in range(1, 7)}
+    robot._pp_final_state = final
+    robot._pp_verified = set()
+    scene()
+    selected = robot._pp_select_work(final, {i: i for i in range(1, 7)}, robot._pp_verified)
+    assert selected == (5, 5, False)
+    assert scenes == [0, 325]
+    assert robot._pp_verified == {3, 4}
+    assert robot.events == []
+
+
+def test_select_work_prioritizes_visible_wrong_cube_over_distant_memory():
+    robot = Robot({1: 2, 2: 1, 3: 4, 4: 3, 5: None, 6: None, 7: None})
+    robot._observe_visit()
+    # Object 1 is cached from a distant pickup position, but not visible here.
+    detection = robot._tag_observations[('pp_1', 1)].detection
+    robot._tag_observations[('pp_1', 1)] = TagObservation('pp_1', 200, -325, 200, -325, detection)
+    robot._last_pp_scene[4].pop(1)
+    robot._last_pp_scene[4].pop(2)
+    final = {i: i for i in range(1, 5)}
+    robot._pp_organizing = True
+    robot._pp_final_state, robot._pp_verified = final, set()
+    selected = robot._pp_select_work(final, {i: i for i in range(1, 5)}, robot._pp_verified)
+    assert selected[0] in {3, 4}
+    assert robot.events == []

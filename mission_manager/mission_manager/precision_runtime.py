@@ -84,6 +84,10 @@ class PrecisionRuntime:
         key = (self._current_location, self._current_wall_distance_mm,
                self._current_lateral_position_mm, bool(getattr(self, '_search_led_off', False)))
         self._pp_reference_views[key] = frozenset(references)
+        if getattr(self, '_pp_organizing', False):
+            if not hasattr(self, '_pp_selection_views'):
+                self._pp_selection_views = set()
+            self._pp_selection_views.add(key)
 
     def _pp_reference_view_excludes(self, tag_id, wall, lateral, tolerance=1):
         for (area, observed_wall, observed_lateral, led_off), ids in reversed(
@@ -219,6 +223,9 @@ class PrecisionRuntime:
             raise StepFailed(f'PP: efeito físico de {action} não confirmado.')
         self._completed_steps += 1
         self._last_pp_scene = None
+        if action in {'pick', 'place_on_precision_table'}:
+            # Only changes to the table invalidate previous selection scans.
+            self._pp_selection_views = set()
         if action == 'place_on_precision_table':
             self._delivery_outcomes.append(DeliveryOutcome(step.step_id, tag_id, visit.target,
                                                           action, action, reference_tag_id=reference_tag_id))
@@ -252,13 +259,16 @@ class PrecisionRuntime:
         self._pp_owned_slots.add(free)
         return free
 
-    def _pp_known_wrong_object(self, destinations, verified):
+    def _pp_known_wrong_object(self, destinations, verified, *, visible_only=False):
         """Prioritize a seen wrong cube using coordinates corrected for base motion."""
         config = self._arena.precision_perception
+        visible = self._pp_scene()[1] if visible_only else None
         candidates = sorted(self._tag_observations.items(), key=lambda item: (
             abs(item[1].pickup_lateral_position_mm - self._current_lateral_position_mm), item[0]))
         for (area, tag), obj in candidates:
             if area != self._current_location or tag not in destinations or destinations[tag] in verified:
+                continue
+            if visible is not None and tag not in visible:
                 continue
             ref = self._pp_reference_observations.get((area, destinations[tag]))
             if ref is None:
@@ -273,6 +283,47 @@ class PrecisionRuntime:
             if math.hypot(ox - rx, oy - ry) > config.occupancy_radius_m:
                 return tag
         return None
+
+    def _pp_select_work(self, final, destinations, verified):
+        """Scan for useful work rather than search a predetermined object ID."""
+        attempted = set()
+        config = self._arena.pickup_recovery
+        while True:
+            try:
+                refs, objects = self._pp_scene()
+            except StepFailed:
+                self._observe_visit()
+                refs, objects = self._pp_scene()
+            self._pp_record_reference_view(refs)
+            if len(verified) == len(final):
+                return None
+            # Prefer a wrong cube visible here before traveling to cached ones.
+            cube = self._pp_known_wrong_object(destinations, verified, visible_only=True)
+            if cube is not None:
+                return cube, destinations[cube], False
+            for target, desired in final.items():
+                if desired is None and target not in verified and target in refs:
+                    occupant = slot_occupant(target, refs, objects, self._arena.precision_perception)
+                    if occupant is not None:
+                        return occupant, target, True
+            cube = self._pp_known_wrong_object(destinations, verified)
+            if cube is not None:
+                return cube, destinations[cube], False
+            for wall, lateral in self._pp_search_points():
+                if any(area == self._current_location
+                       and led == bool(getattr(self, '_search_led_off', False))
+                       and abs(observed_wall - wall) <= config.wall_tolerance_mm
+                       and abs(observed_lateral - lateral) <= config.travel_tolerance_mm
+                       for area, observed_wall, observed_lateral, led in self._pp_selection_views):
+                    attempted.add((wall, lateral))
+            if not self._pp_move_to_next_search_point(None, reference=False, attempted=attempted):
+                missing = [str(desired) for target, desired in final.items()
+                           if target not in verified and desired is not None]
+                if missing:
+                    raise StepFailed(f'PP: objeto {", ".join(missing)} não encontrado '
+                                     'ou posição correta não confirmada após busca de organização.')
+                raise StepFailed('PP: alojamentos vazios exigidos não confirmados após busca de organização.')
+            self._observe_visit()
 
     def _pp_surplus_destination(self, final):
         """An unrequested cube may use an unspecified cavity, never the tabletop."""
@@ -330,6 +381,7 @@ class PrecisionRuntime:
         self._pp_aligned_reference = None
         self._pp_organizing = True
         self._pp_reference_views = {}
+        self._pp_selection_views = set()
         try:
             self._observe_visit()
             self._pp_scene()
@@ -384,19 +436,14 @@ class PrecisionRuntime:
                 else:
                     if len(verified) == len(final):
                         return
-                    cube = self._pp_known_wrong_object(destinations, verified)
-                    if cube is None:
-                        target = next(slot for slot in final if slot not in verified)
-                        cube = final[target]
-                        if cube is None:
-                            occupant = self._pp_seek_reference(target)
-                            if occupant is not None:
-                                self._pp_pick_store(goal_handle, plan, visit, occupant, observed=True)
-                            verified.add(target)
-                            continue
-                        # No reference search/analysis before picking this cube.
-                    else:
-                        target = destinations[cube]
+                    selected = self._pp_select_work(final, destinations, verified)
+                    if selected is None:
+                        return
+                    cube, target, clearing = selected
+                    if clearing:
+                        self._pp_pick_store(goal_handle, plan, visit, cube, observed=True)
+                        verified.add(target)
+                        continue
                     selected_slot = self._pp_pick_store(goal_handle, plan, visit, cube, skip_if_correct=True)
                     if selected_slot is None:
                         continue  # Search proved this pending cube is already correct.

@@ -555,6 +555,13 @@ considerar o slot vazio. Ausência da referência, frames sem TF e detecção
 ambígua interrompem a operação em vez de presumir uma cavidade livre.
 
 O fluxo prioriza objetos observados fora do destino e objetos já armazenados.
+Sem carga pendente e sem candidato na posição atual, a organização percorre
+os pontos de busca procurando qualquer cubo que precise mudar, em vez de fixar
+o primeiro ID pendente do YAML. A cada imagem, prefere candidatos visíveis na
+posição atual antes de retornar a objetos memorizados em outros pontos. Pontos
+já analisados na mesma distância e iluminação são dispensados nessa varredura;
+assim, a análise inicial em 0 não é repetida antes de ir a 325 ou -325. Coletas
+e depósitos invalidam essa varredura porque alteram a ocupação da mesa.
 Cada nova análise, inclusive durante a busca de um objeto, reconhece os pares
 referência/objeto já corretos e os marca como concluídos. Antes do pick, essa
 decisão é reavaliada com a imagem disponível: se o objeto procurado já estiver
