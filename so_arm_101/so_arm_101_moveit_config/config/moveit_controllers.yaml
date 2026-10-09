@@ -1,5 +1,8 @@
 moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
 
+trajectory_execution:
+  allowed_start_tolerance: 0.05 # padrao 0.01
+
 moveit_simple_controller_manager:
   controller_names:
     - arm_controller

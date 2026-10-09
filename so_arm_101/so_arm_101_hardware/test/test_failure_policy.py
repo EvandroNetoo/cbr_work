@@ -93,6 +93,11 @@ def _io_node():
     node._robot_id = 'test_follower'
     node._calibration_file = ''
     node._use_degrees = False
+    node._position_pid = {
+        'position_p_coefficient': 16,
+        'position_i_coefficient': 0,
+        'position_d_coefficient': 32,
+    }
     node._torque_enabled = True
     node._write_rate_hz = 30.0
     node._active_read_rate_hz = 10.0

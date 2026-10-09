@@ -10,6 +10,7 @@ import time
 from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.node import Node
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
@@ -47,6 +48,19 @@ class SO101HardwareNode(Node):
         self.declare_parameter('robot_id', 'so101_follower')
         self.declare_parameter('calibration_file', '')
         self.declare_parameter('use_degrees', False)
+        self._position_pid = {}
+        for name, default in (
+            ('position_p_coefficient', 16),
+            ('position_i_coefficient', 0),
+            ('position_d_coefficient', 32),
+        ):
+            parameter = self.declare_parameter(
+                name, default, ParameterDescriptor(
+                    read_only=True,
+                    description=(
+                        'Ganho PID Feetech (0 a 255), aplicado ao conectar. '
+                        'Reinicie o driver para alterar.')))
+            self._position_pid[name] = parameter.value
         # O controller_manager interpola a 30 Hz. Amostrar o último alvo a uma
         # taxa maior evita alias de fase entre dois timers de 30 Hz: um alvo
         # não fica esperando um ciclo inteiro nem é substituído pelo próximo.
@@ -291,6 +305,7 @@ class SO101HardwareNode(Node):
             self._robot_id,
             use_degrees=self._use_degrees,
             calibration_file=self._calibration_file,
+            **self._position_pid,
         )
 
     @staticmethod

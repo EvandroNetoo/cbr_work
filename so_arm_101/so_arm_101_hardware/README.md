@@ -75,6 +75,33 @@ ros2 service call /so101_hardware_node/set_torque std_srvs/srv/SetBool \
 Antes de energizar os servos, o driver define a pose física atual como alvo
 para evitar um salto para um comando antigo.
 
+## Ajuste do PID dos servos
+
+Edite `config/real.yaml` para testar os ganhos do controlador interno Feetech:
+
+```yaml
+position_p_coefficient: 16
+position_i_coefficient: 0
+position_d_coefficient: 32
+```
+
+Os valores são inteiros de 0 a 255 e se aplicam a todas as juntas, inclusive
+à garra. O LeRobot grava os ganhos ao conectar, e o driver mantém a mesma
+configuração nas reconexões. Estes parâmetros são somente leitura em execução:
+após editar, reinicie o launch. Se a instalação não usa links simbólicos para
+o YAML, reconstrua o pacote antes de reiniciar:
+
+```bash
+colcon build --symlink-install --packages-select so_arm_101_hardware
+source install/setup.bash
+```
+
+Para investigar a queda sob carga, compare primeiro P=16, P=24 e P=32,
+mantendo I=0 e D=32, com a mesma pose e carga. São pontos de comparação,
+não uma calibração validada no hardware. Se surgir oscilação ou aquecimento,
+reduza o ganho. Os limites de torque e corrente da garra continuam sob a
+configuração do LeRobot.
+
 Os arquivos `config/so101_follower.json` e
 `config/gripper_calibration.yaml` são calibrações de referência. Confirme IDs,
 offsets, faixas e endpoints no hardware antes de comandar. A calibração manual,

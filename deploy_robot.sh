@@ -4,7 +4,7 @@ set -euo pipefail
 
 # BANANA="banana@172.20.10.8"
 # BANANA="banana@10.214.207.44"
-BANANA="banana@192.168.1.218"
+BANANA="banana@192.168.1.216"
 
 # RASPBERRY="rasp@172.20.10.13"
 # RASPBERRY="rasp@10.214.207.248"

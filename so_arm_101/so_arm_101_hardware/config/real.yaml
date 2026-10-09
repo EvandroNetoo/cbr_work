@@ -8,6 +8,12 @@ so101_hardware_node:
     calibration_file: so101_follower.json
     # ROS uses radians; the adapter converts to/from LeRobot degrees.
     use_degrees: true
+    # PID interno dos servos, aplicado a todas as juntas ao conectar/reconectar.
+    # Inteiros de 0 a 255. Reinicie o driver após editar; não muda em execução.
+    # Para comparar a firmeza, teste primeiro P=24 e depois P=32, mantendo I/D.
+    position_p_coefficient: 24 # padrao 16
+    position_i_coefficient: 1 # padrao 0
+    position_d_coefficient: 32 # padrao 32
     # O controller_manager produz setpoints a 30 Hz. O escritor amostra o
     # último alvo a 60 Hz para não depender da fase relativa dos dois timers;
     # como alvos idênticos não são reenviados, isto não dobra o tráfego serial.

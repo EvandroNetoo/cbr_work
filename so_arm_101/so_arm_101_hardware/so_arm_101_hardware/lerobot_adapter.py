@@ -131,8 +131,20 @@ def make_follower(
     *,
     use_degrees: bool = False,
     calibration_file: str = '',
+    position_p_coefficient: int = 16,
+    position_i_coefficient: int = 0,
+    position_d_coefficient: int = 32,
 ):
     """Build the official LeRobot follower, keeping imports out of module load."""
+    gains = {
+        'position_p_coefficient': position_p_coefficient,
+        'position_i_coefficient': position_i_coefficient,
+        'position_d_coefficient': position_d_coefficient,
+    }
+    # Feetech stores each coefficient in a one-byte register.
+    for name, value in gains.items():
+        if type(value) is not int or not 0 <= value <= 255:
+            raise ValueError(f'{name} deve ser um inteiro entre 0 e 255.')
     try:
         from lerobot.robots.so_follower import (  # type: ignore
             SO101Follower,
@@ -161,6 +173,7 @@ def make_follower(
         id=calibration_id,
         calibration_dir=calibration_dir,
         use_degrees=use_degrees,
+        **gains,
     )
     return SO101Follower(config)
 
