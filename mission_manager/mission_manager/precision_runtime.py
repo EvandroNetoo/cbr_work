@@ -2,7 +2,7 @@
 import math
 
 from .errors import StepFailed, PrecisionSlotOccupied, PrecisionObjectAlreadyCorrect
-from .models import Step, DeliveryOutcome
+from .models import Step, DeliveryOutcome, SlotMovement
 from .precision_perception import slot_occupant
 from .world_state import EMPTY
 
@@ -225,7 +225,12 @@ class PrecisionRuntime:
                                          f'PP: {action} objeto {tag_id}, referência {reference_tag_id}')
         sources = [reference for reference, cube in
                    getattr(self, '_pp_expected_occupancy', {}).items() if cube == tag_id]
-        self._execute_step(step)
+        movement = (self._pp_transfer_movement(reference_tag_id)
+                    if action in {'store', 'retrieve'} and reference_tag_id is not None else None)
+        if movement is None:
+            self._execute_step(step)
+        else:
+            self._execute_step(step, slot_movement=movement)
         known, held, cargo = self._world_state.snapshot()
         correct = {'pick': held == tag_id, 'store': held == EMPTY and cargo.get(slot_id) == tag_id,
                    'retrieve': held == tag_id and cargo.get(slot_id) == EMPTY,
@@ -247,7 +252,31 @@ class PrecisionRuntime:
             self._delivery_outcomes.append(DeliveryOutcome(step.step_id, tag_id, visit.target,
                                                           action, action, reference_tag_id=reference_tag_id))
 
-    def _pp_pick_store(self, goal_handle, plan, visit, tag_id, *, observed=False, skip_if_correct=False):
+    def _pp_transfer_movement(self, reference_tag_id):
+        memory = getattr(self, '_pp_reference_observations', {}).get((self._current_location, reference_tag_id))
+        if memory is None:
+            # A search viewpoint is a valid next movement even before the fixed
+            # reference is discovered. Perception waits for both actions to end.
+            config = self._arena.pickup_recovery
+            for wall, lateral in self._pp_search_points():
+                if self._pp_reference_view_excludes(reference_tag_id, wall, lateral,
+                                                    tolerance=min(config.wall_tolerance_mm,
+                                                                  config.travel_tolerance_mm)):
+                    continue
+                if (abs(wall - self._current_wall_distance_mm) <= config.wall_tolerance_mm
+                        and abs(lateral - self._current_lateral_position_mm) <= config.travel_tolerance_mm):
+                    continue
+                return SlotMovement(wall, lateral)
+            return None
+        wall, lateral = self._precision_memory_destination(memory)
+        config = self._arena.pickup_recovery
+        if (abs(wall - self._current_wall_distance_mm) <= config.wall_tolerance_mm
+                and abs(lateral - self._current_lateral_position_mm) <= config.travel_tolerance_mm):
+            return None
+        return SlotMovement(wall, lateral)
+
+    def _pp_pick_store(self, goal_handle, plan, visit, tag_id, *, observed=False, skip_if_correct=False,
+                       destination_reference=None):
         known, held, cargo = self._world_state.snapshot()
         free = next((slot for slot, tag in cargo.items() if tag == EMPTY), None)
         if not known or held != EMPTY or free is None:
@@ -272,7 +301,8 @@ class PrecisionRuntime:
         finally:
             self._pp_direct_pick_tag = None
             self._pp_skip_correct_pick_tag = None
-        self._pp_run_operation(goal_handle, plan, visit, 'store', tag_id=tag_id, slot_id=free)
+        self._pp_run_operation(goal_handle, plan, visit, 'store', tag_id=tag_id, slot_id=free,
+                               reference_tag_id=destination_reference)
         self._pp_owned_slots.add(free)
         return free
 
@@ -473,7 +503,8 @@ class PrecisionRuntime:
                         self._pp_pick_store(goal_handle, plan, visit, cube, observed=True)
                         verified.add(target)
                         continue
-                    selected_slot = self._pp_pick_store(goal_handle, plan, visit, cube, skip_if_correct=True)
+                    selected_slot = self._pp_pick_store(goal_handle, plan, visit, cube, skip_if_correct=True,
+                                                        destination_reference=target)
                     if selected_slot is None:
                         continue  # Search proved this pending cube is already correct.
                 occupant = self._pp_seek_reference(target)
@@ -483,7 +514,8 @@ class PrecisionRuntime:
                     self._pp_pick_store(goal_handle, plan, visit, occupant, observed=True)
                     # Its confirmed pickup clears the slot. Retrieve next; the place
                     # action takes the final snapshot and realigns only if cargo access moved the base.
-                self._pp_run_operation(goal_handle, plan, visit, 'retrieve', tag_id=cube, slot_id=selected_slot)
+                self._pp_run_operation(goal_handle, plan, visit, 'retrieve', tag_id=cube, slot_id=selected_slot,
+                                       reference_tag_id=target)
                 try:
                     self._pp_run_operation(goal_handle, plan, visit, 'place_on_precision_table',
                                            tag_id=cube, reference_tag_id=target)

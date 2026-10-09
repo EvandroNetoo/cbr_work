@@ -445,3 +445,37 @@ def test_precision_plan_reference_validation(tmp_path, reference):
     assert 42 not in scheduler.tags  # Reference belongs to the table, not cargo.
     assert scheduler._rank(task, {('tag', 42): 300}, 100) == (1, 200)
     assert scheduler._rank(task, {('tag', 5): 300}, 100) is None
+
+
+def test_async_motion_global_defaults_and_partial_area_overrides(tmp_path):
+    import yaml
+    raw = yaml.safe_load(VALID_ARENA)
+    raw['async_motion_defaults'] = {'table_mode': 'always', 'approach_departure_enabled': False}
+    raw['service_areas']['ws_1']['async_motion'] = {'table_mode': 'disabled'}
+    raw['service_areas']['ws_3']['async_motion'] = {'approach_departure_enabled': True}
+    arena = load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
+    assert arena.async_motion_defaults.table_mode == 'always'
+    assert arena.service_areas['ws_1'].async_motion.table_mode == 'disabled'
+    assert arena.service_areas['ws_1'].async_motion.approach_departure_enabled is False
+    assert arena.service_areas['ws_3'].async_motion.table_mode == 'always'
+    assert arena.service_areas['ws_3'].async_motion.approach_departure_enabled is True
+    legacy = load_arena(_write(tmp_path, 'legacy.yaml', VALID_ARENA))
+    assert legacy.async_motion_defaults.table_mode == 'opposite_sides'
+    assert legacy.service_areas['ws_1'].async_motion.approach_departure_enabled is True
+
+
+@pytest.mark.parametrize('block', [
+    {'table_mode': 'sometimes'}, {'table_mode': False}, {'table_mode': None},
+    {'approach_departure_enabled': 'false'}, {'approach_departure_enabled': 1},
+    {'approach_departure_enabled': None}, {'unexpected': True},
+])
+@pytest.mark.parametrize('local', [True, False])
+def test_async_motion_rejects_invalid_global_or_area_settings(tmp_path, block, local):
+    import yaml
+    raw = yaml.safe_load(VALID_ARENA)
+    if local:
+        raw['service_areas']['ws_1']['async_motion'] = block
+    else:
+        raw['async_motion_defaults'] = block
+    with pytest.raises(ConfigurationError, match='async_motion'):
+        load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))

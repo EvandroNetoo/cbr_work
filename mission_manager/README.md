@@ -16,7 +16,7 @@ As poses de `arena.yaml` devem ser calibradas para a arena antes da execução. 
 normalmente, mas um goal retorna `CONFIGURATION_ERROR` sem movimentar o robô se
 a arena ou o plano não forem válidos.
 
-Na aproximação de uma área de serviço, o braço vai para `detect_apriltags`
+Com `approach_departure_enabled: true`, na aproximação de uma área de serviço, o braço vai para `detect_apriltags`
 (`PrepareManipulator.OBSERVATION`) ao mesmo tempo que o alinhamento `FollowWall`.
 Na saída, vai para `home` (`PrepareManipulator.NAVIGATION`, conforme as poses de
 transporte em `manipulation/config/cargo_slots.yaml`) em paralelo ao recuo.
@@ -27,16 +27,51 @@ continua viajando com o braço na pose de transporte.
 
 Antes do depósito em prateleira, a base alinha com `FollowWall` mantendo a pose
 atual do braço. No retorno à distância de observação, o braço vai para
-`detect_apriltags` em paralelo.
+`detect_apriltags` em paralelo somente com `table_mode: always`.
 
 Guardar (`store`) e retirar (`retrieve`) dos slots também podem ocorrer enquanto
 um `FollowWall` antecipa o próximo reposicionamento ou recuo de saída. A base só
 é liberada pelo feedback `APPROACHING`, após a preparação segura do braço. Para
-slot `left`, somente deslocamento para a direita; para slot `right`, somente
-para a esquerda. O executor usa o slot escolhido e o deslocamento efetivo após
-os limites laterais e o recuo de folga já existentes. Mesmo lado, deslocamento
-sem componente lateral, slot sem lado conhecido ou destino ainda não decidido
-mantêm a execução sequencial.
+`table_mode: opposite_sides`, slot `left` permite deslocamento para a direita e
+slot `right` para a esquerda. `always` permite ambos os lados e ajustes somente
+frontais; `disabled` mantém a execução sequencial. O executor usa o deslocamento
+efetivo após os limites laterais e o recuo de folga existentes. Sem destino
+conhecido ou sem movimento além da tolerância, não inicia sobreposição.
+
+O padrão vale para WS, SH e PP, em `arena.yaml`:
+
+```yaml
+async_motion_defaults:
+  table_mode: opposite_sides  # disabled | opposite_sides | always
+  approach_departure_enabled: true
+
+service_areas:
+  pp_67:
+    # Acrescentar à configuração existente desta área:
+    async_motion:
+      table_mode: always
+      approach_departure_enabled: false
+```
+
+Cada área pode sobrescrever apenas um campo e herdar o outro. A flag de
+aproximação/recuo é independente do modo durante as tarefas: `disabled` com
+flag `true` ainda permite aproximação e recuo em paralelo, enquanto `always`
+com flag `false` mantém entrada e saída sequenciais. A flag também controla um
+recuo antecipado durante a última transferência para a carga. Em movimentos
+comuns de busca/alinhamento, a preparação para observação pode ocorrer junto
+com a base no modo `always`; no modo de lados opostos, sem compartimento
+associado à preparação, essa preparação permanece sequencial.
+
+Na organização PP reativa, o store do cubo escolhido pode antecipar o
+alinhamento à referência conhecida. Se a referência ainda não foi localizada,
+pode antecipar o próximo ponto de busca, evitando posições onde ela já esteve
+ausente. Assim, o robô pode armazenar enquanto anda para procurar o destino.
+A escolha do ponto não o marca como analisado: a câmera só analisa depois que
+as duas ações terminarem. O retrieve também recebe esse destino
+quando ainda houver reposicionamento necessário. São usadas as posições das
+referências, separadas das posições de objetos mesmo com IDs iguais. A análise
+de ocupação ocorre depois que base e braço terminam, e o place ainda faz sua
+verificação final antes da soltura.
 
 O destino vem da próxima escolha viável: memória de cubo/suporte/contêiner,
 próximo ponto de uma busca já iniciada ou recuo configurado para a próxima visita.

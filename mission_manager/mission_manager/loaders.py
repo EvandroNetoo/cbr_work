@@ -13,6 +13,7 @@ import yaml
 from .errors import ConfigurationError
 from .models import (
     AlignmentConfig,
+    AsyncMotionConfig,
     Arena,
     DepartureConfig,
     MapPose,
@@ -373,6 +374,18 @@ def _pickup_recovery(raw_value: Any, context: str) -> PickupRecoveryConfig:
     )
 
 
+def _async_motion(raw_value, context, defaults=AsyncMotionConfig()):
+    raw = _mapping(raw_value, context)
+    _only_keys(raw, {'table_mode', 'approach_departure_enabled'}, context)
+    mode = raw.get('table_mode', defaults.table_mode)
+    if not isinstance(mode, str) or mode not in {'disabled', 'opposite_sides', 'always'}:
+        raise ConfigurationError(f'{context}.table_mode deve ser disabled, opposite_sides ou always.')
+    enabled = raw.get('approach_departure_enabled', defaults.approach_departure_enabled)
+    if not isinstance(enabled, bool):
+        raise ConfigurationError(f'{context}.approach_departure_enabled deve ser booleano.')
+    return AsyncMotionConfig(mode, enabled)
+
+
 def load_arena(path: str | Path) -> Arena:
     """Load calibrated map targets and merge per-area distance overrides."""
     root = _load_yaml(path)
@@ -384,10 +397,12 @@ def load_arena(path: str | Path) -> Arena:
             'table_place_search_positions_mm',
             'start', 'finish', 'service_areas',
             'shelf_place_alignment_defaults', 'precision_perception',
+            'async_motion_defaults',
         },
         'arena',
     )
     frame_id = _nonempty_string(root.get('frame_id'), 'arena.frame_id')
+    async_defaults = _async_motion(root.get('async_motion_defaults', {}), 'arena.async_motion_defaults')
     defaults = _alignment(
         root.get('alignment_defaults'), 'arena.alignment_defaults'
     )
@@ -438,6 +453,7 @@ def load_arena(path: str | Path) -> Arena:
                 'x_m', 'y_m', 'yaw_rad', 'height_cm', 'type',
                 'alignment', 'departure',
                 'shelf_place_alignment', 'alignment_error_ignore_sec',
+                'async_motion',
             },
             f'arena.service_areas.{area_name}',
         )
@@ -469,6 +485,8 @@ def load_arena(path: str | Path) -> Arena:
                 f'arena.service_areas.{area_name}.height_cm',
             ),
             area_type=area_type,
+            async_motion=_async_motion(raw.get('async_motion', {}),
+                                       f'arena.service_areas.{area_name}.async_motion', async_defaults),
             alignment_error_ignore_sec=ignore_sec,
             shelf_place_alignment=(
                 _alignment(
@@ -497,6 +515,7 @@ def load_arena(path: str | Path) -> Arena:
         for key in pp_defaults.__dataclass_fields__})
     return Arena(
         precision_perception=pp_config,
+        async_motion_defaults=async_defaults,
         frame_id=frame_id,
         start=_pose(root.get('start'), 'arena.start'),
         finish=_pose(root.get('finish'), 'arena.finish'),

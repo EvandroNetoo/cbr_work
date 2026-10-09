@@ -111,6 +111,12 @@ class MapPose:
 
 
 @dataclass(frozen=True)
+class AsyncMotionConfig:
+    table_mode: str = 'opposite_sides'
+    approach_departure_enabled: bool = True
+
+
+@dataclass(frozen=True)
 class ServiceArea:
     area_id: str
     pose: MapPose
@@ -120,6 +126,7 @@ class ServiceArea:
     departure: DepartureConfig
     shelf_place_alignment: AlignmentConfig | None = None
     alignment_error_ignore_sec: float | None = None
+    async_motion: AsyncMotionConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -145,6 +152,7 @@ class Arena:
     shelf_place_alignment_defaults: AlignmentConfig = AlignmentConfig(40, 5, 10.0)
 
     precision_perception: PrecisionPerceptionConfig = PrecisionPerceptionConfig()
+    async_motion_defaults: AsyncMotionConfig = AsyncMotionConfig()
 
     def pose_for(self, target: str) -> MapPose:
         if target == 'start':

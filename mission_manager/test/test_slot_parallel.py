@@ -541,3 +541,72 @@ def test_protected_partial_departure_is_retried_after_cargo_finishes():
     manager._navigate('start')
     assert len(commands) == 1
     assert commands[0]['travel_distance_mm'] == 80
+
+
+@pytest.mark.parametrize('operation', ['store', 'retrieve'])
+@pytest.mark.parametrize('mode,travel,wall_distance,overlap', [
+    ('disabled', 100, 200, False), ('opposite_sides', 100, 200, True),
+    ('opposite_sides', -100, 200, False), ('always', -100, 200, True),
+    ('always', 0, 150, True), ('always', 0, 200, False),
+])
+def test_configured_transfer_overlap_policy(operation, mode, travel, wall_distance, overlap):
+    from mission_manager.models import AsyncMotionConfig
+    manager, cargo, wall, commands = cargo_manager(operation, 'left')
+    manager._arena = replace(manager._arena, async_motion_defaults=AsyncMotionConfig(mode, False))
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        run = executor.submit(manager._execute_step,
+                              Step('transfer', operation, tag_id=7, slot_id='left'),
+                              SlotMovement(wall_distance, travel))
+        assert cargo.sent.wait(1.)
+        assert not wall.sent.is_set()
+        if overlap:
+            assert cargo.callback is not None
+            cargo.phase(ManipulationFeedback.APPROACHING)
+            assert wall.sent.wait(1.)
+            finish_wall(wall, travel, wall_distance)
+        else:
+            assert cargo.callback is None
+        finish_cargo(cargo, operation)
+        run.result(timeout=2.)
+    assert bool(commands) is overlap
+
+
+@pytest.mark.parametrize('table_mode', ['disabled', 'opposite_sides', 'always'])
+@pytest.mark.parametrize('boundary_enabled', [True, False])
+def test_departure_overlap_uses_its_own_flag(table_mode, boundary_enabled):
+    from mission_manager.models import AsyncMotionConfig
+    manager, _, _, _ = cargo_manager('store', 'left')
+    manager._arena = replace(manager._arena, async_motion_defaults=AsyncMotionConfig(table_mode, boundary_enabled))
+    assert manager._slot_movement_can_overlap('left', SlotMovement(250, -100, True)) is boundary_enabled
+
+
+@pytest.mark.parametrize('operation', ['store', 'retrieve'])
+@pytest.mark.parametrize('known_reference', [True, False])
+def test_precision_organizer_passes_reference_destination_to_safe_overlap(operation, known_reference):
+    from mission_manager.models import AsyncMotionConfig
+    manager, cargo, wall, commands = cargo_manager(operation, 'left')
+    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP',
+                                                async_motion=AsyncMotionConfig('always', False))
+    manager._pp_reference_observations = {('ws_1', 8): object()} if known_reference else {}
+    manager._pp_reference_views = {('ws_1', 200, 0, False): frozenset({1}),
+                                   ('ws_1', 200, 250, False): frozenset({2})}
+    expected_travel = -100 if known_reference else -250
+    manager._precision_memory_destination = lambda _memory: (200, -100)
+    manager._pp_expected_occupancy = {}
+    manager._completed_steps = 0
+    manager._delivery_outcomes = []
+    manager._report_scheduled_operation = lambda *_args: None
+    manager._last_pp_scene = None
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        run = executor.submit(manager._pp_run_operation, None, None, Visit('pp', 'ws_1', ()),
+                              operation, tag_id=7, reference_tag_id=8, slot_id='left')
+        assert cargo.sent.wait(1.)
+        assert not wall.sent.is_set()
+        cargo.phase(ManipulationFeedback.APPROACHING)
+        assert wall.sent.wait(1.)
+        finish_wall(wall, expected_travel)
+        finish_cargo(cargo, operation)
+        run.result(timeout=2.)
+    assert manager._completed_steps == 1
+    assert commands[0][1]['travel_distance_mm'] == expected_travel
+    assert manager._world_state.snapshot()[0]

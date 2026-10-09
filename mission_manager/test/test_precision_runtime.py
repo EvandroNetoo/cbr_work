@@ -84,7 +84,7 @@ class Robot(PrecisionRuntime):
                                   for cube, detection in objects.items()}
         self._pp_reference_observations = {('pp_1', slot): TagObservation('pp_1', 200, 0, 200, 0, detection)
                                            for slot, detection in refs.items()}
-    def _execute_step(self, step):
+    def _execute_step(self, step, slot_movement=None):
         self.events.append((step.action, step.tag_id, step.reference_tag_id, step.slot_id))
         if step.action == 'pick':
             assert self.held == EMPTY
@@ -208,9 +208,9 @@ def test_cube_is_stored_before_discovering_its_reference_without_release_confirm
             robot._pp_reference_observations.pop(('pp_1', 2))
     robot._observe_visit = scene
     execute = robot._execute_step
-    def step(value):
+    def step(value, slot_movement=None):
         timeline.append(value.action)
-        execute(value)
+        execute(value, slot_movement=slot_movement)
     robot._execute_step = step
     visit = Visit('pp', 'pp_1', (), None, ((2, 2),))
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)

@@ -814,6 +814,22 @@ class MissionManager(PrecisionRuntime, Node):
             self._manipulation_failure,
         )
 
+    def _async_motion_config(self, area_id=None):
+        arena = self._arena
+        area = arena.service_areas.get(area_id or getattr(self, '_current_location', None))
+        return (area.async_motion if area is not None and area.async_motion is not None
+                else arena.async_motion_defaults)
+
+    def _run_area_motion(self, prepare, movement, *, boundary=False, area_id=None):
+        config = self._async_motion_config(area_id)
+        enabled = config.approach_departure_enabled if boundary else config.table_mode == 'always'
+        if enabled:
+            return self._run_with_manipulator_prepare(prepare, movement)
+        if boundary and not self._world_state.snapshot()[0]:
+            raise StepFailed('Estado da carga incerto; movimento automático bloqueado.')
+        prepare()
+        return movement()
+
     def _prepare_for_pick_observation(self) -> None:
         goal = PrepareManipulator.Goal()
         goal.mode = PrepareManipulator.Goal.OBSERVATION
@@ -1147,16 +1163,15 @@ class MissionManager(PrecisionRuntime, Node):
             f'{wall} mm, lateral={bounded_lateral_position_mm:.1f} mm; '
             f'percurso lateral solicitado={travel} mm.'
         )
-        self._prepare_for_pick_observation()
         self._last_wall_control_protection_stop = False
-        follow_result = self._control_wall(
+        follow_result = self._run_area_motion(self._prepare_for_pick_observation, lambda: self._control_wall(
             wall,
             config.wall_tolerance_mm,
             config.timeout_s,
             description,
             travel_distance_mm=travel,
             travel_tolerance_mm=config.travel_tolerance_mm,
-        )
+        ))
         self._update_table_position(follow_result)
         self._remember_blocked_search_destination(bounded_lateral_position_mm, travel)
         self.get_logger().info(
@@ -1628,8 +1643,8 @@ class MissionManager(PrecisionRuntime, Node):
             if getattr(self, '_departure_completed_for', None) == self._current_location:
                 self._prepare_for_navigation()
             else:
-                self._run_with_manipulator_prepare(
-                    self._prepare_for_navigation, self._depart_service_area)
+                self._run_area_motion(
+                    self._prepare_for_navigation, self._depart_service_area, boundary=True)
             self._departure_completed_for = None
             self._current_wall_distance_mm = None
             self._current_lateral_position_mm = 0.0
@@ -1656,14 +1671,14 @@ class MissionManager(PrecisionRuntime, Node):
         if target in self._arena.service_areas:
             self._activate_service_area_vision()
             alignment = self._arena.service_areas[target].alignment
-            result = self._run_with_manipulator_prepare(
+            result = self._run_area_motion(
                 self._prepare_for_pick_observation,
                 lambda: self._control_wall(
                     alignment.distance_mm,
                     alignment.tolerance_mm,
                     alignment.timeout_s,
                     f'alinhamento em {target}',
-                )
+                ), boundary=True, area_id=target,
             )
             self._current_wall_distance_mm = float(
                 result.final_average_distance_mm
@@ -2208,7 +2223,7 @@ class MissionManager(PrecisionRuntime, Node):
 
     def _restore_shelf_observation_distance(self, area: ServiceArea) -> None:
         alignment = area.alignment
-        result = self._run_with_manipulator_prepare(
+        result = self._run_area_motion(
             self._prepare_for_pick_observation,
             lambda: self._control_wall(
                 alignment.distance_mm, alignment.tolerance_mm, alignment.timeout_s,
@@ -2277,7 +2292,8 @@ class MissionManager(PrecisionRuntime, Node):
             viewpoint = self._placed_tag_viewpoints.get((self._current_location, tag))
             if viewpoint is not None:
                 return SlotMovement(*viewpoint)
-        memory = self._tag_observations.get((self._current_location, tag))
+        memory = ((self._pp_reference_observations if step.action == 'place_on_precision_table'
+                   else self._tag_observations).get((self._current_location, tag)))
         if step.action == 'place_on_precision_table' and memory is not None:
             return SlotMovement(*self._precision_memory_destination(memory))
         return (SlotMovement(memory.pickup_wall_distance_mm, memory.pickup_lateral_position_mm)
@@ -2294,6 +2310,27 @@ class MissionManager(PrecisionRuntime, Node):
         tolerance = (self._arena.service_areas[self._current_location].departure.tolerance_mm
                      if movement.departure else self._arena.pickup_recovery.travel_tolerance_mm)
         return abs(travel) > tolerance and travel * slot_direction < 0
+
+    def _slot_movement_can_overlap(self, slot_id, movement):
+        if self._current_wall_distance_mm is None:
+            return False
+        config = self._async_motion_config()
+        area = self._arena.service_areas[self._current_location]
+        if movement.departure:
+            if not config.approach_departure_enabled:
+                return False
+            tolerance = area.departure.tolerance_mm
+            lateral = movement.lateral_position_mm
+        else:
+            if config.table_mode == 'disabled':
+                return False
+            if config.table_mode == 'opposite_sides':
+                return self._slot_movement_is_opposite(slot_id, movement)
+            tolerance = self._arena.pickup_recovery.travel_tolerance_mm
+            lateral = self._clamp_lateral_position(movement.lateral_position_mm)
+        return (abs(lateral - self._current_lateral_position_mm) > tolerance or
+                abs(movement.wall_distance_mm - self._current_wall_distance_mm) >
+                (area.departure.tolerance_mm if movement.departure else self._arena.pickup_recovery.wall_tolerance_mm))
 
     def _execute_slot_with_movement(
         self, step, client, goal, timeout, tag_id, movement: SlotMovement,
@@ -2451,7 +2488,7 @@ class MissionManager(PrecisionRuntime, Node):
         if transition in {'store', 'retrieve'}:
             self._retreat_from_lateral_wall_before_slot_access(slot_id, transition)
         if (slot_movement is not None and transition in {'store', 'retrieve'}
-                and self._slot_movement_is_opposite(slot_id, slot_movement)):
+                and self._slot_movement_can_overlap(slot_id, slot_movement)):
             result = self._execute_slot_with_movement(
                 step, client, goal, timeout, tag_id, slot_movement)
         else:

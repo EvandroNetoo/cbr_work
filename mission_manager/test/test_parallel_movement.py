@@ -171,3 +171,28 @@ def test_explicit_cancel_after_one_failure_takes_precedence():
             run.result(timeout=2.0)
     assert wall.child.canceled.is_set()
     assert manager._active_children == {}
+
+
+@pytest.mark.parametrize('mode', ['disabled', 'always'])
+@pytest.mark.parametrize('boundary_enabled', [True, False])
+@pytest.mark.parametrize('boundary', [True, False])
+def test_motion_pair_uses_independent_boundary_and_table_config(mode, boundary_enabled, boundary):
+    from dataclasses import replace
+    from mission_manager.models import AsyncMotionConfig
+    from test_executor_helpers import _arena
+    manager, prepare, wall = manager_and_clients()
+    manager._arena = replace(_arena(), async_motion_defaults=AsyncMotionConfig(mode, boundary_enabled))
+    manager._current_location = 'ws_1'
+    concurrent = boundary_enabled if boundary else mode == 'always'
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        run = executor.submit(manager._run_area_motion, manager._prepare_for_pick_observation,
+                              lambda: manager._call_action(wall, object(), 'movement', 1.), boundary=boundary)
+        assert prepare.sent.wait(1.)
+        if concurrent:
+            assert wall.sent.wait(1.)
+        else:
+            assert not wall.sent.is_set()
+        prepare.child.finish()
+        assert wall.sent.wait(1.)
+        wall.child.finish()
+        run.result(timeout=2.)

@@ -2,6 +2,13 @@ schema_version: 2
 plan_id: cubos_1_2_3
 finish: false
 visits:
+- target: ws_67
+  tasks:
+    - {action: pick, tag_id: 1}
+    - {action: pick, tag_id: 2}
+
 - target: pp_67
   tasks: 
-  - final_state: {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
+    - {action: place_on_precision_table, tag_id: 1, reference_tag_id: 1}
+    - {action: place_on_precision_table, tag_id: 2, reference_tag_id: 2}
+  # - final_state: {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
