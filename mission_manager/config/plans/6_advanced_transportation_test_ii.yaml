@@ -1,0 +1,48 @@
+# Containers e entrega na mesa por cor.
+schema_version: 2
+plan_id: advanced_transportation_test_i
+initial_location: start
+finish: true
+
+visits:
+  - target: ws_1
+    tasks:
+      - {action: pick, tag_ids: [8, 2]}
+
+  - target: ws_2
+    tasks:
+      - {action: place_in_container, container_color: red, possible_tag_ids: [2], tag_color: red}
+      - {action: place_in_container, container_color: blue, possible_tag_ids: [2], tag_color: blue}
+
+  - target: ws_4
+    tasks:
+      - {action: pick, tag_ids: [1, 6]}
+
+  - target: sh_1
+    tasks:
+      - {action: place_on_shelf, tag_ids: [6, 8]}
+
+  - target: ws_5
+    tasks:
+      - {action: pick, tag_ids: [4, 5]}
+
+  - target: ws_2
+    tasks:
+      - {action: place_in_container, container_color: red, possible_tag_ids: [1, 4], tag_color: red}
+      - {action: place_in_container, container_color: blue, possible_tag_ids: [1, 4], tag_color: blue}
+      
+  - target: ws_3
+    tasks:
+      - {action: pick, tag_ids: [9, 3]}
+
+  - target: ws_2
+    tasks:
+      - {action: place_in_container, container_color: red, possible_tag_ids: [3], tag_color: red}
+      - {action: place_in_container, container_color: blue, possible_tag_ids: [3], tag_color: blue}
+
+  - target: pp_1
+    tasks:
+      - {action: place_on_precision_table, tag_ids: [5], reference_tag_id: 5}
+      - {action: place_on_precision_table, tag_ids: [9], reference_tag_id: 6}
+
+

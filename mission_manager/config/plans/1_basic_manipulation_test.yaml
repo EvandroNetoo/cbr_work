@@ -12,4 +12,4 @@ visits:
       - {action: pick, tag_ids: [1, 2, 3]}
   - target: ws_4
     tasks:
-      - {action: place_on_table, tag_ids: [3, 2, 1]}
+      - {action: place_on_table, tag_ids: [1, 2, 3]}

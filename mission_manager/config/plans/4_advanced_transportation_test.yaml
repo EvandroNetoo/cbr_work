@@ -1,0 +1,10 @@
+# Containers e entrega na mesa por cor.
+schema_version: 2
+plan_id: advanced_transportation_test_i
+initial_location: start
+finish: true
+
+visits:
+  - target: pp_1
+    tasks:
+      - final_state: {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}

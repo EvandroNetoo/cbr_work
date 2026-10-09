@@ -146,7 +146,7 @@
   </group_state>
 
   <group_state name="grip" group="gripper">
-    <joint name="right_clamp" value="0.015"/>
+    <joint name="right_clamp" value="0.014"/>
   </group_state>
 
   <!-- Adjacent links are intentionally allowed to be in contact. -->

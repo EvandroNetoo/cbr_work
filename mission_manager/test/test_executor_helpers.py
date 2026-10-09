@@ -6,7 +6,7 @@ from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Time
 from interfaces.action import (
     ExecuteMission, FollowWall, PickObject, PlaceInContainer, PlaceOnTable, StackObject,
-    PrepareManipulator,
+    PrepareManipulator, RetrieveObject,
 )
 from interfaces.msg import (
     AprilTagStampedDetection, ContainerStampedDetection, ManipulationResult,
@@ -131,6 +131,62 @@ def test_shelf_deposit_aligns_and_restores_observation_distance(
         with pytest.raises(StepFailed, match='Distância de alinhamento'):
             manager._execute_manipulation(Step('place_sh', 'place_on_shelf'))
         assert events == ['align']
+    assert manager._current_lateral_position_mm == 25.0
+
+
+@pytest.mark.parametrize('reading', [250.0, 40.0, None, float('nan')])
+def test_shelf_retrieve_retreats_then_observes_before_deposit(reading):
+    manager = MissionManager.__new__(MissionManager)
+    _attach_world_state(manager)
+    manager._world_state.commit_pick(1)
+    manager._world_state.commit_store(1, 'left')
+    manager._arena = _arena()
+    manager._arena.service_areas['ws_1'] = replace(
+        manager._arena.service_areas['ws_1'], area_type='SH')
+    manager._current_location = 'ws_1'
+    manager._current_wall_distance_mm = 40.0
+    manager._current_lateral_position_mm = 25.0
+    manager._manipulation_timeout = lambda: 120.0
+    manager._retrieve_client = object()
+    manager._place_shelf_client = object()
+    events = []
+
+    def wall(distance, tolerance, timeout, _description, **kwargs):
+        assert (distance, tolerance, timeout) == (250, 10, 10.0)
+        assert kwargs['accept_safety_abort'] is False
+        events.append('retreat')
+        result = FollowWall.Result()
+        result.has_valid_reading = reading is not None
+        result.final_average_distance_mm = reading if reading is not None else 0.0
+        return result
+
+    def transfer(_client, _goal, _description, _timeout, transition, tag, *args):
+        events.append(transition)
+        if transition == 'retrieve':
+            manager._world_state.commit_retrieve(tag, 'left')
+            result = RetrieveObject.Result()
+        else:
+            result = PlaceOnTable.Result()
+        result.outcome.code = ManipulationResult.SUCCESS
+        return result
+
+    manager._control_wall = wall
+    manager._call_manipulation_action = transfer
+    manager._retreat_from_lateral_wall_before_slot_access = lambda *_args: None
+    manager._prepare_for_pick_observation = lambda: events.append('detect_apriltags')
+    manager._align_for_shelf_placement = lambda _area: events.append('approach')
+    manager._restore_shelf_observation_distance = lambda _area: None
+    manager._slot_movement_can_overlap = lambda *_args: pytest.fail('SH retrieve must be sequential')
+    step = Step('retrieve', 'retrieve', slot_id='left')
+    if reading == 250.0:
+        manager._execute_manipulation(step, slot_movement=object())
+        manager._execute_manipulation(Step('deposit', 'place_on_shelf', tag_id=1))
+        assert events == ['retreat', 'retrieve', 'detect_apriltags', 'approach', 'place']
+    else:
+        with pytest.raises(StepFailed, match='Recuo para retirada'):
+            manager._execute_manipulation(step)
+        assert events == ['retreat']
+        assert manager._world_state.require_slot_object('left') == 1
     assert manager._current_lateral_position_mm == 25.0
 
 

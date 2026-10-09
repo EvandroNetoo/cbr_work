@@ -2,15 +2,10 @@ schema_version: 2
 plan_id: cubos_1_2_3
 finish: false
 visits:
-# - target: ws_67
-#   tasks:
-#     - {action: pick, tag_ids: [1, 2]}
+- target: ws_1
+  tasks:
+  - {action: pick, tag_ids: [5, 9]}
 
-  - target: pp_67
-    tasks:
-  # - {action: place_in_container, container_color: blue, tag_ids: [1]}
-  # - {action: place_in_container, container_color: red, tag_ids: [2]}
-    # - {action: place_in_container, container_color: blue, possible_tag_ids: [1, 2], tag_color: red}
-    # - {action: place_in_container, container_color: red, possible_tag_ids: [1, 2], tag_color: blue}
-    # - {action: place_on_table, possible_tag_ids: [1, 2], tag_color: red}
-      - final_state: {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
+- target: sh_1
+  tasks:
+  - {action: place_on_shelf, tag_ids: [5, 9]}

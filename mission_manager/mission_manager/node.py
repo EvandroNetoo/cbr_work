@@ -2255,6 +2255,23 @@ class MissionManager(PrecisionRuntime, Node):
                 f"passo '{step.step_id}' ({step.action}) falhou: {failure}"
             )
 
+    def _retreat_before_shelf_retrieve(self, area: ServiceArea) -> None:
+        alignment = area.departure
+        result = self._control_wall(
+            alignment.distance_mm, alignment.tolerance_mm, alignment.timeout_s,
+            f'recuo antes da retirada do slot em {area.area_id}',
+            accept_safety_abort=False,
+        )
+        self._update_table_position(result)
+        if (
+            not result.has_valid_reading
+            or self._current_wall_distance_mm is None
+            or not math.isfinite(self._current_wall_distance_mm)
+            or abs(self._current_wall_distance_mm - alignment.distance_mm)
+            > alignment.tolerance_mm
+        ):
+            raise StepFailed('Recuo para retirada do slot na SH não confirmado.')
+
     def _align_for_shelf_placement(self, area: ServiceArea) -> None:
         assert self._arena is not None
         alignment = (
@@ -2574,9 +2591,12 @@ class MissionManager(PrecisionRuntime, Node):
             self._execute_precision_with_search(step, goal, tag_id, timeout)
             return
 
+        shelf_retrieve = transition == 'retrieve' and area.area_type == 'SH'
+        if shelf_retrieve:
+            self._retreat_before_shelf_retrieve(area)
         if transition in {'store', 'retrieve'}:
             self._retreat_from_lateral_wall_before_slot_access(slot_id, transition)
-        if (slot_movement is not None and transition in {'store', 'retrieve'}
+        if (not shelf_retrieve and slot_movement is not None and transition in {'store', 'retrieve'}
                 and self._slot_movement_can_overlap(slot_id, slot_movement)):
             result = self._execute_slot_with_movement(
                 step, client, goal, timeout, tag_id, slot_movement)
@@ -2590,6 +2610,8 @@ class MissionManager(PrecisionRuntime, Node):
             raise StepFailed(
                 f"passo '{step.step_id}' ({step.action}) falhou: {failure}"
             )
+        if shelf_retrieve:
+            self._prepare_for_pick_observation()
         if step.action == 'place_on_shelf' and area.area_type == 'SH':
             self._restore_shelf_observation_distance(area)
 

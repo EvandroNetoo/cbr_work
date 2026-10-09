@@ -154,6 +154,7 @@ def simulated_manager(plan, visible=None):
                               ('_place_shelf_client', PlaceOnShelf), ('_stack_client', StackObject)):
         setattr(manager, name, SimulatedActionClient(lambda goal, t=action_type: place(t, goal)))
     manager._align_for_shelf_placement = lambda _area: None
+    manager._retreat_before_shelf_retrieve = lambda _area: None
     manager._restore_shelf_observation_distance = lambda _area: None
     return manager, navs, events, held_at_departure
 
