@@ -138,7 +138,7 @@ def test_load_organization_with_requested_yaml_shape_and_validate_area(tmp_path)
 @pytest.mark.parametrize('tasks', [
     [{'start_state': {21: 1}}],
     [{'start_state': {21: 1}}, {'start_state': {21: 1}}, {'final_state': {21: 1}}],
-    [{'start_state': {21: 1}}, {'final_state': {21: 1}}, {'action': 'pick', 'tag_id': 1}],
+    [{'start_state': {21: 1}}, {'final_state': {21: 1}}, {'action': 'pick', 'tag_ids': [1]}],
     [{'start_state': {21: 1}, 'final_state': {21: 1}}],
 ])
 def test_malformed_or_mixed_organization_is_rejected(tmp_path, tasks):

@@ -5,17 +5,17 @@ visits:
   - id: coleta_ws1
     target: ws_1
     tasks:
-      - {id: pegar_1, action: pick, tag_id: 1}
-      - {id: pegar_2, action: pick, tag_id: 2}
-      - {id: pegar_3, action: pick, tag_id: 3}
+      - {id: pegar_1, action: pick, tag_ids: [1]}
+      - {id: pegar_2, action: pick, tag_ids: [2]}
+      - {id: pegar_3, action: pick, tag_ids: [3]}
   - id: entrega_ws2
     target: ws_2
     tasks:
-      - {id: entregar_1, action: place_on_table, tag_id: 1}
-      - {id: entregar_2, action: place_in_container, tag_id: 2, container_color: red}
-      - {id: pegar_4, action: pick, tag_id: 4}
+      - {id: entregar_1, action: place_on_table, tag_ids: [1]}
+      - {id: entregar_2, action: place_in_container, tag_ids: [2], container_color: red}
+      - {id: pegar_4, action: pick, tag_ids: [4]}
   - id: entrega_ws3
     target: ws_3
     tasks:
-      - {id: entregar_3, action: place_on_table, tag_id: 3}
-      - {id: entregar_4, action: place_on_table, tag_id: 4}
+      - {id: entregar_3, action: place_on_table, tag_ids: [3]}
+      - {id: entregar_4, action: place_on_table, tag_ids: [4]}

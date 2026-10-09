@@ -177,6 +177,8 @@ class Step:
     tag_ids: tuple[int, ...] = ()
     reference_tag_id: int | None = None
     prepare_retrieve: bool = False
+    possible_tag_ids: tuple[int, ...] = ()
+    tag_color: str | None = None
 
 
 @dataclass(frozen=True)
@@ -198,7 +200,7 @@ class Plan:
     @property
     def total_steps(self) -> int:
         return len(self.visits) + int(self.finish) + sum(
-            len(task.tag_ids) if task.action == 'stack' else 1
+            len(task.tag_ids or task.possible_tag_ids) or 1
             for visit in self.visits for task in visit.tasks) + sum(
                 4 * sum(cube is not None for _slot, cube in visit.pp_final_state)
                 for visit in self.visits if visit.pp_final_state is not None and visit.pp_start_state is None)

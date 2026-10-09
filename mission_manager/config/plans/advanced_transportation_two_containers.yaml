@@ -1,6 +1,6 @@
-# Containers e entrega na mesa por cor.
+# Dois containers na mesma mesa.
 schema_version: 2
-plan_id: advanced_transportation_test_i
+plan_id: advanced_transportation_two_containers
 initial_location: start
 finish: true
 
@@ -11,8 +11,8 @@ visits:
 
   - target: ws_2
     tasks:
-      - {action: place_in_container, container_color: blue, possible_tag_ids: [1, 2], tag_color: blue}
-      - {action: place_on_table, possible_tag_ids: [1, 2], tag_color: red}
+     - {action: place_in_container, container_color: blue, possible_tag_ids: [1, 2], tag_color: blue}
+     - {action: place_in_container, container_color: red, possible_tag_ids: [1, 2], tag_color: red}
 
   - target: ws_1
     tasks:
@@ -33,4 +33,6 @@ visits:
 
   - target: ws_1
     tasks:
-      - {action: place_in_container, container_color: red, tag_ids: [3]}
+      - {action: place_on_table, tag_ids: [3]}
+
+

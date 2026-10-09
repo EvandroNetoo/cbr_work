@@ -529,13 +529,22 @@ def load_arena(path: str | Path) -> Arena:
 
 
 _TASK_FIELDS = {
-    'pick': {'id', 'action', 'tag_id'},
-    'place_on_table': {'id', 'action', 'tag_id'},
-    'place_in_container': {'id', 'action', 'tag_id', 'container_color'},
+    'pick': {'id', 'action', 'tag_ids'},
+    'place_on_table': {'id', 'action', 'tag_ids', 'possible_tag_ids', 'tag_color'},
+    'place_in_container': {'id', 'action', 'tag_ids', 'possible_tag_ids', 'tag_color', 'container_color'},
     'stack': {'id', 'action', 'tag_ids', 'support_tag_id'},
-    'place_on_shelf': {'id', 'action', 'tag_id'},
-    'place_on_precision_table': {'id', 'action', 'tag_id', 'reference_tag_id'},
+    'place_on_shelf': {'id', 'action', 'tag_ids', 'possible_tag_ids', 'tag_color'},
+    'place_on_precision_table': {'id', 'action', 'tag_ids', 'reference_tag_id'},
 }
+
+
+def _tag_list(value: Any, context: str) -> tuple[int, ...]:
+    if not isinstance(value, list) or not value:
+        raise ConfigurationError(f'{context} deve ser uma lista não vazia.')
+    tags = tuple(_integer(item, context, nonnegative=True) for item in value)
+    if len(set(tags)) != len(tags):
+        raise ConfigurationError(f'{context} contém tags duplicadas.')
+    return tags
 
 
 def _identifier(raw: Any, context: str) -> str:
@@ -552,16 +561,23 @@ def _task(raw_value: Any, context: str) -> Step:
         raise ConfigurationError(f'{context}.action desconhecida: {action!r}.')
     _only_keys(raw, _TASK_FIELDS[action], context)
     task_id = _identifier(raw['id'], f'{context}.id') if 'id' in raw else ''
+    conditional = 'possible_tag_ids' in raw
+    if conditional == ('tag_ids' in raw):
+        raise ConfigurationError(f'{context}: informe exatamente um de tag_ids ou possible_tag_ids.')
+    if conditional != ('tag_color' in raw):
+        raise ConfigurationError(f'{context}: possible_tag_ids exige tag_color e vice-versa.')
+    field = 'possible_tag_ids' if conditional else 'tag_ids'
+    tags = _tag_list(raw.get(field), f'{context}.{field}')
+    tag_color = None
+    if conditional:
+        tag_color = _nonempty_string(raw['tag_color'], f'{context}.tag_color').lower()
+        if tag_color not in {'red', 'blue'}:
+            raise ConfigurationError(f'{context}.tag_color deve ser red ou blue.')
+    support = None
     if action == 'stack':
-        values = raw.get('tag_ids')
-        if not isinstance(values, list) or not values:
-            raise ConfigurationError(f'{context}.tag_ids deve ser uma lista não vazia.')
-        tags = tuple(_integer(value, f'{context}.tag_ids', nonnegative=True) for value in values)
         support = _integer(raw.get('support_tag_id'), f'{context}.support_tag_id', nonnegative=True)
-        if len(set(tags)) != len(tags) or support in tags:
-            raise ConfigurationError(f'{context}: tags duplicadas ou suporte na própria pilha.')
-        return Step(task_id, action, support_tag_id=support, tag_ids=tags)
-    tag = _integer(raw.get('tag_id'), f'{context}.tag_id', nonnegative=True)
+        if support in tags:
+            raise ConfigurationError(f'{context}: suporte na própria pilha.')
     color = None
     if action == 'place_in_container':
         color = _nonempty_string(raw.get('container_color'), f'{context}.container_color').lower()
@@ -569,10 +585,12 @@ def _task(raw_value: Any, context: str) -> Step:
             raise ConfigurationError(f'{context}.container_color deve ser red ou blue.')
     reference = None
     if action == 'place_on_precision_table':
-        reference = _integer(raw.get('reference_tag_id'),
-                             f'{context}.reference_tag_id', nonnegative=True)
-    return Step(task_id, action, tag_id=tag, container_color=color,
-                reference_tag_id=reference)
+        reference = _integer(raw.get('reference_tag_id'), f'{context}.reference_tag_id', nonnegative=True)
+        if len(tags) != 1:
+            raise ConfigurationError(f'{context}: cada referência PP recebe exatamente uma tag.')
+    return Step(task_id, action, tag_ids=() if conditional else tags,
+                possible_tag_ids=tags if conditional else (), tag_color=tag_color,
+                support_tag_id=support, container_color=color, reference_tag_id=reference)
 
 
 def load_plan(path: str | Path, *, cargo_capacity: int = 2) -> Plan:
@@ -658,9 +676,11 @@ def load_plan(path: str | Path, *, cargo_capacity: int = 2) -> Plan:
             if not task.step_id:
                 parameters = (f'{"_".join(str(tag) for tag in sorted(task.tag_ids))}'
                               f'_on_{task.support_tag_id}' if task.action == 'stack'
-                              else str(task.tag_id))
+                              else '_'.join(map(str, task.tag_ids or task.possible_tag_ids)))
                 if task.reference_tag_id is not None:
                     parameters += f'_ref_{task.reference_tag_id}'
+                if task.tag_color:
+                    parameters += f'_tag_{task.tag_color}'
                 if task.container_color:
                     parameters += f'_{task.container_color}'
                 task = replace(task, step_id=allocate(f'{visit_id}_{task.action}_{parameters}'))
@@ -675,7 +695,10 @@ def validate_plan(plan: Plan, arena: Arena, cargo_slot_ids=('left', 'right'),
                   check_canceled: Callable[[], None] = lambda: None) -> None:
     if not arena.has_target(plan.initial_location):
         raise ConfigurationError('plan.initial_location referencia target desconhecido.')
+    collected = set()
     for visit in plan.visits:
+        collected.update(tag for task in visit.tasks if task.action == "pick"
+                         for tag in (task.tag_ids or (task.tag_id,)))
         if not arena.has_target(visit.target):
             raise ConfigurationError(f"Visita '{visit.visit_id}': target desconhecido '{visit.target}'.")
         if (visit.tasks or visit.pp_final_state is not None) and visit.target not in arena.service_areas:
@@ -684,6 +707,9 @@ def validate_plan(plan: Plan, arena: Arena, cargo_slot_ids=('left', 'right'),
                 and arena.service_areas[visit.target].area_type != 'PP'):
             raise ConfigurationError(f"Visita '{visit.visit_id}': organização de alojamentos exige área PP.")
         for task in visit.tasks:
+            if set(task.possible_tag_ids) - collected:
+                raise ConfigurationError(
+                    f"Tarefa '{task.step_id}': possible_tag_ids exige coleta nesta visita ou em visita anterior.")
             if (task.action == 'place_on_precision_table'
                     and arena.service_areas[visit.target].area_type != 'PP'):
                 raise ConfigurationError(

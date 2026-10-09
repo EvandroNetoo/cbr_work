@@ -7,9 +7,11 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import replace
 import math
+import random
 from pathlib import Path
 import threading
 import time
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from action_msgs.msg import GoalStatus
@@ -271,6 +273,13 @@ class MissionManager(PrecisionRuntime, Node):
                 return GoalResponse.REJECT
             self._cancel_event.clear()
             self._busy = True
+        try:
+            self._accepted_mission_files = self._load_goal_files(plan_id)
+        except (ConfigurationError, MissionCanceled) as error:
+            self.get_logger().warning(f'Missão {plan_id} rejeitada: {error}')
+            with self._lock:
+                self._busy = False
+            return GoalResponse.REJECT
         return GoalResponse.ACCEPT
 
     def _cancel_callback(self, _goal_handle: Any) -> CancelResponse:
@@ -984,6 +993,9 @@ class MissionManager(PrecisionRuntime, Node):
         if not hasattr(self, '_pp_reference_observations'):
             self._pp_reference_observations = {}
         for detection in list(references.values()) + detections:
+            color = {1: 'red', 2: 'blue'}.get(int(getattr(detection, 'color', 0)))
+            if color is not None:
+                self._world_state.remember_tag_color(int(detection.id), color)
             pose = detection.pose.position
             pickup_wall, pickup_travel = self._pickup_recovery_correction(
                 self._current_wall_distance_mm,
@@ -1748,6 +1760,43 @@ class MissionManager(PrecisionRuntime, Node):
                 'reposicionamento.'
             )
 
+    def _confirm_pick_color(self, step: Step, detection):
+        """Resolve a required color while the cube is still visible on its source."""
+        tag = int(step.tag_id)
+        if tag not in getattr(self, '_required_color_tags', set()):
+            return detection
+        if tag in self._world_state.tag_colors():
+            return detection
+        config = self._pickup_config()
+        max_attempts = max(1, config.max_reposition_attempts)
+        for attempt in range(max_attempts + 1):
+            self._check_canceled()
+            if detection is None:
+                self._observe_visit()
+                detection = self._take_direct_pick_detection(tag)
+            if detection is None:
+                raise TaskNotFound(f'AprilTag {tag} não visível para confirmar a cor.')
+            color = {1: 'red', 2: 'blue'}.get(int(getattr(detection, 'color', 0)))
+            if color is not None:
+                self._world_state.remember_tag_color(tag, color)
+                return detection
+            pose = detection.pose.position
+            aligned = (abs(pose.x - config.preferred_tag_x_m) <= config.travel_tolerance_mm / 1000.0
+                       and abs(pose.y - config.preferred_tag_y_m) <= config.wall_tolerance_mm / 1000.0)
+            if aligned:
+                color = random.choice(('red', 'blue'))
+                self._world_state.remember_tag_color(tag, color)
+                self.get_logger().warning(
+                    f'AprilTag {tag} alinhada com cor UNKNOWN; cor sorteada: {color}.')
+                return detection
+            if attempt == max_attempts:
+                break
+            self._recover_pick(SimpleNamespace(detected_pose=SimpleNamespace(pose=detection.pose)),
+                               step, alignment_only=True)
+            self._observe_visit()
+            detection = self._take_direct_pick_detection(tag)
+        raise StepFailed(f'AprilTag {tag}: não foi possível alinhar para confirmar a cor.')
+
     def _execute_pick(self, step: Step, timeout: float) -> None:
         if getattr(self, '_flexible_pick', False):
             self._execute_pick_impl(step, timeout)
@@ -1801,6 +1850,7 @@ class MissionManager(PrecisionRuntime, Node):
                     )
         reposition_count = 0
         while True:
+            direct_detection = self._confirm_pick_color(step, direct_detection)
             self._pp_skip_confirmed_pick(int(step.tag_id))
             goal = PickObject.Goal()
             goal.tag_id = int(step.tag_id)
@@ -2424,6 +2474,11 @@ class MissionManager(PrecisionRuntime, Node):
                 tag_id = self._world_state.require_gripper_object()
                 if step.tag_id is not None and tag_id != step.tag_id:
                     raise StateConflict(f'A entrega exige {step.tag_id}, mas a garra contém {tag_id}.')
+                if step.possible_tag_ids and (
+                    tag_id not in step.possible_tag_ids
+                    or self._world_state.tag_colors().get(tag_id) != step.tag_color
+                ):
+                    raise StateConflict('Entrega exige uma tag candidata com a cor solicitada confirmada.')
                 self._last_delivery_action = step.action
                 self._world_state.validate_place(tag_id)
                 transition = 'place'
@@ -2595,6 +2650,8 @@ class MissionManager(PrecisionRuntime, Node):
 
     def _run_plan(self, goal_handle, plan: Plan) -> None:
         scheduler = Scheduler(plan, tuple(self._world_state.snapshot()[2]), self._check_canceled)
+        self._required_color_tags = {tag for visit in plan.visits for task in visit.tasks
+                                     for tag in task.possible_tag_ids}
         state = scheduler.initial_state
         if not scheduler.feasible(state):
             raise ConfigurationError('Missão inviável para a carga configurada.')
@@ -2624,6 +2681,7 @@ class MissionManager(PrecisionRuntime, Node):
                     if (not known or gripper != state.gripper
                             or tuple(slots[slot] for slot in scheduler.slot_ids) != state.slots):
                         raise StepFailed('Carga física confirmada diverge do escalonador.')
+                    scheduler.set_tag_colors(self._world_state.tag_colors())
                     viable = scheduler.viable_choices(state)
                     if not viable:
                         raise StepFailed(f'Visita {visit.visit_id} bloqueada pela carga ou suportes.')
@@ -2649,6 +2707,9 @@ class MissionManager(PrecisionRuntime, Node):
                                                   allow_unobserved=True)
                         if choice is None:
                             raise StepFailed(f'Visita {visit.visit_id}: objetos pendentes não encontrados após busca.')
+                    if choice.step.action == 'skip':
+                        state = choice.next_state
+                        continue
                     if choice.step.action == 'depart':
                         if pp_slots is not None and pp_slots != dict(visit.pp_final_state):
                             raise StepFailed(f'Visita {visit.visit_id}: organização PP não alcançou final_state.')
@@ -2811,7 +2872,10 @@ class MissionManager(PrecisionRuntime, Node):
                 if not known or held != EMPTY or any(tag != EMPTY for tag in cargo.values()):
                     raise StepFailed('Carga remanescente da organização PP: recupere a carga antes de iniciar outra missão.')
                 self._pp_inventory_pending = False
-            arena, plan = self._load_goal_files(str(goal_handle.request.plan_id))
+            accepted_files = getattr(self, '_accepted_mission_files', None)
+            self._accepted_mission_files = None
+            arena, plan = (accepted_files if accepted_files is not None else
+                           self._load_goal_files(str(goal_handle.request.plan_id)))
             self._arena = arena
             self._current_location = plan.initial_location
             if self._current_location in arena.service_areas:

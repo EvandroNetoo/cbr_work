@@ -9,49 +9,49 @@ visits:
 - target: ws_1
   tasks:
   - action: pick
-    tag_id: 1
+    tag_ids: [1]
   - action: pick
-    tag_id: 2
+    tag_ids: [2]
   - action: pick
-    tag_id: 10
+    tag_ids: [10]
 - target: ws_2
   tasks:
   - action: place_in_container
     container_color: blue
-    tag_id: 10
+    tag_ids: [10]
   - action: place_in_container
     container_color: red
-    tag_id: 1
+    tag_ids: [1]
   - action: pick
-    tag_id: 4
+    tag_ids: [4]
   - action: place_on_table
-    tag_id: 2
+    tag_ids: [2]
   - action: pick
-    tag_id: 5
+    tag_ids: [5]
 - target: ws_3
   tasks:
   - action: place_in_container
     container_color: blue
-    tag_id: 5
+    tag_ids: [5]
   - action: pick
-    tag_id: 6
+    tag_ids: [6]
 - target: ws_4
   tasks:
   - action: place_in_container
     container_color: red
-    tag_id: 6
+    tag_ids: [6]
   - action: place_on_table
-    tag_id: 4
+    tag_ids: [4]
   - action: pick
-    tag_id: 13
+    tag_ids: [13]
   - action: place_in_container
     container_color: red
-    tag_id: 13
+    tag_ids: [13]
 - target: ws_1
   tasks:
   - action: pick
-    tag_id: 12
+    tag_ids: [12]
 - target: ws_4
   tasks:
   - action: place_on_table
-    tag_id: 12
+    tag_ids: [12]

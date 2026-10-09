@@ -31,9 +31,21 @@ class WorldState:
     def reset(self) -> None:
         """Start a new mission with an empty, known on-board inventory."""
         with self._lock:
+            self._tag_colors = {}
             self._known = True
             self._gripper = EMPTY
             self._slots = {slot_id: EMPTY for slot_id in self._slot_ids}
+
+    def remember_tag_color(self, tag_id: int, color: str) -> None:
+        if color not in {'red', 'blue'}:
+            return
+        with self._lock:
+            # Preserve the decision across later UNKNOWN or conflicting images.
+            self._tag_colors.setdefault(tag_id, color)
+
+    def tag_colors(self) -> dict[int, str]:
+        with self._lock:
+            return dict(self._tag_colors)
 
     def snapshot(self) -> tuple[bool, int, dict[str, int]]:
         with self._lock:

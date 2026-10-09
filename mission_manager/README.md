@@ -98,18 +98,18 @@ finish: true
 visits:
   - target: ws_1
     tasks:
-      - {action: pick, tag_id: 1}
-      - {action: pick, tag_id: 2}
-      - {action: pick, tag_id: 3}
+      - {action: pick, tag_ids: [1]}
+      - {action: pick, tag_ids: [2]}
+      - {action: pick, tag_ids: [3]}
   - target: ws_2
     tasks:
-      - {action: place_on_table, tag_id: 1}
-      - {action: place_in_container, tag_id: 2, container_color: red}
-      - {action: pick, tag_id: 4}
+      - {action: place_on_table, tag_ids: [1]}
+      - {action: place_in_container, tag_ids: [2], container_color: red}
+      - {action: pick, tag_ids: [4]}
   - target: ws_3
     tasks:
-      - {action: place_on_table, tag_id: 3}
-      - {action: place_on_table, tag_id: 4}
+      - {action: place_on_table, tag_ids: [3]}
+      - {action: place_on_table, tag_ids: [4]}
 ```
 
 IDs de visitas e tarefas são gerados automaticamente; não é necessário informar
@@ -124,7 +124,42 @@ informa a localização física inicial; cada visita ainda executa sua navegaç�
 `finish` tem padrão `false`; quando verdadeiro, navega ao ponto `finish` após
 concluir as visitas. A arena permanece em `schema_version: 1`.
 
-Cada coleta ou entrega informa `tag_id`. As entregas disponíveis são
+Coletas e entregas explícitas informam uma lista não vazia `tag_ids`, sem
+repetições. `pick, tag_ids: [1, 2]` representa duas coletas independentes;
+a percepção e o escalonador decidem a ordem. O campo YAML `tag_id` foi removido.
+Entregas em mesa, prateleira e container também aceitam `possible_tag_ids`
+acompanhado obrigatoriamente de `tag_color: red|blue`, em vez de `tag_ids`:
+
+```yaml
+- {action: pick, tag_ids: [1, 2]}
+# Na visita de destino:
+- {action: place_in_container, possible_tag_ids: [1, 2], tag_color: blue, container_color: blue}
+- {action: place_on_table, possible_tag_ids: [1, 2], tag_color: red}
+```
+
+Cada entrega condicional aplica-se a todos os candidatos da cor solicitada.
+Candidatos da outra cor são ignorados; nenhum candidato correspondente significa
+nenhuma entrega nessa tarefa. A cor do container é independente da cor do cubo.
+A missão não declara as cores dos cubos: `tag_color` é um filtro da ação.
+A cor observada é armazenada por ID durante a missão, inclusive após coleta,
+armazenamento, entrega e mudança de área. UNKNOWN e observações conflitantes
+posteriores não substituem uma cor já definida. A memória é limpa na próxima missão.
+
+Antes de coletar uma tag usada em qualquer `possible_tag_ids`, o robô exige
+RED ou BLUE. Se a cor for UNKNOWN, alinha a base à tag e observa novamente.
+Se a tag já estiver alinhada e continuar UNKNOWN, sorteia RED ou BLUE e guarda
+o resultado. Tags sem uso em `possible_tag_ids` não exigem confirmação nem
+alinhamento por cor. Falha de alinhamento ou ausência da tag não autoriza o sorteio.
+
+A validação antes de aceitar a missão verifica listas, cores, campos exclusivos,
+coletas dos candidatos e viabilidade da rota/carga. Como as cores reais ainda não
+são conhecidas, a busca inicial considera atribuições possíveis e consistentes;
+a execução recalcula a viabilidade conforme aprende as cores. Uma distribuição
+real sem entregas compatíveis bloqueia a missão. A contagem inicial de passos é
+um limite superior, pois candidatos de outra cor não geram manipulação.
+`place_on_precision_table` exige um único elemento em `tag_ids` por referência.
+
+ As entregas disponíveis são
 `place_on_table`, `place_in_container` (`container_color: red|blue`),
 `place_on_shelf` e `stack`. Uma pilha sem ordem fixa é declarada assim:
 
@@ -466,7 +501,7 @@ use um passo como este em um plano YAML:
 
 ```yaml
 - action: place_in_container
-  tag_id: 1
+  tag_ids: [1]
   container_color: blue
 ```
 
@@ -514,10 +549,10 @@ plan_id: precision_delivery
 visits:
   - target: ws_1
     tasks:
-      - {action: pick, tag_id: 5}
+      - {action: pick, tag_ids: [5]}
   - target: pp_1
     tasks:
-      - {action: place_on_precision_table, tag_id: 5, reference_tag_id: 42}
+      - {action: place_on_precision_table, tag_ids: [5], reference_tag_id: 42}
 finish: true
 ```
 

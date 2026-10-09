@@ -10,16 +10,16 @@ visits:
 - target: ws_1
   tasks:
   - action: pick
-    tag_id: 1
+    tag_ids: [1]
   - action: pick
-    tag_id: 2
+    tag_ids: [2]
   - action: pick
-    tag_id: 3
+    tag_ids: [3]
 - target: ws_4
   tasks:
   - action: place_on_table
-    tag_id: 3
+    tag_ids: [3]
   - action: place_on_table
-    tag_id: 2
+    tag_ids: [2]
   - action: place_on_table
-    tag_id: 1
+    tag_ids: [1]

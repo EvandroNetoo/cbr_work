@@ -23,6 +23,7 @@ class State:
     locations: tuple[str | None, ...]
     tops: tuple[int, ...]
     regrasped: int = 0
+    colors: tuple[str | None, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ class Scheduler:
         self.plan = plan
         self.slot_ids = slot_ids
         self.check_canceled = check_canceled
+        self.tag_colors: dict[int, str] = {}
         self.tasks: list[tuple[int, Step, int]] = []
         self.masks = []
         self.groups: list[tuple[int, Step]] = []
@@ -50,7 +52,7 @@ class Scheduler:
             mask = 0
             for task in visit.tasks:
                 group = -1
-                tags = (task.tag_id,)
+                tags = task.tag_ids or task.possible_tag_ids or (task.tag_id,)
                 if task.action == 'stack':
                     group = len(self.groups)
                     self.groups.append((vi, task))
@@ -69,8 +71,14 @@ class Scheduler:
         self.tag_indices = {tag: i for i, tag in enumerate(self.tags)}
         self.initial_state = State(0, 0, EMPTY, (EMPTY,) * len(slot_ids),
                                    tuple(initial.get(tag) for tag in self.tags),
-                                   tuple(task.support_tag_id for _, task in self.groups))
+                                   tuple(task.support_tag_id for _, task in self.groups),
+                                   colors=(None,) * len(self.tags))
         self._memo: dict[State, bool] = {}
+
+    def set_tag_colors(self, colors: Mapping[int, str]) -> None:
+        if dict(colors) != self.tag_colors:
+            self.tag_colors = dict(colors)
+            self._memo.clear()
 
     def complete(self, state: State) -> bool:
         return state.visit == len(self.plan.visits)
@@ -86,10 +94,17 @@ class Scheduler:
                 return False
         return True
 
-    def choices(self, state: State) -> tuple[Choice, ...]:
+    def choices(self, state: State, *, speculative: bool = False) -> tuple[Choice, ...]:
         if self.complete(state):
             return ()
         visit = self.plan.visits[state.visit]
+        colors = list(state.colors or (None,) * len(self.tags))
+        for tag, color in self.tag_colors.items():
+            if tag in self.tag_indices:
+                ti = self.tag_indices[tag]
+                if colors[ti] is not None and colors[ti] != color:
+                    return ()
+                colors[ti] = color
         if state.done & self.masks[state.visit] == self.masks[state.visit]:
             # Transit-only visits keep their navigation but do not constrain
             # the held object's destination. Stop at the next manipulation
@@ -97,7 +112,9 @@ class Scheduler:
             next_work_visit = next((vi for vi in range(state.visit + 1, len(self.plan.visits))
                                     if self.masks[vi] or self.plan.visits[vi].pp_final_state is not None), len(self.plan.visits))
             next_tags = {task.tag_id for vi, task, _ in self.tasks
-                         if vi == next_work_visit and task.action != 'pick'}
+                         if vi == next_work_visit and task.action != 'pick'
+                         and (task.tag_color is None or colors[self.tag_indices[task.tag_id]]
+                              in {None, task.tag_color})}
             dynamic_ready = (visit.pp_final_state is None or visit.pp_start_state is not None
                              or (state.gripper == EMPTY and state.slots.count(EMPTY) >= 2))
             if dynamic_ready and (state.gripper == EMPTY or state.gripper in next_tags):
@@ -117,6 +134,20 @@ class Scheduler:
                 if state.done & earlier != earlier:
                     continue
             tag = task.tag_id
+            task_colors = list(colors)
+            if task.tag_color is not None:
+                ti = self.tag_indices[tag]
+                color = task_colors[ti]
+                if color != task.tag_color:
+                    if color is not None or speculative:
+                        skipped_colors = list(task_colors)
+                        skipped_colors[ti] = color or ('blue' if task.tag_color == 'red' else 'red')
+                        result.append(Choice(replace(task, action='skip'),
+                                             replace(state, done=state.done | (1 << index),
+                                                     colors=tuple(skipped_colors)), index, task.step_id))
+                    if color is not None or not speculative:
+                        continue
+                    task_colors[ti] = task.tag_color
             locations = list(state.locations)
             tops = list(state.tops)
             regrasped = state.regrasped
@@ -144,7 +175,8 @@ class Scheduler:
                 gripper = EMPTY
             result.append(Choice(task, replace(state, done=state.done | (1 << index),
                                                gripper=gripper, locations=tuple(locations),
-                                               tops=tuple(tops), regrasped=regrasped), index, task.step_id))
+                                               tops=tuple(tops), regrasped=regrasped,
+                                               colors=tuple(task_colors)), index, task.step_id))
         if state.gripper != EMPTY:
             if EMPTY in state.slots:
                 slot = state.slots.index(EMPTY)
@@ -181,7 +213,7 @@ class Scheduler:
             if self._memo.get(current) is False:
                 continue
             # Stable task ordering also makes preflight search reproducible.
-            for choice in reversed(self.choices(current)):
+            for choice in reversed(self.choices(current, speculative=True)):
                 child = choice.next_state
                 if child not in parents:
                     parents[child] = current
@@ -198,18 +230,18 @@ class Scheduler:
         candidates = []
         for choice in self.viable_choices(state):
             step = choice.step
-            if step.action == 'depart':
+            if step.action in {'depart', 'skip'}:
                 return choice
             if step.action == 'store':
                 # Store only to enable pending work or satisfy departure policy.
-                if any(c.step.action not in {'store', 'retrieve'} for c in self.viable_choices(state)):
+                if any(c.step.action not in {'store', 'retrieve', 'skip'} for c in self.viable_choices(state)):
                     continue
                 candidates.append(((3, 0, '', 0), choice))
                 continue
             if step.action == 'retrieve':
                 # Retrieve only for a pending, feasible delivery at this visit.
                 deliveries = [c for c in self.viable_choices(choice.next_state)
-                              if c.task_index is not None and c.step.action != 'pick']
+                              if c.task_index is not None and c.step.action not in {'pick', 'skip'}]
                 if not deliveries:
                     continue
                 for delivery in deliveries:

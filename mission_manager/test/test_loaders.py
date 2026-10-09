@@ -250,8 +250,8 @@ visits:
   - id: visit_1
     target: ws_1
     tasks:
-      - {{id: collect, action: pick, tag_id: 1}}
-      - {{id: deliver, action: place_in_container, tag_id: 1, container_color: red}}
+      - {{id: collect, action: pick, tag_ids: [1]}}
+      - {{id: deliver, action: place_in_container, tag_ids: [1], container_color: red}}
 {task}
 """
 
@@ -283,9 +283,9 @@ def test_plan_rejects_v1_with_migration_message(tmp_path):
     ('target: ws_1', 'target: missing', 'target desconhecido'),
     ('initial_location: ws_1', 'initial_location: missing', 'initial_location'),
     ('id: deliver', 'id: collect', 'IDs duplicados'),
-    ('tag_id: 1, container_color', 'tag_id: 2, container_color', 'inviável'),
-    ('action: pick, tag_id: 1', 'action: store, slot_id: left', 'action desconhecida'),
-    ('action: pick, tag_id: 1', 'action: pick, tag_id: 1, slot_id: left', 'campos desconhecidos'),
+    ('tag_ids: [1], container_color', 'tag_ids: [2], container_color', 'inviável'),
+    ('action: pick, tag_ids: [1]', 'action: store, slot_id: left', 'action desconhecida'),
+    ('action: pick, tag_ids: [1]', 'action: pick, tag_ids: [1], slot_id: left', 'campos desconhecidos'),
     ('finish: false', 'finish: 1', 'booleano'),
 ])
 def test_plan_validation(tmp_path, old, new, match):
@@ -296,7 +296,7 @@ def test_plan_validation(tmp_path, old, new, match):
 
 def test_plan_rejects_support_in_own_stack(tmp_path):
     source = _plan_yaml().replace(
-        'action: place_in_container, tag_id: 1, container_color: red',
+        'action: place_in_container, tag_ids: [1], container_color: red',
         'action: stack, tag_ids: [1], support_tag_id: 1')
     with pytest.raises(ConfigurationError, match='suporte na própria pilha'):
         load_plan(_write(tmp_path, 'plan.yaml', source))
@@ -320,12 +320,12 @@ plan_id: generated
 visits:
   - target: ws_1
     tasks:
-      - {action: pick, tag_id: 2}
-      - {action: place_in_container, tag_id: 2, container_color: RED}
+      - {action: pick, tag_ids: [2]}
+      - {action: place_in_container, tag_ids: [2], container_color: RED}
       - {action: stack, tag_ids: [5, 4], support_tag_id: 14}
   - target: ws_1
     tasks:
-      - {action: pick, tag_id: 2}
+      - {action: pick, tag_ids: [2]}
 '''
     path = _write(tmp_path, 'plan.yaml', source)
     plan = load_plan(path)
@@ -343,10 +343,10 @@ plan_id: generated
 visits:
   - target: ws_1
     tasks:
-      - {action: pick, tag_id: 2}
-      - {action: place_on_table, tag_id: 2}
-      - {action: pick, tag_id: 2}
-      - {action: place_on_table, tag_id: 2}
+      - {action: pick, tag_ids: [2]}
+      - {action: place_on_table, tag_ids: [2]}
+      - {action: pick, tag_ids: [2]}
+      - {action: place_on_table, tag_ids: [2]}
   - id: visit_ws_1
     target: ws_1
     tasks: []
@@ -366,8 +366,8 @@ plan_id: generated
 visits:
   - target: ws_1
     tasks:
-      - {action: pick, tag_id: 1}
-      - {id: visit_ws_1_pick_1, action: place_on_table, tag_id: 1}
+      - {action: pick, tag_ids: [1]}
+      - {id: visit_ws_1_pick_1, action: place_on_table, tag_ids: [1]}
 '''
     plan = load_plan(_write(tmp_path, 'plan.yaml', source))
     assert [t.step_id for t in plan.visits[0].tasks] == [
@@ -383,14 +383,15 @@ def test_advanced_transportation_v2_preserves_active_route_and_deliveries():
     validate_plan(plan, load_arena(PACKAGE / 'config/arena.yaml'))
     assert [visit.target for visit in plan.visits] == [
         'ws_3', 'ws_2', 'ws_1', 'ws_5', 'ws_6', 'sh_1', 'ws_1']
-    assert [(task.tag_id, task.container_color) for task in plan.visits[1].tasks] == [
-        (2, 'red'), (1, 'blue')]
+    assert [(task.possible_tag_ids, task.tag_color, task.action) for task in plan.visits[1].tasks] == [
+        ((1, 2), 'blue', 'place_in_container'), ((1, 2), 'red', 'place_on_table')]
     stack, = plan.visits[3].tasks
     assert stack.action == 'stack' and stack.support_tag_id == 14 and stack.tag_ids == (4, 5)
-    assert [(task.action, task.tag_id) for task in plan.visits[5].tasks] == [
-        ('place_on_shelf', 6), ('pick', 3)]
-    assert plan.visits[6].tasks[0].tag_id == 3
-    assert plan.finish and plan.total_steps == 20
+    assert [(task.action, task.tag_ids) for task in plan.visits[5].tasks] == [
+        ('place_on_shelf', (6,)), ('pick', (3,))]
+    assert plan.visits[6].tasks[0].tag_ids == (3,)
+    assert plan.finish and plan.total_steps == 22
+
 
 
 @pytest.mark.parametrize('positions,distance', [
@@ -422,9 +423,9 @@ def test_safety_search_configuration_limits(tmp_path, positions, distance):
 def test_precision_plan_reference_validation(tmp_path, reference):
     import yaml
     raw = {'schema_version': 2, 'plan_id': 'pp', 'visits': [
-        {'target': 'ws_1', 'tasks': [{'action': 'pick', 'tag_id': 5}]},
+        {'target': 'ws_1', 'tasks': [{'action': 'pick', 'tag_ids': [5]}]},
         {'target': 'ws_3', 'tasks': [{'action': 'place_on_precision_table',
-                                    'tag_id': 5, 'reference_tag_id': reference}]},
+                                    'tag_ids': [5], 'reference_tag_id': reference}]},
     ]}
     path = _write(tmp_path, 'plan.yaml', yaml.safe_dump(raw))
     if reference != 42 or isinstance(reference, bool):

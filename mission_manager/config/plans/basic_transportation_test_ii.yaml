@@ -13,34 +13,34 @@ visits:
 - target: ws_2
   tasks:
   - action: pick
-    tag_id: 5
+    tag_ids: [5]
 - target: ws_1
   tasks:
   - action: place_on_table
-    tag_id: 5
+    tag_ids: [5]
   - action: pick
-    tag_id: 1
+    tag_ids: [1]
   - action: pick
-    tag_id: 2
+    tag_ids: [2]
   - action: pick
-    tag_id: 3
+    tag_ids: [3]
 - target: ws_2
   tasks:
   - action: place_on_table
-    tag_id: 3
+    tag_ids: [3]
   - action: place_on_table
-    tag_id: 1
+    tag_ids: [1]
 - target: ws_3
   tasks:
   - action: place_on_table
-    tag_id: 2
+    tag_ids: [2]
 - target: ws_1
   tasks:
   - action: pick
-    tag_id: 4
+    tag_ids: [4]
 - target: ws_3
   tasks:
   - action: place_on_table
-    tag_id: 4
+    tag_ids: [4]
 - target: ws_4
   tasks: []
