@@ -2572,6 +2572,10 @@ class MissionManager(PrecisionRuntime, Node):
         observations = {('tag', tag): memory.lateral_position_mm
                         for (area, tag), memory in self._tag_observations.items()
                         if area == self._current_location}
+        observations.update({('reference', tag): memory.lateral_position_mm
+                             for (area, tag), memory in
+                             getattr(self, '_pp_reference_observations', {}).items()
+                             if area == self._current_location})
         observations.update({('container', 'red' if color == PlaceInContainer.Goal.RED else 'blue'):
                              memory.lateral_position_mm
                              for (area, color), memory in self._container_observations.items()

@@ -183,3 +183,25 @@ def test_search_checks_cancellation():
     scheduler = Scheduler(mission(), ('left', 'right'), cancel)
     with pytest.raises(RuntimeError, match='canceled'):
         scheduler.feasible(scheduler.initial_state)
+
+
+def test_precision_delivery_ranks_reference_separately_from_same_id_object():
+    plan = Plan('pp_delivery', (
+        Visit('collect', 'ws_67', (Step('pick_1', 'pick', tag_id=1),
+                                   Step('pick_2', 'pick', tag_id=2))),
+        Visit('deliver', 'pp_67', (
+            Step('place_1', 'place_on_precision_table', tag_id=1, reference_tag_id=1),
+            Step('place_2', 'place_on_precision_table', tag_id=2, reference_tag_id=2))),
+    ))
+    scheduler = Scheduler(plan, ('left', 'right'))
+    state = advance(scheduler, scheduler.initial_state, 'pick', 1)
+    state = advance(scheduler, state, 'store')
+    state = advance(scheduler, state, 'pick', 2)
+    state = advance(scheduler, state, 'depart')
+    state = advance(scheduler, state, 'store')
+    assert scheduler.select(state, {}) is None
+    assert scheduler.select(state, {('tag', 1): 325}) is None
+    choice = scheduler.select(state, {('reference', 1): 325}, 325)
+    assert (choice.step.action, choice.step.tag_id) == ('retrieve', 1)
+    pick_state = scheduler.initial_state
+    assert scheduler.select(pick_state, {('reference', 1): 0}) is None

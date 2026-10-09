@@ -494,6 +494,9 @@ def test_pp_organization_executes_only_in_slots_and_retrieves_cargo(full_table):
         result.frames_processed = result.frames_with_base_transform = 10
         tags = set(board) | {tag for tag in board.values() if tag is not None}
         result.best_apriltags_base = [detection(tag) for tag in sorted(tags)]
+        for detected in result.best_apriltags_base:
+            if detected.id in board:
+                detected.pose.position.z = 0.025
         return result
 
     def pick(goal):
@@ -624,3 +627,55 @@ def test_final_only_pp_through_child_action_messages_with_overlapping_ids(extra,
         assert result.code == ExecuteMission.Result.STEP_FAILED
         assert 'Carga remanescente' in result.message
         assert manager._world_state.snapshot() == before
+
+
+def test_explicit_pp_deliveries_stop_search_when_references_are_seen():
+    from interfaces.action import PlaceOnPrecisionTable
+    from mission_manager.models import AsyncMotionConfig
+    plan = Plan('pp_delivery', (
+        Visit('collect', 'ws_67', tuple(Step(f'pick_{tag}', 'pick', tag_id=tag)
+                                        for tag in (1, 2))),
+        Visit('deliver', 'pp_67', tuple(
+            Step(f'place_{tag}', 'place_on_precision_table', tag_id=tag, reference_tag_id=tag)
+            for tag in (1, 2))),
+    ))
+    manager, navs, events, _ = simulated_manager(plan)
+    manager._async_motion_config = lambda *_args: AsyncMotionConfig(
+        table_mode='disabled', approach_departure_enabled=False)
+    analyze_objects = manager._vision_client.responder
+    pp_views = []
+    search_moves = []
+
+    def observe(goal):
+        if manager._current_location != 'pp_67':
+            return analyze_objects(goal)
+        pp_views.append(manager._current_lateral_position_mm)
+        result = AnalyzeScene.Result()
+        result.frames_processed = result.frames_with_base_transform = 10
+        if manager._current_lateral_position_mm == 325:
+            result.best_apriltags_base = [detection(tag) for tag in (1, 2)]
+            for reference in result.best_apriltags_base:
+                reference.pose.position.z = 0.025
+        return result
+
+    def search(_tag):
+        search_moves.append(manager._current_lateral_position_mm)
+        assert len(search_moves) == 1, 'Continued scanning after finding PP references'
+        manager._move_to_table_position(200, 325, 'search')
+        return True
+
+    def place(goal):
+        events.append(('pp_place', goal.reference_tag_id))
+        return outcome(PlaceOnPrecisionTable, ManipulationResult.LOCATION_DESTINATION)
+
+    manager._vision_client.responder = observe
+    manager._move_to_next_search_position = search
+    manager._place_precision_client = SimulatedActionClient(place)
+    manager._run_plan(SimpleNamespace(publish_feedback=lambda _: None), plan)
+    assert navs == ['ws_67', 'pp_67']
+    assert pp_views == [0, 325]
+    assert search_moves == [0]
+    assert [event for event in events if event[0] == 'pp_place'] == [
+        ('pp_place', 1), ('pp_place', 2)]
+    assert len(manager._retrieve_client.goals) == 2
+    assert manager._world_state.snapshot() == (True, EMPTY, {'left': EMPTY, 'right': EMPTY})

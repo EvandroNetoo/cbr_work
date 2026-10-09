@@ -231,9 +231,12 @@ class Scheduler:
     def _rank(step: Step, observations, lateral_position):
         if step.action in {'place_on_table', 'place_on_shelf'}:
             return (0, 0.0)
-        key = ('container', step.container_color) if step.action == 'place_in_container' else (
-            'tag', step.reference_tag_id if step.action == 'place_on_precision_table'
-            else step.support_tag_id if step.action == 'stack' else step.tag_id)
+        if step.action == 'place_on_precision_table':
+            key = ('reference', step.reference_tag_id)
+        elif step.action == 'place_in_container':
+            key = ('container', step.container_color)
+        else:
+            key = ('tag', step.support_tag_id if step.action == 'stack' else step.tag_id)
         if key not in observations:
             return None
         distance = abs(observations[key] - lateral_position)
