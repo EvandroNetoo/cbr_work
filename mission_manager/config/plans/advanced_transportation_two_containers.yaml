@@ -11,8 +11,8 @@ visits:
 
   - target: ws_2
     tasks:
-     - {action: place_in_container, container_color: blue, possible_tag_ids: [1, 2], tag_color: blue}
-     - {action: place_in_container, container_color: red, possible_tag_ids: [1, 2], tag_color: red}
+      - {action: place_in_container, container_color: blue, possible_tag_ids: [1, 2], tag_color: blue}
+      - {action: place_in_container, container_color: red, possible_tag_ids: [1, 2], tag_color: red}
 
   - target: ws_1
     tasks:

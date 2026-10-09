@@ -5,7 +5,7 @@ schema_version: 2
 plan_id: example_shelf
 finish: true
 visits:
-- target: sh_1
-  tasks:
-    - {action: pick, tag_ids: [6]}
-    - {action: place_on_shelf, tag_ids: [6]}
+  - target: sh_1
+    tasks:
+      - {action: pick, tag_ids: [6]}
+      - {action: place_on_shelf, tag_ids: [6]}

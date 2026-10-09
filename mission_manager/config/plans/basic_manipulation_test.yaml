@@ -7,19 +7,9 @@ schema_version: 2
 plan_id: basic_manipulation_test
 finish: true
 visits:
-- target: ws_1
-  tasks:
-  - action: pick
-    tag_ids: [1]
-  - action: pick
-    tag_ids: [2]
-  - action: pick
-    tag_ids: [3]
-- target: ws_4
-  tasks:
-  - action: place_on_table
-    tag_ids: [3]
-  - action: place_on_table
-    tag_ids: [2]
-  - action: place_on_table
-    tag_ids: [1]
+  - target: ws_1
+    tasks:
+      - {action: pick, tag_ids: [1, 2, 3]}
+  - target: ws_4
+    tasks:
+      - {action: place_on_table, tag_ids: [3, 2, 1]}

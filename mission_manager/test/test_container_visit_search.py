@@ -1,6 +1,5 @@
 """Container delivery must never trigger a search for unrelated AprilTags."""
 from dataclasses import replace
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -80,8 +79,10 @@ def test_second_container_delivery_uses_hsv_and_its_own_search(area_type, visibl
     assert manager._world_state.snapshot() == (True, EMPTY, {'left': EMPTY, 'right': EMPTY})
 
 
-def test_user_plan_is_valid_new_syntax_and_keeps_requested_destinations():
-    path = Path(__file__).parents[1] / 'config/plans/cubos_1_2_3.yaml'
+def test_two_container_plan_is_valid_new_syntax_and_keeps_requested_destinations(tmp_path):
+    # Keep the regression independent of the user's currently selected mission.
+    path = tmp_path / 'containers.yaml'
+    path.write_text('schema_version: 2\nplan_id: containers\nvisits:\n  - target: ws_67\n    tasks:\n      - {action: pick, tag_ids: [1, 2]}\n  - target: pp_67\n    tasks:\n      - {action: place_in_container, container_color: blue, tag_ids: [1]}\n      - {action: place_in_container, container_color: red, tag_ids: [2]}\n')
     plan = load_plan(path)
     scheduler = Scheduler(plan, ('left', 'right'))
     assert scheduler.feasible(scheduler.initial_state)

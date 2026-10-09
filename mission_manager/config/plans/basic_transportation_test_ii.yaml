@@ -10,37 +10,24 @@ schema_version: 2
 plan_id: basic_transportation_test_ii
 finish: true
 visits:
-- target: ws_2
-  tasks:
-  - action: pick
-    tag_ids: [5]
-- target: ws_1
-  tasks:
-  - action: place_on_table
-    tag_ids: [5]
-  - action: pick
-    tag_ids: [1]
-  - action: pick
-    tag_ids: [2]
-  - action: pick
-    tag_ids: [3]
-- target: ws_2
-  tasks:
-  - action: place_on_table
-    tag_ids: [3]
-  - action: place_on_table
-    tag_ids: [1]
-- target: ws_3
-  tasks:
-  - action: place_on_table
-    tag_ids: [2]
-- target: ws_1
-  tasks:
-  - action: pick
-    tag_ids: [4]
-- target: ws_3
-  tasks:
-  - action: place_on_table
-    tag_ids: [4]
-- target: ws_4
-  tasks: []
+  - target: ws_2
+    tasks:
+      - {action: pick, tag_ids: [5]}
+  - target: ws_1
+    tasks:
+      - {action: place_on_table, tag_ids: [5]}
+      - {action: pick, tag_ids: [1, 2, 3]}
+  - target: ws_2
+    tasks:
+      - {action: place_on_table, tag_ids: [3, 1]}
+  - target: ws_3
+    tasks:
+      - {action: place_on_table, tag_ids: [2]}
+  - target: ws_1
+    tasks:
+      - {action: pick, tag_ids: [4]}
+  - target: ws_3
+    tasks:
+      - {action: place_on_table, tag_ids: [4]}
+  - target: ws_4
+    tasks: []

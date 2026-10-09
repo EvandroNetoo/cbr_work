@@ -4,8 +4,7 @@ finish: true
 visits:
   - target: ws_6
     tasks:
-      - {action: pick, tag_ids: [1]}
-      - {action: pick, tag_ids: [2]}
+      - {action: pick, tag_ids: [1, 2]}
       - {action: place_on_table, tag_ids: [2]}
       # - {action: pick, tag_ids: [3]}
   - target: ws_5

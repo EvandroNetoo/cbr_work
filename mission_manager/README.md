@@ -98,9 +98,7 @@ finish: true
 visits:
   - target: ws_1
     tasks:
-      - {action: pick, tag_ids: [1]}
-      - {action: pick, tag_ids: [2]}
-      - {action: pick, tag_ids: [3]}
+      - {action: pick, tag_ids: [1, 2, 3]}
   - target: ws_2
     tasks:
       - {action: place_on_table, tag_ids: [1]}
@@ -108,8 +106,7 @@ visits:
       - {action: pick, tag_ids: [4]}
   - target: ws_3
     tasks:
-      - {action: place_on_table, tag_ids: [3]}
-      - {action: place_on_table, tag_ids: [4]}
+      - {action: place_on_table, tag_ids: [3, 4]}
 ```
 
 IDs de visitas e tarefas são gerados automaticamente; não é necessário informar
@@ -125,7 +122,13 @@ informa a localização física inicial; cada visita ainda executa sua navegaç�
 concluir as visitas. A arena permanece em `schema_version: 1`.
 
 Coletas e entregas explícitas informam uma lista não vazia `tag_ids`, sem
-repetições. `pick, tag_ids: [1, 2]` representa duas coletas independentes;
+repetições. Cada visita declara uma única task `pick` com todos os IDs a coletar.
+Entregas com a mesma ação e os mesmos parâmetros também devem ser agrupadas
+na mesma lista. Fragmentar essas tarefas em várias entradas é rejeitado, mesmo
+quando cada entrada contém um único ID. Entregas com cores, filtros ou referências
+diferentes permanecem em tasks distintas. A sintaxe de organização PP com
+`start_state`/`final_state` permanece disponível.
+`pick, tag_ids: [1, 2]` representa duas coletas independentes;
 a percepção e o escalonador decidem a ordem. O campo YAML `tag_id` foi removido.
 Entregas em mesa, prateleira e container também aceitam `possible_tag_ids`
 acompanhado obrigatoriamente de `tag_color: red|blue`, em vez de `tag_ids`:

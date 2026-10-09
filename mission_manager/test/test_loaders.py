@@ -337,16 +337,14 @@ visits:
     assert plan.visits[1].tasks[0].step_id == 'visit_ws_1_2_pick_2'
 
 
-def test_generated_ids_reserve_explicit_ids_and_distinguish_repeated_tasks(tmp_path):
+def test_generated_ids_reserve_explicit_ids_and_distinguish_grouped_tasks(tmp_path):
     source = '''schema_version: 2
 plan_id: generated
 visits:
   - target: ws_1
     tasks:
-      - {action: pick, tag_ids: [2]}
-      - {action: place_on_table, tag_ids: [2]}
-      - {action: pick, tag_ids: [2]}
-      - {action: place_on_table, tag_ids: [2]}
+      - {action: pick, tag_ids: [2, 3]}
+      - {action: place_on_table, tag_ids: [2, 3]}
   - id: visit_ws_1
     target: ws_1
     tasks: []
@@ -355,8 +353,7 @@ visits:
     validate_plan(plan, load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA)))
     assert plan.visits[0].visit_id == 'visit_ws_1_2'
     assert [t.step_id for t in plan.visits[0].tasks] == [
-        'visit_ws_1_2_pick_2', 'visit_ws_1_2_place_on_table_2',
-        'visit_ws_1_2_pick_2_2', 'visit_ws_1_2_place_on_table_2_2']
+        'visit_ws_1_2_pick_2_3', 'visit_ws_1_2_place_on_table_2_3']
     assert plan.visits[1].visit_id == 'visit_ws_1'
 
 

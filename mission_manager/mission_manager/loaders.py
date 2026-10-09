@@ -671,8 +671,16 @@ def load_plan(path: str | Path, *, cargo_capacity: int = 2) -> Plan:
             visits.append(Visit(visit_id, target, tasks, pp_start, pp_final))
             continue
         tasks = []
+        task_groups = set()
         for i, value in enumerate(values):
             task = _task(value, f'{context}.tasks[{i}]')
+            group = (task.action, task.container_color, task.tag_color,
+                     task.support_tag_id, task.reference_tag_id, bool(task.possible_tag_ids))
+            if group in task_groups:
+                raise ConfigurationError(
+                    f'{context}: tarefas {task.action} com os mesmos parâmetros devem ser '
+                    'agrupadas em uma única task com tag_ids ou possible_tag_ids.')
+            task_groups.add(group)
             if not task.step_id:
                 parameters = (f'{"_".join(str(tag) for tag in sorted(task.tag_ids))}'
                               f'_on_{task.support_tag_id}' if task.action == 'stack'

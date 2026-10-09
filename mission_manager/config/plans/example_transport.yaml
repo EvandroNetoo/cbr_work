@@ -5,53 +5,21 @@ schema_version: 2
 plan_id: example_transport
 finish: true
 visits:
-- target: ws_1
-  tasks:
-  - action: pick
-    tag_ids: [1]
-  - action: pick
-    tag_ids: [2]
-  - action: pick
-    tag_ids: [10]
-- target: ws_2
-  tasks:
-  - action: place_on_table
-    tag_ids: [10]
-  - action: place_on_table
-    tag_ids: [1]
-  - action: place_on_table
-    tag_ids: [2]
-  - action: pick
-    tag_ids: [3]
-  - action: pick
-    tag_ids: [4]
-  - action: pick
-    tag_ids: [5]
-- target: ws_3
-  tasks:
-  - action: place_on_table
-    tag_ids: [5]
-  - action: place_on_table
-    tag_ids: [4]
-  - action: place_on_table
-    tag_ids: [3]
-  - action: pick
-    tag_ids: [6]
-  - action: pick
-    tag_ids: [11]
-  - action: pick
-    tag_ids: [12]
-- target: ws_4
-  tasks:
-  - action: place_on_table
-    tag_ids: [12]
-  - action: place_on_table
-    tag_ids: [11]
-  - action: place_on_table
-    tag_ids: [6]
-  - action: pick
-    tag_ids: [13]
-- target: ws_1
-  tasks:
-  - action: place_on_table
-    tag_ids: [13]
+  - target: ws_1
+    tasks:
+      - {action: pick, tag_ids: [1, 2, 10]}
+  - target: ws_2
+    tasks:
+      - {action: place_on_table, tag_ids: [10, 1, 2]}
+      - {action: pick, tag_ids: [3, 4, 5]}
+  - target: ws_3
+    tasks:
+      - {action: place_on_table, tag_ids: [5, 4, 3]}
+      - {action: pick, tag_ids: [6, 11, 12]}
+  - target: ws_4
+    tasks:
+      - {action: place_on_table, tag_ids: [12, 11, 6]}
+      - {action: pick, tag_ids: [13]}
+  - target: ws_1
+    tasks:
+      - {action: place_on_table, tag_ids: [13]}
