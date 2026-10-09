@@ -1243,9 +1243,13 @@ class MissionManager(PrecisionRuntime, Node):
                 return observation
         return None
 
-    def _current_scene_observed(self) -> bool:
+    def _current_scene_observed(self, requested_detectors=SceneObservation.APRILTAGS) -> bool:
         observation = self._scene_at_current_position()
-        return bool(observation is not None and observation.apriltags_observed)
+        return bool(observation is not None
+                    and (not requested_detectors & SceneObservation.APRILTAGS
+                         or observation.apriltags_observed)
+                    and (not requested_detectors & SceneObservation.CONTAINERS_HSV
+                         or observation.containers_observed))
 
     def _take_direct_pick_detection(self, tag_id: int):
         """Only the next action after explicit scene analysis may reuse its pose.
@@ -2291,6 +2295,33 @@ class MissionManager(PrecisionRuntime, Node):
         ):
             raise StepFailed('Retorno à distância padrão da SH não confirmado.')
 
+    def _unobserved_container_retrieve(self, scheduler, state, observations):
+        choice = scheduler.select(state, observations, self._current_lateral_position_mm,
+                                  allow_unobserved=True)
+        if choice is not None and choice.step.action == 'retrieve':
+            if any(c.task_id == choice.task_id and c.step.action == 'place_in_container'
+                   for c in scheduler.viable_choices(choice.next_state)):
+                return choice
+        return None
+
+    @staticmethod
+    def _scheduler_search_tag(scheduler, state):
+        """Return an actual pending tag target; containers never imply tag 0."""
+        choices = scheduler.viable_choices(state)
+        tasks = [c.step for c in choices]
+        for choice in choices:
+            if choice.step.action == 'retrieve':
+                tasks.extend(c.step for c in scheduler.viable_choices(choice.next_state)
+                             if c.task_index is not None)
+        for task in tasks:
+            if task.action == 'pick':
+                return task.tag_id
+            if task.action == 'stack':
+                return task.support_tag_id
+            if task.action == 'place_on_precision_table':
+                return task.reference_tag_id
+        return None
+
     def _next_slot_movement(self, scheduler, choice, plan: Plan) -> SlotMovement | None:
         """Look ahead for base motion without assuming that cargo already moved."""
         observations = self._scheduler_observations()
@@ -2301,7 +2332,10 @@ class MissionManager(PrecisionRuntime, Node):
             # A fresh observation must precede any new destination decision.
             if (choice.step.action != 'store' or not config.enabled
                     or not self._current_scene_observed()
-                    or getattr(self, '_search_phase', 0)):
+                    or getattr(self, '_search_phase', 0)
+                    or self._scheduler_search_tag(scheduler, choice.next_state) is None
+                    or self._unobserved_container_retrieve(
+                        scheduler, choice.next_state, observations) is not None):
                 return None
             visited = self._visited_search_positions.get(self._current_location, set())
             blocked = self._blocked_search_positions.get(self._current_location, set())
@@ -2578,7 +2612,7 @@ class MissionManager(PrecisionRuntime, Node):
             else:
                 self._execute_manipulation(step, slot_movement)
 
-    def _observe_visit(self) -> None:
+    def _observe_visit(self, *, requested_detectors: int | None = None) -> None:
         """Observe without requesting any particular object or physical pick."""
         known, gripper, _slots = self._world_state.snapshot()
         if not known or gripper != EMPTY:
@@ -2587,7 +2621,9 @@ class MissionManager(PrecisionRuntime, Node):
         goal = AnalyzeScene.Goal()
         goal.requested_detectors = AnalyzeScene.Goal.APRILTAGS | AnalyzeScene.Goal.CONTAINERS_HSV
         self._configure_pp_goal(goal)
-        if self._is_precision_area():
+        if requested_detectors is not None:
+            goal.requested_detectors = requested_detectors
+        elif self._is_precision_area():
             goal.requested_detectors = AnalyzeScene.Goal.APRILTAGS
         goal.duration = self._duration(2.0)
         goal.work_surface_height_m = self._arena.service_areas[self._current_location].height_cm / 100.0
@@ -2607,13 +2643,15 @@ class MissionManager(PrecisionRuntime, Node):
             _refs, _objects = split_detections(scene.apriltags, self._arena.precision_perception)
             visible_object_ids = set(_objects)
         for key, memory in list(self._tag_observations.items()):
-            if (key[0] == self._current_location
+            if (goal.requested_detectors & AnalyzeScene.Goal.APRILTAGS
+                    and key[0] == self._current_location
                     and abs(memory.wall_distance_mm - self._current_wall_distance_mm) <= 1
                     and abs(memory.lateral_position_mm - self._current_lateral_position_mm) <= 1
                     and key[1] not in visible_object_ids):
                 del self._tag_observations[key]
         for key, memory in list(self._container_observations.items()):
-            if (key[0] == self._current_location
+            if (goal.requested_detectors & AnalyzeScene.Goal.CONTAINERS_HSV
+                    and key[0] == self._current_location
                     and abs(memory.wall_distance_mm - self._current_wall_distance_mm) <= 1
                     and abs(memory.lateral_position_mm - self._current_lateral_position_mm) <= 1
                     and key[1] not in {int(container.color) for container in scene.containers}):
@@ -2673,6 +2711,13 @@ class MissionManager(PrecisionRuntime, Node):
                 if not scheduler.feasible(state):
                     raise StepFailed('Carga restante após PP impede as próximas tarefas.')
                 continue
+            # PP role classification is independent of container detection.
+            # Keep tag-only scans for slot organization, but include HSV whenever
+            # this visit can deliver to a container, regardless of area type.
+            visit_detectors = AnalyzeScene.Goal.APRILTAGS
+            if (not self._is_precision_area()
+                    or any(task.action == 'place_in_container' for task in visit.tasks)):
+                visit_detectors |= AnalyzeScene.Goal.CONTAINERS_HSV
             pp_slots = dict(visit.pp_start_state) if visit.pp_start_state is not None else None
             with self._search_session():
                 while state.visit < len(plan.visits) and plan.visits[state.visit] is visit:
@@ -2690,23 +2735,29 @@ class MissionManager(PrecisionRuntime, Node):
                     if choice is None:
                         if gripper != EMPTY:
                             raise StepFailed(f'Visita {visit.visit_id}: garra bloqueada.')
-                        if not self._current_scene_observed():
-                            self._observe_visit()
+                        if not self._current_scene_observed(visit_detectors):
+                            self._observe_visit(requested_detectors=visit_detectors)
                             continue
                         self._failed_step_id = min((c.task_id for c in viable if c.task_id),
                                                    default=visit.visit_id)
-                        pending_pick = next((c.step.tag_id for c in viable if c.step.action == 'pick'), 0)
-                        if (self._arena.pickup_recovery.enabled
-                                and self._move_to_next_search_position(pending_pick)):
-                            self._observe_visit()
-                            continue
-                        # Permit retrieving a delivery whose detector found no target;
-                        # its existing recovery/fallback handles that case. Never pick unseen tags.
-                        choice = scheduler.select(state, self._scheduler_observations(),
-                                                  self._current_lateral_position_mm,
-                                                  allow_unobserved=True)
+                        # An unseen delivery destination belongs to the delivery's
+                        # own detector/recovery. Do not search for unrelated tags
+                        # before retrieving its already collected object.
+                        choice = self._unobserved_container_retrieve(
+                            scheduler, state, self._scheduler_observations())
                         if choice is None:
-                            raise StepFailed(f'Visita {visit.visit_id}: objetos pendentes não encontrados após busca.')
+                            search_tag = self._scheduler_search_tag(scheduler, state)
+                            if (search_tag is not None and self._arena.pickup_recovery.enabled
+                                    and self._move_to_next_search_position(search_tag)):
+                                self._observe_visit(requested_detectors=visit_detectors)
+                                continue
+                            # Other delivery actions retain their existing recovery
+                            # after the relevant tag search has been exhausted.
+                            choice = scheduler.select(state, self._scheduler_observations(),
+                                                      self._current_lateral_position_mm,
+                                                      allow_unobserved=True)
+                            if choice is None:
+                                raise StepFailed(f'Visita {visit.visit_id}: objetos pendentes não encontrados após busca.')
                     if choice.step.action == 'skip':
                         state = choice.next_state
                         continue

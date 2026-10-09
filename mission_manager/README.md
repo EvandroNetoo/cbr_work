@@ -190,6 +190,16 @@ cada observação. Não completa a busca de uma tag ausente antes de considerar
 as outras. A memória conserva as posições das demais tags; só a tag coletada
 é removida. Históricos são separados por área, posição e iluminação.
 
+Em visitas com `place_in_container`, a observação solicita o detector HSV de
+containers também em áreas PP; a classificação de referências PP permanece
+ativa e independente. Organização de alojamentos PP continua usando AprilTags.
+Se o próximo objeto já está na carga e seu container ainda não foi observado,
+o executor o recupera e deixa `place_in_container` procurar o destino com HSV.
+Não percorre posições de AprilTags antes de iniciar essa busca. A busca de tags
+só ocorre quando há uma coleta, suporte de pilha ou referência PP pendente,
+inclusive na antecipação de movimento durante `store`. Uma observação parcial
+invalida apenas memórias do detector que efetivamente foi solicitado.
+
 A detecção da análise explícita autoriza uma única coleta direta, imediatamente
 após essa análise. O servidor `manipulation` valida o alcance pelo
 `profiles.yaml` antes de planejar a pegada. Se a tag estiver alcançável, a coleta
