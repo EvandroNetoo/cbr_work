@@ -30,6 +30,7 @@ setup(
     entry_points={
         'console_scripts': [
             'mission_manager_node = mission_manager.node:main',
+            'generate_plan = mission_manager.generate_plan:main',
         ],
     },
 )

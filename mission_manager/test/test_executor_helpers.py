@@ -55,8 +55,8 @@ def _arena():
             search_positions_mm=(0, 250, -250),
         ),
         service_areas={
-            'ws_1': ServiceArea(
-                area_id='ws_1',
+            'WS_1': ServiceArea(
+                area_id='WS_1',
                 pose=MapPose(1.0, 2.0, 1.57),
                 height_cm=12.5,
                 area_type='WS',
@@ -82,11 +82,11 @@ def test_shelf_deposit_aligns_and_restores_observation_distance(
     _attach_world_state(manager)
     manager._world_state.commit_pick(1)
     manager._arena = _arena()
-    manager._arena.service_areas['ws_1'] = replace(
-        manager._arena.service_areas['ws_1'], area_type='SH',
+    manager._arena.service_areas['WS_1'] = replace(
+        manager._arena.service_areas['WS_1'], area_type='SH',
         shelf_place_alignment=(AlignmentConfig(local_distance, 5, 10.0)
                                if local_distance is not None else None))
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 150.0
     manager._current_lateral_position_mm = 25.0
     manager._manipulation_timeout = lambda: 120.0
@@ -142,9 +142,9 @@ def test_shelf_retrieve_retreats_then_observes_before_deposit(reading):
     manager._world_state.commit_pick(1)
     manager._world_state.commit_store(1, 'left')
     manager._arena = _arena()
-    manager._arena.service_areas['ws_1'] = replace(
-        manager._arena.service_areas['ws_1'], area_type='SH')
-    manager._current_location = 'ws_1'
+    manager._arena.service_areas['WS_1'] = replace(
+        manager._arena.service_areas['WS_1'], area_type='SH')
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 40.0
     manager._current_lateral_position_mm = 25.0
     manager._manipulation_timeout = lambda: 120.0
@@ -288,12 +288,12 @@ def test_wall_control_uses_zero_travel_for_alignment():
 @pytest.mark.parametrize(
     'location, area_ignore_sec, travel, limit, expected',
     [
-        ('ws_1', None, 500, 100, 2.0),
-        ('ws_1', 3.5, 500, 100, 3.5),
-        ('ws_1', 0.0, -250, 75, 0.0),
-        ('ws_1', 3.5, -250, 75, 3.5),
-        ('ws_1', 3.5, 0, 100, 0.0),
-        ('ws_1', 3.5, 500, 0, 0.0),
+        ('WS_1', None, 500, 100, 2.0),
+        ('WS_1', 3.5, 500, 100, 3.5),
+        ('WS_1', 0.0, -250, 75, 0.0),
+        ('WS_1', 3.5, -250, 75, 3.5),
+        ('WS_1', 3.5, 0, 100, 0.0),
+        ('WS_1', 3.5, 500, 0, 0.0),
         ('start', 3.5, 500, 100, 2.0),
     ],
 )
@@ -302,8 +302,8 @@ def test_wall_control_uses_configured_recovery_for_lateral_travel(
 ):
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._arena.service_areas['ws_1'] = replace(
-        manager._arena.service_areas['ws_1'],
+    manager._arena.service_areas['WS_1'] = replace(
+        manager._arena.service_areas['WS_1'],
         alignment_error_ignore_sec=area_ignore_sec)
     manager._current_location = location
     manager.get_logger = lambda: SimpleNamespace(info=lambda _text: None)
@@ -497,7 +497,7 @@ def test_manager_blocks_store_before_sending_action_when_gripper_is_empty():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._manipulation_timeout = lambda: 120.0
     manager._call_action = lambda *_args, **_kwargs: pytest.fail(
@@ -582,10 +582,10 @@ def test_pick_retries_after_one_recoverable_result(area_type):
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._arena = _arena()
-    manager._arena.service_areas['ws_1'] = replace(
-        manager._arena.service_areas['ws_1'], area_type=area_type)
+    manager._arena.service_areas['WS_1'] = replace(
+        manager._arena.service_areas['WS_1'], area_type=area_type)
     manager._pick_client = object()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
@@ -637,9 +637,9 @@ def test_shelf_pick_always_aligns_and_requests_a_second_detection(recovery_enabl
     manager._arena = replace(manager._arena, pickup_recovery=replace(
         manager._arena.pickup_recovery, enabled=recovery_enabled,
         shelf_preferred_tag_y_m=-0.25))
-    manager._arena.service_areas['ws_1'] = replace(
-        manager._arena.service_areas['ws_1'], area_type='SH')
-    manager._current_location = 'ws_1'
+    manager._arena.service_areas['WS_1'] = replace(
+        manager._arena.service_areas['WS_1'], area_type='SH')
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._service_area_vision_active = False
@@ -668,7 +668,7 @@ def test_shelf_pick_always_aligns_and_requests_a_second_detection(recovery_enabl
 def test_shelf_alignment_accepts_already_centered_tag_without_moving():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._move_to_table_position = lambda *_args: pytest.fail('já centralizado')
@@ -681,7 +681,7 @@ def test_shelf_alignment_accepts_already_centered_tag_without_moving():
 def test_shelf_alignment_accepts_incomplete_base_movement(moved):
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager.get_logger = lambda: SimpleNamespace(warning=lambda *_args: None)
@@ -740,7 +740,7 @@ def test_table_movement_clamps_absolute_lateral_destination(
 def test_remembered_pickup_position_respects_lateral_limit():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 250.0
@@ -752,14 +752,14 @@ def test_remembered_pickup_position_respects_lateral_limit():
 
     manager._remember_pick_observations(result)
 
-    observation = manager._tag_observations[('ws_1', 3)]
+    observation = manager._tag_observations[('WS_1', 3)]
     assert observation.pickup_lateral_position_mm == pytest.approx(275.0)
 
 
 def test_pick_observations_are_updated_individually_and_survive_area_changes():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
@@ -778,19 +778,19 @@ def test_pick_observations_are_updated_individually_and_survive_area_changes():
     second.observed_detections = [_detection(1, 0.0, -0.22)]
     manager._remember_pick_observations(second)
 
-    assert manager._tag_observations[('ws_1', 1)].lateral_position_mm == 100.0
-    assert manager._tag_observations[('ws_1', 3)].lateral_position_mm == 0.0
+    assert manager._tag_observations[('WS_1', 1)].lateral_position_mm == 100.0
+    assert manager._tag_observations[('WS_1', 3)].lateral_position_mm == 0.0
     manager._current_location = 'another_area'
-    assert ('ws_1', 3) in manager._tag_observations
+    assert ('WS_1', 3) in manager._tag_observations
     manager._forget_picked_tag(1)
-    assert ('ws_1', 1) not in manager._tag_observations
-    assert ('ws_1', 3) in manager._tag_observations
+    assert ('WS_1', 1) not in manager._tag_observations
+    assert ('WS_1', 3) in manager._tag_observations
 
 
 def test_scene_observation_keeps_best_container_memory_by_area_and_color():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 25.0
@@ -814,7 +814,7 @@ def test_scene_observation_keeps_best_container_memory_by_area_and_color():
     ]
     manager._remember_scene_observations(result)
 
-    remembered = manager._container_observations[('ws_1', 1)]
+    remembered = manager._container_observations[('WS_1', 1)]
     assert remembered.lateral_position_mm == 25.0
     assert remembered.detection.partial is False
 
@@ -822,7 +822,7 @@ def test_scene_observation_keeps_best_container_memory_by_area_and_color():
 def test_place_on_table_scene_saves_tags_containers_and_visited_position():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._tag_observations = {}
@@ -841,21 +841,21 @@ def test_place_on_table_scene_saves_tags_containers_and_visited_position():
 
     manager._remember_scene_observations(result)
 
-    assert ('ws_1', 3) in manager._tag_observations
-    assert ('ws_1', 1) in manager._container_observations
-    assert manager._visited_search_positions == {'ws_1': {0}}
-    assert manager._container_search_positions == {'ws_1': {0}}
+    assert ('WS_1', 3) in manager._tag_observations
+    assert ('WS_1', 1) in manager._container_observations
+    assert manager._visited_search_positions == {'WS_1': {0}}
+    assert manager._container_search_positions == {'WS_1': {0}}
 
 
 def test_pick_skips_position_observed_before_intermediate_place():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._tag_observations = {}
-    manager._visited_search_positions = {'ws_1': {0}}
+    manager._visited_search_positions = {'WS_1': {0}}
     manager._last_table_observation = None
     manager._pick_client = object()
     manager.get_logger = lambda: SimpleNamespace(info=lambda *_args: None)
@@ -882,12 +882,12 @@ def test_container_memory_only_repositions_and_still_calls_semantic_action():
     _attach_world_state(manager)
     manager._world_state.commit_pick(5)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 100.0
     manager._container_observations = {
-        ('ws_1', PlaceInContainer.Goal.BLUE): SimpleNamespace(
+        ('WS_1', PlaceInContainer.Goal.BLUE): SimpleNamespace(
             wall_distance_mm=200.0,
             lateral_position_mm=-50.0,
         )
@@ -924,7 +924,7 @@ def test_container_memory_only_repositions_and_still_calls_semantic_action():
 def test_container_absence_skips_repeated_analysis_at_same_position():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
@@ -948,7 +948,7 @@ def test_container_absence_skips_repeated_analysis_at_same_position():
         PlaceInContainer.Goal.RED)
     assert not manager._current_observation_excludes_container(
         PlaceInContainer.Goal.BLUE)
-    assert manager._container_search_positions == {'ws_1': {0}}
+    assert manager._container_search_positions == {'WS_1': {0}}
 
     events = []
 
@@ -982,15 +982,15 @@ def test_container_absence_skips_repeated_analysis_at_same_position():
 def test_container_search_skips_vision_when_base_did_not_move():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 100.0
     manager._container_observations = {}
-    manager._container_search_positions = {'ws_1': {0}}
-    manager._visited_search_positions = {'ws_1': {0}}
+    manager._container_search_positions = {'WS_1': {0}}
+    manager._visited_search_positions = {'WS_1': {0}}
     manager._last_table_observation = TableObservation(
-        area_id='ws_1',
+        area_id='WS_1',
         wall_distance_mm=200.0,
         lateral_position_mm=100.0,
         detected_tag_ids=frozenset(),
@@ -1036,9 +1036,9 @@ def test_container_search_skips_vision_when_base_did_not_move():
 def test_search_selects_nearest_unvisited_absolute_position():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_lateral_position_mm = 100.0
-    manager._visited_search_positions = {'ws_1': {0}}
+    manager._visited_search_positions = {'WS_1': {0}}
     manager.get_logger = lambda: SimpleNamespace(info=lambda *_args: None)
     moves = []
     manager._move_to_table_position = lambda wall, lateral, description: moves.append(
@@ -1047,13 +1047,13 @@ def test_search_selects_nearest_unvisited_absolute_position():
 
     assert manager._move_to_next_search_position(3)
     assert moves[0][1] == 250
-    assert manager._visited_search_positions['ws_1'] == {0, 250}
+    assert manager._visited_search_positions['WS_1'] == {0, 250}
 
     # Mesmo sem atualizar a posicao fisica (caso de interrupcao tolerada), o
     # destino anterior nao pode entrar em loop; o proximo deve ser -250.
     assert manager._move_to_next_search_position(3)
     assert moves[1][1] == -250
-    assert manager._visited_search_positions['ws_1'] == {0, 250, -250}
+    assert manager._visited_search_positions['WS_1'] == {0, 250, -250}
     assert not manager._move_to_next_search_position(3)
 
 
@@ -1073,10 +1073,10 @@ def test_blocked_pick_destination_is_shared_with_container_search(
 ):
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
-    manager._visited_search_positions = {'ws_1': {0}}
+    manager._visited_search_positions = {'WS_1': {0}}
     manager._container_search_positions = {}
     manager._blocked_search_positions = {}
     manager._prepare_for_pick_observation = lambda: None
@@ -1097,10 +1097,10 @@ def test_blocked_pick_destination_is_shared_with_container_search(
     manager._control_wall = control_wall
     assert manager._move_to_next_search_position(3)
     assert manager._current_lateral_position_mm == traveled_mm
-    assert manager._visited_search_positions['ws_1'] == {0, 250}
+    assert manager._visited_search_positions['WS_1'] == {0, 250}
     assert manager._container_search_positions == {}
     assert manager._blocked_search_positions == (
-        {'ws_1': {250}} if blocked_destination else {})
+        {'WS_1': {250}} if blocked_destination else {})
 
     destinations = []
     manager._move_to_table_position = (
@@ -1112,7 +1112,7 @@ def test_blocked_pick_destination_is_shared_with_container_search(
     assert destinations == [-250 if blocked_destination else 250]
 
     manager._current_lateral_position_mm = 0.0
-    manager._visited_search_positions = {'ws_1': {0}}
+    manager._visited_search_positions = {'WS_1': {0}}
     destinations.clear()
     assert manager._move_to_next_search_position(4)
     assert destinations == [-250 if blocked_destination else 250]
@@ -1121,7 +1121,7 @@ def test_blocked_pick_destination_is_shared_with_container_search(
 def test_left_search_destination_is_blocked_after_protection_stop():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._blocked_search_positions = {}
@@ -1145,20 +1145,20 @@ def test_left_search_destination_is_blocked_after_protection_stop():
     manager._move_to_table_position(200, -250, 'busca à esquerda')
 
     assert manager._current_lateral_position_mm == -180.0
-    assert manager._blocked_search_positions == {'ws_1': {-250}}
+    assert manager._blocked_search_positions == {'WS_1': {-250}}
 
 
 def test_unknown_pick_skips_detection_at_last_observed_adjusted_position():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 136.0
     manager._current_lateral_position_mm = 49.0
     manager._tag_observations = {}
-    manager._visited_search_positions = {'ws_1': {0}}
+    manager._visited_search_positions = {'WS_1': {0}}
     manager._last_table_observation = TableObservation(
-        area_id='ws_1',
+        area_id='WS_1',
         wall_distance_mm=136.0,
         lateral_position_mm=49.0,
         detected_tag_ids=frozenset({1}),
@@ -1193,7 +1193,7 @@ def test_unknown_pick_skips_detection_at_last_observed_adjusted_position():
 def test_adjusted_wall_distance_does_not_mark_fixed_search_position_visited():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 136.0
     manager._current_lateral_position_mm = 0.0
     manager._tag_observations = {}
@@ -1205,7 +1205,7 @@ def test_adjusted_wall_distance_does_not_mark_fixed_search_position_visited():
 
     manager._remember_pick_observations(result)
 
-    assert manager._visited_search_positions['ws_1'] == set()
+    assert manager._visited_search_positions['WS_1'] == set()
     assert manager._last_table_observation.detected_tag_ids == frozenset({1})
 
 
@@ -1213,7 +1213,7 @@ def test_missing_tag_scans_every_position_once_and_then_fails():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
@@ -1249,27 +1249,27 @@ def test_missing_tag_scans_every_position_once_and_then_fails():
 
     assert len(action_calls) == 3
     assert travels == [250, -500]
-    assert manager._visited_search_positions['ws_1'] == {0, 250, -250}
+    assert manager._visited_search_positions['WS_1'] == {0, 250, -250}
 
 
 def test_memorized_pick_aligns_and_searches_elsewhere_if_missing():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 180.0
     manager._current_lateral_position_mm = 0.0
     manager._pick_client = object()
-    manager._visited_search_positions = {'ws_1': {0}}
+    manager._visited_search_positions = {'WS_1': {0}}
     observation = TagObservation(
-        area_id='ws_1',
+        area_id='WS_1',
         wall_distance_mm=180.0,
         lateral_position_mm=0.0,
         pickup_wall_distance_mm=220,
         pickup_lateral_position_mm=100.0,
         detection=_detection(3, -0.10, -0.18),
     )
-    manager._tag_observations = {('ws_1', 3): observation}
+    manager._tag_observations = {('WS_1', 3): observation}
     manager.get_logger = lambda: SimpleNamespace(info=lambda *_args: None)
     moves = []
 
@@ -1305,7 +1305,7 @@ def test_navigation_returns_to_departure_lateral_origin_while_backing_away(
 ):
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = current_lateral_position_mm
@@ -1337,13 +1337,13 @@ def test_navigation_returns_to_departure_lateral_origin_while_backing_away(
 def test_navigation_keeps_apriltag_memory_for_later_return():
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 80.0
     marker = object()
-    manager._tag_observations = {('ws_1', 3): marker}
-    manager._visited_search_positions = {'ws_1': {0}}
+    manager._tag_observations = {('WS_1', 3): marker}
+    manager._visited_search_positions = {'WS_1': {0}}
     _attach_world_state(manager)
     manager._navigate_client = object()
     manager._prepare_for_navigation = lambda: None
@@ -1356,8 +1356,8 @@ def test_navigation_keeps_apriltag_memory_for_later_return():
 
     manager._navigate('start')
 
-    assert manager._tag_observations == {('ws_1', 3): marker}
-    assert manager._visited_search_positions == {'ws_1': {0}}
+    assert manager._tag_observations == {('WS_1', 3): marker}
+    assert manager._visited_search_positions == {'WS_1': {0}}
     assert manager._current_lateral_position_mm == 0.0
 
 
@@ -1404,11 +1404,11 @@ def test_table_place_ignores_apriltag_visits_and_falls_back_after_search(
     _attach_world_state(manager)
     manager._world_state.commit_pick(5)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
-    manager._visited_search_positions = {'ws_1': previous_pick_positions}
+    manager._visited_search_positions = {'WS_1': previous_pick_positions}
     manager._place_table_client = object()
     manager._manipulation_timeout = lambda: 120.0
     manager._prepare_for_pick_observation = lambda: None
@@ -1474,7 +1474,7 @@ def test_table_place_tries_five_configured_positions_before_fallback():
         ),
         table_place_search_positions_mm=(0, 160, 325, -160, -325),
     )
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
@@ -1523,11 +1523,11 @@ def test_container_place_retries_after_apriltag_search():
     _attach_world_state(manager)
     manager._world_state.commit_pick(8)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
-    manager._visited_search_positions = {'ws_1': {0, 250, -250}}
+    manager._visited_search_positions = {'WS_1': {0, 250, -250}}
     manager._container_search_positions = {}
     manager._place_container_client = object()
     manager._manipulation_timeout = lambda: 120.0
@@ -1576,7 +1576,7 @@ def test_container_place_uses_table_fallback_after_all_search_positions():
     _attach_world_state(manager)
     manager._world_state.commit_pick(8)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
@@ -1631,7 +1631,7 @@ def test_place_does_not_retry_after_confirmed_release_cleanup_failure():
     _attach_world_state(manager)
     manager._world_state.commit_pick(5)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
@@ -1660,7 +1660,7 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
@@ -1747,8 +1747,8 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
 def test_service_area_vision_is_enabled_after_navigation_and_before_alignment(area_type):
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._arena.service_areas['ws_1'] = replace(
-        manager._arena.service_areas['ws_1'], area_type=area_type)
+    manager._arena.service_areas['WS_1'] = replace(
+        manager._arena.service_areas['WS_1'], area_type=area_type)
     manager._current_location = 'start'
     manager._current_lateral_position_mm = 0.0
     manager._current_wall_distance_mm = None
@@ -1765,7 +1765,7 @@ def test_service_area_vision_is_enabled_after_navigation_and_before_alignment(ar
     manager._control_wall = lambda *_args, **_kwargs: (
         events.append('align') or FollowWall.Result())
 
-    manager._navigate('ws_1')
+    manager._navigate('WS_1')
 
     assert events[:2] == ['navigate', 'on']
     assert sorted(events[2:]) == ['align', 'observe']
@@ -1775,9 +1775,9 @@ def test_service_area_vision_is_enabled_after_navigation_and_before_alignment(ar
 def test_service_area_vision_is_disabled_before_departure_alignment(area_type):
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
-    manager._arena.service_areas['ws_1'] = replace(
-        manager._arena.service_areas['ws_1'], area_type=area_type)
-    manager._current_location = 'ws_1'
+    manager._arena.service_areas['WS_1'] = replace(
+        manager._arena.service_areas['WS_1'], area_type=area_type)
+    manager._current_location = 'WS_1'
     manager._current_lateral_position_mm = 0.0
     manager._current_wall_distance_mm = 200.0
     _attach_world_state(manager)
@@ -1914,7 +1914,7 @@ def test_retrieve_uses_alignment_clearance_before_moving_arm(
     manager._world_state.commit_pick(7)
     manager._world_state.commit_store(7, side)
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._deposit_lateral_retreat_threshold_mm = 100
@@ -1964,7 +1964,7 @@ def test_retrieve_blocks_arm_when_retreat_is_unsafe_or_fails(failure):
     manager._world_state.commit_pick(7)
     manager._world_state.commit_store(7, 'right')
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = -275.0 if failure == 'position_limit' else 0.0
     manager._deposit_lateral_retreat_threshold_mm = 100
@@ -2007,7 +2007,7 @@ def _stack_search_manager():
             search_positions_mm=(0, 325, -325),
         ),
     )
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._visited_search_positions = {}
@@ -2030,8 +2030,8 @@ def test_stack_aligns_first_cube_with_own_targets_and_reuses_alignment(enabled, 
         manager._arena.pickup_recovery, enabled=enabled,
         stack_preferred_tag_x_m=0.02, stack_preferred_tag_y_m=-0.25,
     ))
-    manager._arena.service_areas['ws_1'] = replace(
-        manager._arena.service_areas['ws_1'], area_type=area_type,
+    manager._arena.service_areas['WS_1'] = replace(
+        manager._arena.service_areas['WS_1'], area_type=area_type,
     )
     manager._align_for_shelf_placement = lambda *_args: pytest.fail('Stack alinha pela tag.')
     goals = []
@@ -2083,10 +2083,10 @@ def test_stack_alignment_is_invalidated_when_context_changes(change):
     elif change == 'lateral':
         manager._current_lateral_position_mm += 1
     elif change == 'area':
-        manager._current_location = 'ws_2'
+        manager._current_location = 'WS_2'
     elif change == 'navigation':
         manager._navigate = lambda *_args: None
-        manager._execute_step(Step('move', 'navigate', target='ws_1'))
+        manager._execute_step(Step('move', 'navigate', target='WS_1'))
     else:
         manager._execute_pick = lambda *_args: None
         manager._execute_manipulation(Step('pick', 'pick', tag_id=11))
@@ -2226,9 +2226,9 @@ def test_stack_does_not_search_after_motion_failure():
 
 def test_stack_goes_to_remembered_apriltag_before_analyzing():
     manager = _stack_search_manager()
-    manager._visited_search_positions = {'ws_1': {0, 325}}
-    manager._tag_observations[('ws_1', 4)] = TagObservation(
-        area_id='ws_1',
+    manager._visited_search_positions = {'WS_1': {0, 325}}
+    manager._tag_observations[('WS_1', 4)] = TagObservation(
+        area_id='WS_1',
         wall_distance_mm=200.0,
         lateral_position_mm=325.0,
         pickup_wall_distance_mm=200,
@@ -2256,12 +2256,12 @@ def test_stack_goes_to_remembered_apriltag_before_analyzing():
 
     assert moves == [(200, 325.0)]
     assert len(calls) == 1
-    assert manager._placed_tag_viewpoints[('ws_1', 5)] == (200, 325.0)
+    assert manager._placed_tag_viewpoints[('WS_1', 5)] == (200, 325.0)
 
 
 def test_stack_skips_positions_already_analyzed_without_tag():
     manager = _stack_search_manager()
-    manager._visited_search_positions = {'ws_1': {0, 325}}
+    manager._visited_search_positions = {'WS_1': {0, 325}}
     moves = []
     calls = []
 
@@ -2297,13 +2297,13 @@ def test_second_stack_uses_first_stacks_placement_viewpoint():
     )
     manager._execute_manipulation(
         Step('stack_6', 'stack', support_tag_id=14))
-    assert manager._placed_tag_viewpoints[('ws_1', 5)] == (200, 0.0)
+    assert manager._placed_tag_viewpoints[('WS_1', 5)] == (200, 0.0)
 
     manager._world_state.commit_pick(11)
     manager._current_lateral_position_mm = 325.0
-    manager._visited_search_positions = {'ws_1': {0, 325, -325}}
-    manager._tag_observations[('ws_1', 5)] = TagObservation(
-        area_id='ws_1',
+    manager._visited_search_positions = {'WS_1': {0, 325, -325}}
+    manager._tag_observations[('WS_1', 5)] = TagObservation(
+        area_id='WS_1',
         wall_distance_mm=200.0,
         lateral_position_mm=325.0,
         pickup_wall_distance_mm=200,
@@ -2330,10 +2330,10 @@ def test_second_stack_uses_first_stacks_placement_viewpoint():
 def test_initial_service_area_enables_vision_and_cleans_up(area_type, ending):
     manager = MissionManager.__new__(MissionManager)
     arena = _arena()
-    arena.service_areas['ws_1'] = replace(
-        arena.service_areas['ws_1'], area_type=area_type)
+    arena.service_areas['WS_1'] = replace(
+        arena.service_areas['WS_1'], area_type=area_type)
     plan = SimpleNamespace(
-        initial_location='ws_1', plan_id='test',
+        initial_location='WS_1', plan_id='test',
         visits=(SimpleNamespace(tasks=(Step('collect', 'pick', tag_id=1),)),))
     manager._load_goal_files = lambda _plan_id: (arena, plan)
     for attribute in (
@@ -2393,7 +2393,7 @@ def _safety_manager():
         safety_search_distance_mm=60,
         safety_search_positions_mm=(-375, -250, -125, 0, 125, 250, 375),
     ))
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._service_area_vision_active = False
@@ -2452,15 +2452,15 @@ def test_safety_pick_scans_seven_lit_then_seven_dark_and_restores_led(finish):
 
 def test_second_tag_reuses_lit_safety_observations_and_saves_other_tags():
     manager = _safety_manager()
-    manager._visited_search_positions = {'ws_1': {0, 250, -250}}
+    manager._visited_search_positions = {'WS_1': {0, 250, -250}}
     with manager._search_session():
         for _ in range(4):
             assert manager._move_to_next_search_position(1)
             result = _pick_result(ManipulationResult.OBJECT_NOT_FOUND, 'missing')
             result.observed_detections = [_detection(8, 0.0, -0.22)]
             manager._remember_scene_observations(result)
-    assert ('ws_1', 8) in manager._tag_observations
-    assert manager._tag_observations[('ws_1', 8)].wall_distance_mm == 60
+    assert ('WS_1', 8) in manager._tag_observations
+    assert manager._tag_observations[('WS_1', 8)].wall_distance_mm == 60
     assert manager._current_search_position_visited()
     lit_remaining = []
     with manager._search_session():
@@ -2486,7 +2486,7 @@ def test_safety_container_history_requires_container_detector():
     result.scene_observation.containers = [_container_detection(1)]
     manager._remember_scene_observations(result)
     assert manager._safety_visited('containers') == {0}
-    assert manager._container_observations[('ws_1', 1)].wall_distance_mm == 60
+    assert manager._container_observations[('WS_1', 1)].wall_distance_mm == 60
 
 
 @pytest.mark.parametrize('action', ['stack', 'place_in_container', 'place_on_table'])
@@ -2544,7 +2544,7 @@ def test_cached_pick_result_preserves_other_tags_and_scene_history():
     manager._remember_scene_observations(cached)
     assert manager._last_table_observation is snapshot
     manager._forget_picked_tag(1)
-    assert ('ws_1', 2) in manager._tag_observations
+    assert ('WS_1', 2) in manager._tag_observations
     assert manager._last_table_observation.detected_tag_ids == frozenset({2})
     assert manager._current_scene_observed()
 
@@ -2563,8 +2563,8 @@ def test_hsv_only_scene_does_not_erase_tag_snapshot_or_mark_apriltag_search():
     manager._current_lateral_position_mm = 250.0
     manager._remember_scene_observations(hsv)
     assert not manager._last_table_observation.apriltags_observed
-    assert manager._visited_search_positions['ws_1'] == {0}
-    assert manager._container_search_positions['ws_1'] == {0, 250}
+    assert manager._visited_search_positions['WS_1'] == {0}
+    assert manager._container_search_positions['WS_1'] == {0, 250}
 
 
 def test_return_to_previously_analyzed_adjusted_viewpoint_reuses_snapshot():
@@ -2596,12 +2596,12 @@ def _pp_reference_detection(tag_id, x, y):
 def test_precision_search_uses_reference_memory_then_aligns(missing_first):
     from interfaces.action import PlaceOnPrecisionTable
     manager = _stack_search_manager()
-    manager._arena.service_areas['ws_1'] = replace(
-        manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._arena.service_areas['WS_1'] = replace(
+        manager._arena.service_areas['WS_1'], area_type='PP')
     manager._place_precision_client = object()
     manager._pp_reference_observations = getattr(manager, "_pp_reference_observations", {})
-    manager._pp_reference_observations[('ws_1', 42)] = TagObservation(
-        'ws_1', 200.0, 325.0, 200, 325.0, _pp_reference_detection(42, 0, -0.22))
+    manager._pp_reference_observations[('WS_1', 42)] = TagObservation(
+        'WS_1', 200.0, 325.0, 200, 325.0, _pp_reference_detection(42, 0, -0.22))
     manager._arena = replace(manager._arena, pickup_recovery=replace(
         manager._arena.pickup_recovery, precision_preferred_tag_x_m=0.03,
         precision_preferred_tag_y_m=-0.25))
@@ -2649,22 +2649,22 @@ def test_precision_search_uses_reference_memory_then_aligns(missing_first):
         assert recoveries[0]['config'].preferred_tag_y_m == pytest.approx(-0.25)
     assert manager._world_state.snapshot()[1] == EMPTY
     assert not manager._stack_is_aligned(42)
-    assert manager._pp_reference_observations[('ws_1', 42)].detection.pose.position.x == pytest.approx(0.03)
+    assert manager._pp_reference_observations[('WS_1', 42)].detection.pose.position.x == pytest.approx(0.03)
 
 
 @pytest.mark.parametrize('complete_move', [True, False])
 def test_precision_returns_from_cube_to_reference_in_one_preferred_move(complete_move):
     from interfaces.action import PlaceOnPrecisionTable
     manager = _stack_search_manager()
-    manager._arena.service_areas['ws_1'] = replace(
-        manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._arena.service_areas['WS_1'] = replace(
+        manager._arena.service_areas['WS_1'], area_type='PP')
     manager._arena = replace(manager._arena, pickup_recovery=replace(
         manager._arena.pickup_recovery, precision_preferred_tag_x_m=0.02,
         precision_preferred_tag_y_m=-0.25))
     manager._current_lateral_position_mm = 325.0  # Cube picked at search point.
     manager._pp_reference_observations = {}
-    manager._pp_reference_observations[('ws_1', 4)] = TagObservation(
-        'ws_1', 200.0, 0.0, 180, -40.0, _pp_reference_detection(4, 0.04, -0.30))
+    manager._pp_reference_observations[('WS_1', 4)] = TagObservation(
+        'WS_1', 200.0, 0.0, 180, -40.0, _pp_reference_detection(4, 0.04, -0.30))
     manager._place_precision_client = object()
     manager._pp_reference_observations = getattr(manager, "_pp_reference_observations", {})
     moves, calls = [], []
@@ -2701,14 +2701,14 @@ def test_precision_returns_from_cube_to_reference_in_one_preferred_move(complete
 def test_pp_place_reuses_alignment_unless_cargo_access_moved_base(cargo_moved_base):
     from interfaces.action import PlaceOnPrecisionTable
     manager = _stack_search_manager()
-    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._arena.service_areas['WS_1'] = replace(manager._arena.service_areas['WS_1'], area_type='PP')
     manager._arena = replace(manager._arena, pickup_recovery=replace(
         manager._arena.pickup_recovery, precision_preferred_tag_x_m=0., precision_preferred_tag_y_m=-.22))
     manager._place_precision_client = object()
-    manager._pp_aligned_reference = ('ws_1', 4, 200., 0.)
+    manager._pp_aligned_reference = ('WS_1', 4, 200., 0.)
     # Fresh detection noise must not cause another alignment after the occupancy snapshot.
-    manager._pp_reference_observations = {('ws_1', 4): TagObservation(
-        'ws_1', 200., 0., 200, 0., _pp_reference_detection(4, .02, -.22))}
+    manager._pp_reference_observations = {('WS_1', 4): TagObservation(
+        'WS_1', 200., 0., 200, 0., _pp_reference_detection(4, .02, -.22))}
     manager._current_lateral_position_mm = 50. if cargo_moved_base else 0.
     moves, alignments = [], []
     def move(wall, lateral, _description):
@@ -2731,10 +2731,10 @@ def test_pp_final_place_searches_even_when_all_object_viewpoints_were_visited():
     from interfaces.action import PlaceOnPrecisionTable
     manager = _stack_search_manager()
     manager._check_canceled = lambda: None
-    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._arena.service_areas['WS_1'] = replace(manager._arena.service_areas['WS_1'], area_type='PP')
     manager._place_precision_client = object()
-    manager._pp_aligned_reference = ('ws_1', 4, 200., 0.)
-    manager._visited_search_positions = {'ws_1': set(manager._arena.pickup_recovery.search_positions_mm)}
+    manager._pp_aligned_reference = ('WS_1', 4, 200., 0.)
+    manager._visited_search_positions = {'WS_1': set(manager._arena.pickup_recovery.search_positions_mm)}
     views = []
     def move(wall, lateral, _description):
         manager._current_wall_distance_mm, manager._current_lateral_position_mm = float(wall), float(lateral)
@@ -2762,8 +2762,8 @@ def test_pp_pick_missing_tag_searches_again_despite_previous_visit_history():
     manager._check_canceled = lambda: None
     manager._pick_client = object()
     manager._world_state.reset()
-    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP')
-    manager._visited_search_positions = {'ws_1': set(manager._arena.pickup_recovery.search_positions_mm)}
+    manager._arena.service_areas['WS_1'] = replace(manager._arena.service_areas['WS_1'], area_type='PP')
+    manager._visited_search_positions = {'WS_1': set(manager._arena.pickup_recovery.search_positions_mm)}
     manager._flexible_pick = True
     manager._last_table_observation = None
     views = []
@@ -2785,9 +2785,9 @@ def test_pp_occupied_final_snapshot_is_recoverable_only_with_known_held_cube(eff
     from interfaces.action import PlaceOnPrecisionTable
     from mission_manager.errors import PrecisionSlotOccupied
     manager = _stack_search_manager()
-    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._arena.service_areas['WS_1'] = replace(manager._arena.service_areas['WS_1'], area_type='PP')
     manager._place_precision_client = object()
-    manager._pp_aligned_reference = ('ws_1', 4, 200., 0.)
+    manager._pp_aligned_reference = ('WS_1', 4, 200., 0.)
     manager._pp_organizing = True
     result = _place_result(PlaceOnPrecisionTable, ManipulationResult.NO_FREE_SPACE,
                            location=ManipulationResult.LOCATION_GRIPPER)
@@ -2809,9 +2809,9 @@ def test_pp_transient_place_failure_retries_with_known_held_cube(code):
     from interfaces.action import PlaceOnPrecisionTable
     manager = _stack_search_manager()
     manager._check_canceled = lambda: None
-    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._arena.service_areas['WS_1'] = replace(manager._arena.service_areas['WS_1'], area_type='PP')
     manager._place_precision_client = object()
-    manager._pp_aligned_reference = ('ws_1', 4, 200., 0.)
+    manager._pp_aligned_reference = ('WS_1', 4, 200., 0.)
     calls = []
     def action(_client, goal, *_args, **_kwargs):
         calls.append(goal.require_alignment)
@@ -2830,9 +2830,9 @@ def test_pp_persistent_place_failure_exhausts_bounded_retries_with_cube_held():
     from interfaces.action import PlaceOnPrecisionTable
     manager = _stack_search_manager()
     manager._check_canceled = lambda: None
-    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._arena.service_areas['WS_1'] = replace(manager._arena.service_areas['WS_1'], area_type='PP')
     manager._place_precision_client = object()
-    manager._pp_aligned_reference = ('ws_1', 4, 200., 0.)
+    manager._pp_aligned_reference = ('WS_1', 4, 200., 0.)
     calls = []
     def action(*_args, **_kwargs):
         calls.append(True)
@@ -2849,7 +2849,7 @@ def test_pp_pick_refresh_recognizes_correct_pair_before_calling_physical_action(
     from mission_manager.errors import PrecisionObjectAlreadyCorrect
     manager = _stack_search_manager()
     manager._world_state.commit_place()
-    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._arena.service_areas['WS_1'] = replace(manager._arena.service_areas['WS_1'], area_type='PP')
     manager._pp_organizing = True
     manager._pp_final_state = {4: 5}
     manager._pp_verified = set()
@@ -2859,7 +2859,7 @@ def test_pp_pick_refresh_recognizes_correct_pair_before_calling_physical_action(
     reference = _pp_reference_detection(4, 0., -.267)
     obj = _detection(5, 0., -.267 + manager._arena.precision_perception.slot_offset_y_m)
     def observe():
-        manager._last_pp_scene = ('ws_1', 200., 0., {4: reference}, {5: obj})
+        manager._last_pp_scene = ('WS_1', 200., 0., {4: reference}, {5: obj})
     manager._observe_visit = observe
     def action(*_args, **_kwargs):
         pytest.fail('An already-correct cube must not invoke a physical pick.')
@@ -2875,13 +2875,13 @@ def test_pp_reach_recovery_rechecks_slot_before_retrying_pick(already_correct):
     from mission_manager.errors import PrecisionObjectAlreadyCorrect
     manager = _stack_search_manager()
     manager._world_state.commit_place()
-    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP')
+    manager._arena.service_areas['WS_1'] = replace(manager._arena.service_areas['WS_1'], area_type='PP')
     manager._pp_organizing = True
     manager._pp_final_state, manager._pp_verified = {2: 2}, set()
     manager._pp_direct_pick_tag = manager._pp_skip_correct_pick_tag = 2
     manager._pick_client = object()
     old = _detection(2, .4, -.179)
-    manager._last_pp_scene = ('ws_1', 200., 0., {}, {2: old})
+    manager._last_pp_scene = ('WS_1', 200., 0., {}, {2: old})
     manager._take_direct_pick_detection = lambda identifier: (
         manager._last_pp_scene[4].get(identifier) if manager._last_pp_scene else None)
     calls, observations = [], []
@@ -2903,7 +2903,7 @@ def test_pp_reach_recovery_rechecks_slot_before_retrying_pick(already_correct):
         observations.append(True)
         reference = _pp_reference_detection(2, -.011, -.240)
         obj = _detection(2, -.008 if already_correct else .15, -.179)
-        manager._last_pp_scene = ('ws_1', 200., 50., {2: reference}, {2: obj})
+        manager._last_pp_scene = ('WS_1', 200., 50., {2: reference}, {2: obj})
     manager._call_manipulation_action, manager._recover_pick = action, recover
     manager._observe_visit = observe
     step = Step('pick_2', 'pick', tag_id=2)
@@ -2931,7 +2931,7 @@ def test_stack_passes_previous_pose_only_for_confirmed_top_at_same_base_position
         result.placed_pose.pose.orientation.w = 1.0
         return result
     manager._call_action = call
-    manager._stack_alignment = ('ws_1', frozenset({4}),
+    manager._stack_alignment = ('WS_1', frozenset({4}),
         manager._current_wall_distance_mm, manager._current_lateral_position_mm)
     manager._execute_manipulation(Step('first', 'stack', support_tag_id=4))
     manager._world_state.commit_pick(11)

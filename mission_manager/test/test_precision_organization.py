@@ -18,7 +18,7 @@ PACKAGE = Path(__file__).parents[1]
 def scheduled_organization(start, final, cargo_slots=('left', 'right')):
     tasks = tuple(replace(t, step_id=f'move_{i}') for i, t in enumerate(
         organize_precision_slots(start, final, cargo_capacity=len(cargo_slots))))
-    visit = Visit('pp', 'pp_1', tasks, tuple(start.items()), tuple(final.items()))
+    visit = Visit('pp', 'PP', tasks, tuple(start.items()), tuple(final.items()))
     scheduler = Scheduler(Plan('pp', (visit,)), cargo_slots)
     state = scheduler.initial_state
     assert scheduler.feasible(state)
@@ -87,7 +87,7 @@ def test_already_organized_board_has_no_manipulations():
 def test_full_swap_requires_two_cargo_slots_to_normalize_each_cube():
     start, final = {21: 1, 22: 2}, {21: 2, 22: 1}
     tasks = organize_precision_slots(start, final)
-    plan = Plan('pp', (Visit('pp', 'pp_1', tasks, tuple(start.items()), tuple(final.items())),))
+    plan = Plan('pp', (Visit('pp', 'PP', tasks, tuple(start.items()), tuple(final.items())),))
     no_cargo = Scheduler(plan, ())
     assert not no_cargo.feasible(no_cargo.initial_state)
     one_cargo = Scheduler(plan, ('left',))
@@ -112,7 +112,7 @@ def test_invalid_board_is_rejected(start, final, message):
         organize_precision_slots(start, final)
 
 
-def write_plan(tmp_path, tasks, target='pp_1'):
+def write_plan(tmp_path, tasks, target='PP'):
     path = tmp_path / 'plan.yaml'
     path.write_text(yaml.safe_dump({'schema_version': 2, 'plan_id': 'pp',
                                    'visits': [{'target': target, 'tasks': tasks}]}))
@@ -130,7 +130,7 @@ def test_load_organization_with_requested_yaml_shape_and_validate_area(tmp_path)
     assert dict(visit.pp_final_state) == tasks[1]['final_state']
     assert len({t.step_id for t in visit.tasks}) == len(visit.tasks)
     assert plan.total_steps == 1 + len(visit.tasks)
-    wrong_area = load_plan(write_plan(tmp_path, tasks, target='ws_1'))
+    wrong_area = load_plan(write_plan(tmp_path, tasks, target='WS_1'))
     with pytest.raises(ConfigurationError, match='área PP'):
         validate_plan(wrong_area, arena)
 

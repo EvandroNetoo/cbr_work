@@ -16,8 +16,11 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>manipulation</exec_depend>
   <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
   <exec_depend>std_srvs</exec_depend>
   <exec_depend>vl53_distance</exec_depend>
 

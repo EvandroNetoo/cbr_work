@@ -182,7 +182,7 @@ def test_motion_pair_uses_independent_boundary_and_table_config(mode, boundary_e
     from test_executor_helpers import _arena
     manager, prepare, wall = manager_and_clients()
     manager._arena = replace(_arena(), async_motion_defaults=AsyncMotionConfig(mode, boundary_enabled))
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     concurrent = boundary_enabled if boundary else mode == 'always'
     with ThreadPoolExecutor(max_workers=1) as executor:
         run = executor.submit(manager._run_area_motion, manager._prepare_for_pick_observation,

@@ -19,7 +19,7 @@ from mission_manager.world_state import WorldState
 
 def write_plan(tmp_path, task):
     raw = {'schema_version': 2, 'plan_id': 'colors', 'visits': [
-        {'target': 'ws_1', 'tasks': [task]}]}
+        {'target': 'WS_1', 'tasks': [task]}]}
     path = tmp_path / 'plan.yaml'
     path.write_text(yaml.safe_dump(raw))
     return load_plan(path)
@@ -50,10 +50,10 @@ def route(split=False):
                 possible_tag_ids=(1, 2), tag_color='blue')
     red = Step('red', 'place_on_table' if split else 'place_in_container',
                container_color=None if split else 'red', possible_tag_ids=(1, 2), tag_color='red')
-    visits = [Visit('source', 'ws_1', (Step('pick', 'pick', tag_ids=(1, 2)),)),
-              Visit('blue_destination', 'ws_2', (blue,) if split else (blue, red))]
+    visits = [Visit('source', 'WS_1', (Step('pick', 'pick', tag_ids=(1, 2)),)),
+              Visit('blue_destination', 'WS_2', (blue,) if split else (blue, red))]
     if split:
-        visits.append(Visit('red_destination', 'ws_3', (red,)))
+        visits.append(Visit('red_destination', 'WS_3', (red,)))
     return Plan('colors', tuple(visits))
 
 
@@ -273,8 +273,8 @@ def test_executor_uses_remembered_colors_for_real_action_goals(split, colors):
 def test_example_color_routes_are_feasible_with_configured_service_areas():
     package = Path(__file__).parents[1]
     arena = load_arena(package / 'config/arena.yaml')
-    # The deployed arena names this area ws_67; use its geometry only in this test.
-    arena.service_areas['ws_6'] = replace(arena.service_areas['ws_67'], area_id='ws_6')
+    # The deployed arena names this area WS_67; use its geometry only in this test.
+    arena.service_areas['WS_6'] = replace(arena.service_areas['WS_67'], area_id='WS_6')
     for name in ('advanced_transportation_test_i', 'advanced_transportation_two_containers'):
         plan = load_plan(package / f'config/plans/{name}.yaml')
         validate_plan(plan, arena)

@@ -87,11 +87,11 @@ def test_equal_ids_in_separate_slots_can_be_placed_in_either_order(first_slot):
 
 def test_duplicate_tag_colors_follow_their_own_slots():
     state = WorldState(['left', 'right'])
-    state.remember_tag_color(3, 'red', 'ws_1')
-    state.commit_pick(3, 'ws_1')
+    state.remember_tag_color(3, 'red', 'WS_1')
+    state.commit_pick(3, 'WS_1')
     state.commit_store(3, 'left')
-    state.remember_tag_color(3, 'blue', 'ws_2')
-    state.commit_pick(3, 'ws_2')
+    state.remember_tag_color(3, 'blue', 'WS_2')
+    state.commit_pick(3, 'WS_2')
     assert state.gripper_color() == 'blue'
     state.commit_store(3, 'right')
     for slot, color in [('left', 'red'), ('right', 'blue')]:
@@ -99,7 +99,7 @@ def test_duplicate_tag_colors_follow_their_own_slots():
         assert state.gripper_color() == color
         state.commit_place()
         assert state.gripper_color() is None
-    assert state.object_colors() == {('ws_1', 3): 'red', ('ws_2', 3): 'blue'}
+    assert state.object_colors() == {('WS_1', 3): 'red', ('WS_2', 3): 'blue'}
     state.reset()
     assert state.object_colors() == {}
 

@@ -46,7 +46,7 @@ async_motion_defaults:
   approach_departure_enabled: true
 
 service_areas:
-  pp_67:
+  PP_67:
     # Acrescentar à configuração existente desta área:
     async_motion:
       table_mode: always
@@ -96,23 +96,23 @@ schema_version: 2
 plan_id: coleta_flexivel
 finish: true
 visits:
-  - target: ws_1
+  - target: WS_1
     tasks:
       - {action: pick, tag_ids: [1, 2, 3]}
-  - target: ws_2
+  - target: WS_2
     tasks:
       - {action: place_on_table, tag_ids: [1]}
       - {action: place_in_container, tag_ids: [2], container_color: red}
       - {action: pick, tag_ids: [4]}
-  - target: ws_3
+  - target: WS_3
     tasks:
       - {action: place_on_table, tag_ids: [3, 4]}
 ```
 
 IDs de visitas e tarefas são gerados automaticamente; não é necessário informar
-`id`. A visita usa o local (`visit_ws_1`); a tarefa acrescenta ação e parâmetros
-(`visit_ws_1_pick_1`, `visit_ws_2_place_in_container_2_red`,
-`visit_ws_4_stack_4_5_on_14`). Visitas repetidas e colisões recebem sufixos
+`id`. A visita usa o local (`visit_WS_1`); a tarefa acrescenta ação e parâmetros
+(`visit_WS_1_pick_1`, `visit_WS_2_place_in_container_2_red`,
+`visit_WS_4_stack_4_5_on_14`). Visitas repetidas e colisões recebem sufixos
 `_2`, `_3` etc. Os IDs aparecem no feedback e identificam falhas. IDs explícitos
 continuam aceitos e precisam ser únicos. `plan_id` continua obrigatório para
 selecionar a missão pela action ROS. `tasks: []` é
@@ -172,12 +172,12 @@ um limite superior, pois candidatos de outra cor não geram manipulação.
  As entregas disponíveis são
 `place_on_table`, `place_in_container` (`container_color: red|blue`),
 `place_on_shelf` e `stack`. Empilhamentos (`stack`) exigem uma área de tipo
-`ST` (stacking), como `st_1` em `arena.yaml`. A ST usa a altura, o alinhamento,
+`ST` (stacking), como `ST` em `arena.yaml`. A ST usa a altura, o alinhamento,
 o recuo e a recuperação configurados para a área. Uma pilha sem ordem fixa
 é declarada em uma visita a essa área assim:
 
 ```yaml
-- target: st_1
+- target: ST
   tasks:
     - action: stack
       support_tag_id: 14
@@ -238,7 +238,7 @@ Planos v1 são rejeitados com orientação de migração. Os exemplos válidos f
 migrados pelos passos ativos, preservando visitas repetidas, tags e destinos.
 Exemplos inconsistentes não são instalados como planos executáveis. O advanced tem uma versão
 v2 executável em `config/plans/advanced_transportation_test_i.yaml`, com a pilha
-de 4 e 5 sobre 14 na ws_5 e a entrega de 3 na ws_1. `simples` não está entre
+de 4 e 5 sobre 14 na WS_5 e a entrega de 3 na WS_1. `simples` não está entre
 os planos instalados porque não declarava a origem da carga.
 
 ## Navegação
@@ -306,8 +306,8 @@ com o `height_cm` da área de coleta. O depósito alto usa explicitamente
 abre a garra e retorna diretamente a `detect_apriltags`. O tipo `SH` não troca a ação do plano
 automaticamente, e `height_cm` não define a altura desse depósito.
 
-O plano `example_shelf` demonstra coleta e depósito na `sh_1`. Os valores de
-`sh_1` em `config/arena.yaml` e as juntas de `place_on_shelf_high` no arquivo
+O plano `example_shelf` demonstra coleta e depósito na `SH_1`. Os valores de
+`SH_1` em `config/arena.yaml` e as juntas de `place_on_shelf_high` no arquivo
 `so_arm_101_moveit_config/config/so_arm_101.srdf` são **fictícios** e devem ser
 substituídos pela calibração antes de executar no robô. O perfil `shelf` de
 `manipulation/config/profiles.yaml` já aponta para essa pose e está habilitado.
@@ -489,6 +489,113 @@ interrompendo a missão por segurança.
 
 ## Execução
 
+### Gerar um plano a partir do Commander
+
+As áreas usam os IDs do YAML de equipe: `SH_1`, `WS_1` a `WS_5`, `PP` e
+`ST`. As áreas adicionais são `PP_67` e `WS_67`. Poses e calibrações são
+mantidas; atualize também arquivos externos que ainda usem os nomes antigos.
+
+Compile e carregue o workspace:
+
+```bash
+colcon build --packages-select mission_manager --symlink-install
+source install/setup.bash
+```
+
+Com localização, map server e Nav2 ativos, gere a missão a partir do arquivo
+`*_equipe.yaml` exportado pelo `~/projects/atwork_commander`:
+
+```bash
+ros2 run mission_manager generate_plan \
+  --task ~/Downloads/ATT2_seed42_equipe.yaml \
+  --objective visits_then_distance \
+  --output src/cbr_work/mission_manager/config/plans/att2_otimizado.yaml
+```
+
+`--arena` usa o `config/arena.yaml` instalado do `mission_manager`. `--map`
+usa o `maps/arena.yaml` instalado do `bringup`. Para outra configuração:
+
+```bash
+ros2 run mission_manager generate_plan \
+  --task ~/Downloads/FINAL_seed42_equipe.yaml \
+  --arena src/cbr_work/mission_manager/config/arena.yaml \
+  --map src/cbr_work/bringup/maps/arena2.yaml \
+  --objective distance \
+  --output /tmp/final_otimizado.yaml
+```
+
+O mapa informado precisa ser o mesmo já carregado no map server. O CLI compara
+o mapa local (geometria e células da imagem) com a resposta ROS de
+`/map_server/map` (`nav_msgs/srv/GetMap`); não carrega nem troca o mapa do Nav2.
+O CLI pode rodar no PC com o Nav2 no Raspberry: apenas o YAML e a imagem locais
+precisam existir no PC, sem acesso ao caminho de arquivos do Raspberry. As duas
+máquinas precisam compartilhar o grafo ROS 2, com descoberta DDS e serviços/actions
+acessíveis pela rede. O cache e o plano de saída ficam no PC. A geração
+solicita apenas planejamento (`ComputePathToPose`, com `use_start: true`), sem
+enviar comandos de navegação ou manipulação ao robô.
+
+Objetivos:
+
+| `--objective` | Critério |
+| --- | --- |
+| `visits` | Menos visitas; distância desempata. |
+| `distance` | Menor comprimento total dos caminhos Nav2; visitas desempatam. |
+| `visits_then_distance` (padrão) | Mesmo critério de `visits`, com prioridade explícita. |
+
+O cabeçalho de comentários mostra os objetos iniciais e finais de cada área
+ativa, conforme o arquivo de equipe do Commander, incluindo áreas vazias e
+objetos que permanecem no lugar. As cores dos contêineres também aparecem
+quando declaradas nesses estados.
+
+Todos os planos começam em `start` e têm `finish: true`. O trajeto de `start`
+à primeira área e da última área a `finish` participa do custo. O resumo
+separa visitas de trabalho e a navegação final. A distância soma os segmentos
+XY dos caminhos retornados pelo Nav2; não inclui busca lateral, recuo,
+alinhamento ou movimentos do braço. Ela depende do planner e do costmap atuais,
+e não garante que a distância real durante a execução será igual.
+
+A busca considera garra, compartimentos, coleta antes da entrega, dependências
+da pilha e o ciclo store/retrieve obrigatório para PP. O padrão é
+`--cargo-slots left right`, igual ao executor. A busca é exata para esse modelo;
+se atingir `--time-limit` (60 s, somente a busca) ou `--max-states` (500000),
+encerra com erro e não publica um plano parcial. Os caminhos são calculados
+antes de iniciar esse limite. A saída é validada pelo loader e pelo escalonador
+do executor antes de ser publicada. Use `--force` para substituir uma saída.
+O `plan_id` é o nome do YAML sem extensão.
+
+As distâncias são calculadas por par **direcionado**, incluindo as orientações
+das poses, e persistidas após cada cálculo bem-sucedido em
+`~/.cache/mission_manager/nav2_distances.json` (respeita `XDG_CACHE_HOME`).
+Use `--cache /outro/caminho.json` para escolher outro arquivo. O cache identifica
+o mapa e sua imagem, frame, costmap, parâmetros do planner/costmap e plugin
+selecionado. Alterar esses dados ou uma pose exige novo cálculo. O Nav2 precisa
+estar ativo mesmo quando os pares estão no cache, para conferir esse contexto.
+O costmap deve permanecer estável durante a geração; se mudar, repita o comando.
+Pares inacessíveis são excluídos da busca e não são gravados no cache; falhas de
+comunicação e timeouts encerram a geração.
+
+Conversão das provas:
+
+- BMT mantém no lugar os objetos cujo destino não mudou.
+- Coleta e entrega na mesma SH representam transporte do nível inferior ao superior.
+- Containers são identificados pelas cores declaradas. Quando as duas cores
+  dividem uma mesa de destino, as entregas usam `possible_tag_ids` e `tag_color`.
+- Entregas PP usam a referência de mesmo ID do cubo. Para outra mesa, informe
+  `--pp-reference 9=25 --pp-reference 5=26`, por exemplo.
+- AMT gera uma organização PP com `final_state`, descobrindo a ocupação na
+  execução porque o arquivo de equipe omite cavidades vazias. Exige os dois
+  compartimentos disponíveis para organização descoberta.
+- Em ST, a ordem de `finish_state.obj_ids` do Commander é interpretada de baixo
+  para cima: primeiro depósito em mesa, depois `stack` sobre o cubo anterior.
+  Não é criado um ID de suporte externo que não conste da missão.
+
+`--planner-id`, `--path-action`, `--map-server`, `--planner-server`,
+`--costmap-node`, `--costmap-service` e `--timeout` permitem usar outro grafo
+Nav2. Veja todas as opções com `ros2 run mission_manager generate_plan --help`.
+
+Para executar, coloque o arquivo no `plans_directory` usado pelo nó, recompile
+se necessário para instalar o novo YAML, e envie seu `plan_id` à action.
+
 ```bash
 ros2 launch mission_manager mission_manager.launch.py
 ```
@@ -572,16 +679,16 @@ do objeto transportado (`tag_id`) da tag fixa da mesa (`reference_tag_id`):
 schema_version: 2
 plan_id: precision_delivery
 visits:
-  - target: ws_1
+  - target: WS_1
     tasks:
       - {action: pick, tag_ids: [5]}
-  - target: pp_1
+  - target: PP
     tasks:
       - {action: place_on_precision_table, tag_ids: [5], reference_tag_id: 42}
 finish: true
 ```
 
-`pp_1` deve existir na arena como área PP. A tag 42 é uma referência da mesa e
+`PP` deve existir na arena como área PP. A tag 42 é uma referência da mesa e
 não entra no inventário de carga. As observações de AprilTags encontradas na
 mesa são armazenadas pela mesma lógica usada nas coletas e no stack. Para a
 entrega, o gerenciador calcula o destino a partir da pose memorizada e dos
@@ -609,7 +716,7 @@ schema_version: 2
 plan_id: cubos_1_2_3
 finish: false
 visits:
-- target: pp_1
+- target: PP
   tasks:
   - final_state: {1: 1, 2: 2, 3: 3, 5: 4, 6: 5, 4: 6}
 ```

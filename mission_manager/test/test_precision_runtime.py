@@ -40,14 +40,14 @@ def test_ambiguous_occupancy_and_invalid_frame_stop():
 
 def test_final_only_loader_and_pp_validation(tmp_path):
     path = tmp_path / 'plan.yaml'
-    path.write_text('schema_version: 2\nplan_id: test\nvisits:\n- target: pp_1\n  tasks:\n  - final_state: {1: 1, 2: 2, 3: 3, 5: 4, 6: 5, 4: 6}\n')
+    path.write_text('schema_version: 2\nplan_id: test\nvisits:\n- target: PP\n  tasks:\n  - final_state: {1: 1, 2: 2, 3: 3, 5: 4, 6: 5, 4: 6}\n')
     plan = load_plan(path)
     assert plan.visits[0].pp_start_state is None
     assert dict(plan.visits[0].pp_final_state)[1] == 1
     validate_plan(plan, load_arena(Path(__file__).parents[1] / 'config/arena.yaml'))
     with pytest.raises(ConfigurationError, match='dois compartimentos'):
         load_plan(path, cargo_capacity=1)
-    path.write_text(path.read_text().replace('pp_1', 'ws_1'))
+    path.write_text(path.read_text().replace('PP', 'WS_1'))
     with pytest.raises(ConfigurationError, match='exige área PP'):
         validate_plan(load_plan(path), load_arena(Path(__file__).parents[1] / 'config/arena.yaml'))
 
@@ -60,7 +60,7 @@ class Robot(PrecisionRuntime):
         self.events = []
         self._completed_steps = 0
         self._delivery_outcomes = []
-        self._current_location = 'pp_1'
+        self._current_location = 'PP'
         self._current_wall_distance_mm = 200
         self._current_lateral_position_mm = 0
         self._tag_observations = {}
@@ -69,20 +69,20 @@ class Robot(PrecisionRuntime):
         self._arena = NS(precision_perception=config,
                          pickup_recovery=NS(search_positions_mm=(0, 100), safety_search_positions_mm=(),
                                             safety_search_distance_mm=100, wall_tolerance_mm=5, travel_tolerance_mm=5),
-                         service_areas={'pp_1': NS(area_type='PP', alignment=NS(distance_mm=200))})
+                         service_areas={'PP': NS(area_type='PP', alignment=NS(distance_mm=200))})
         self._world_state = NS(snapshot=lambda: (True, self.held, dict(self.cargo)))
     def _check_canceled(self): pass
     def _report_scheduled_operation(self, *args): pass
     def _precision_memory_destination(self, memory): return 200, 0
     def _move_to_table_position(self, *args): pass
-    def _position_from_memory(self, tag_id): return self._tag_observations.get(('pp_1', tag_id))
+    def _position_from_memory(self, tag_id): return self._tag_observations.get(('PP', tag_id))
     def _observe_visit(self):
         refs = {slot: tag(slot, slot * .1, .02) for slot in self.board}
         objects = {cube: tag(cube, slot * .1, .065) for slot, cube in self.board.items() if cube is not None}
-        self._last_pp_scene = ('pp_1', 200, 0, refs, objects)
-        self._tag_observations = {('pp_1', cube): TagObservation('pp_1', 200, 0, 200, 0, detection)
+        self._last_pp_scene = ('PP', 200, 0, refs, objects)
+        self._tag_observations = {('PP', cube): TagObservation('PP', 200, 0, 200, 0, detection)
                                   for cube, detection in objects.items()}
-        self._pp_reference_observations = {('pp_1', slot): TagObservation('pp_1', 200, 0, 200, 0, detection)
+        self._pp_reference_observations = {('PP', slot): TagObservation('PP', 200, 0, 200, 0, detection)
                                            for slot, detection in refs.items()}
     def _execute_step(self, step, slot_movement=None):
         self.events.append((step.action, step.tag_id, step.reference_tag_id, step.slot_id))
@@ -104,7 +104,7 @@ class Robot(PrecisionRuntime):
 
 def run(board, final):
     robot = Robot(board)
-    visit = Visit('pp', 'pp_1', (), None, tuple(final.items()))
+    visit = Visit('pp', 'PP', (), None, tuple(final.items()))
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert all(robot.board[slot] == cube for slot, cube in final.items())
     assert robot.held == EMPTY and all(cube == EMPTY for cube in robot.cargo.values())
@@ -139,7 +139,7 @@ def test_null_target_moves_surplus_to_unspecified_cavity():
 
 def test_absent_required_cube_stops_without_releasing():
     robot = Robot({1: None, 2: None, 3: None, 4: None, 5: None, 6: None, 7: None})
-    visit = Visit('pp', 'pp_1', (), None, ((1, 1),))
+    visit = Visit('pp', 'PP', (), None, ((1, 1),))
     with pytest.raises(StepFailed, match='objeto 1 não encontrado'):
         robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert not robot.events
@@ -148,7 +148,7 @@ def test_absent_required_cube_stops_without_releasing():
 def test_all_references_prescribed_with_null_keeps_extra_cube_on_robot():
     robot = Robot({1: 7, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6})
     final = {i: i for i in range(1, 7)} | {7: None}
-    visit = Visit('pp', 'pp_1', (), None, tuple(final.items()))
+    visit = Visit('pp', 'PP', (), None, tuple(final.items()))
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert robot.board == final
     assert robot.held == EMPTY
@@ -164,7 +164,7 @@ def test_permutations_with_full_board_and_with_one_unknown_surplus():
 
 def test_missing_reference_is_unknown_even_with_object_seen():
     robot = Robot({1: 2, 2: None, 3: None, 4: None, 5: None, 6: None, 7: None})
-    visit = Visit('pp', 'pp_1', (), None, ((8, 2),))
+    visit = Visit('pp', 'PP', (), None, ((8, 2),))
     with pytest.raises(StepFailed, match='referência 8 não encontrado'):
         robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert [event[0] for event in robot.events] == ['pick', 'store']
@@ -173,7 +173,7 @@ def test_missing_reference_is_unknown_even_with_object_seen():
 
 def test_capacity_exhaustion_never_picks_another_cube():
     robot = Robot({i: i for i in range(1, 8)})
-    visit = Visit('pp', 'pp_1', (), None, tuple((i, None) for i in range(1, 8)))
+    visit = Visit('pp', 'PP', (), None, tuple((i, None) for i in range(1, 8)))
     with pytest.raises(StepFailed, match='compartimento livre'):
         robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert sum(event[0] == 'pick' for event in robot.events) == 2
@@ -184,7 +184,7 @@ def test_scheduler_keeps_unknown_surplus_in_cargo_during_later_work():
     from dataclasses import replace
     from mission_manager.models import Step
     from mission_manager.scheduler import Scheduler
-    plan = Plan('test', (Visit('ws', 'ws_1', (Step('p', 'pick', tag_id=1),
+    plan = Plan('test', (Visit('ws', 'WS_1', (Step('p', 'pick', tag_id=1),
                                                   Step('d', 'place_on_table', tag_id=1))),))
     scheduler = Scheduler(plan, ('left', 'right'))
     state = replace(scheduler.initial_state, slots=(7, EMPTY))
@@ -205,14 +205,14 @@ def test_cube_is_stored_before_discovering_its_reference_without_release_confirm
         observe()
         if len(timeline) == 1:
             robot._last_pp_scene[3].pop(2)
-            robot._pp_reference_observations.pop(('pp_1', 2))
+            robot._pp_reference_observations.pop(('PP', 2))
     robot._observe_visit = scene
     execute = robot._execute_step
     def step(value, slot_movement=None):
         timeline.append(value.action)
         execute(value, slot_movement=slot_movement)
     robot._execute_step = step
-    visit = Visit('pp', 'pp_1', (), None, ((2, 2),))
+    visit = Visit('pp', 'PP', (), None, ((2, 2),))
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert timeline == ['observe', 'pick', 'store', 'observe', 'retrieve', 'place_on_precision_table']
     assert robot.board[2] == 2
@@ -229,7 +229,7 @@ def test_occupied_destination_has_no_extra_analysis_between_pick_and_retrieve():
         timeline.append((value.action, value.tag_id))
         execute(value)
     robot._observe_visit, robot._execute_step = scene, step
-    visit = Visit('pp', 'pp_1', (), None, ((1, 1), (2, 2)))
+    visit = Visit('pp', 'PP', (), None, ((1, 1), (2, 2)))
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     chosen = timeline[1][1]
     occupant = 3 - chosen
@@ -271,7 +271,7 @@ def test_reference_lost_after_each_alignment_exhausts_search_once():
     def scene():
         observe()
         # Visible at search lateral 100, never visible at the preferred destination 0.
-        robot._last_pp_scene = ('pp_1', robot._current_wall_distance_mm,
+        robot._last_pp_scene = ('PP', robot._current_wall_distance_mm,
                                 robot._current_lateral_position_mm, *robot._last_pp_scene[3:])
         if robot._current_lateral_position_mm == 0:
             robot._last_pp_scene[3].pop(3)
@@ -287,7 +287,7 @@ def test_missing_occupant_detection_falls_back_to_object_search():
     robot._observe_visit()
     robot._last_pp_scene[4].pop(2)
     robot._pp_owned_slots = set()
-    assert robot._pp_pick_store(None, None, Visit('pp', 'pp_1', ()), 2, observed=True) == 'left'
+    assert robot._pp_pick_store(None, None, Visit('pp', 'PP', ()), 2, observed=True) == 'left'
     assert robot.cargo['left'] == 2 and robot.held == EMPTY
 
 
@@ -321,7 +321,7 @@ def test_final_occupancy_change_replans_without_losing_cargo(full_cargo, needs_b
             raise PrecisionSlotOccupied('Cavidade PP ocupada; depósito recusado.')
         execute(value)
     robot._execute_step = step
-    visit = Visit('pp', 'pp_1', (), None, tuple(final.items()))
+    visit = Visit('pp', 'PP', (), None, tuple(final.items()))
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert refused and all(robot.board[slot] == cube for slot, cube in final.items())
     assert robot.held == EMPTY and all(cube == EMPTY for cube in robot.cargo.values())
@@ -346,7 +346,7 @@ def test_changed_final_scene_reopens_a_previously_correct_slot():
             raise PrecisionSlotOccupied('Novo ocupante na análise final.')
         execute(value)
     robot._execute_step = step
-    visit = Visit('pp', 'pp_1', (), None, ((1, 1), (2, 2), (3, 3)))
+    visit = Visit('pp', 'PP', (), None, ((1, 1), (2, 2), (3, 3)))
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert [robot.board[i] for i in (1, 2, 3)] == [1, 2, 3]
     assert robot.held == EMPTY and all(cube == EMPTY for cube in robot.cargo.values())
@@ -369,8 +369,8 @@ def test_unknown_reference_skips_prior_negative_views_after_pickup(needs_retry):
         visible = recovering and (lateral == 325 if needs_retry else lateral == -325)
         if not visible:
             robot._last_pp_scene[3].pop(7)
-            robot._pp_reference_observations.pop(('pp_1', 7), None)
-        robot._last_pp_scene = ('pp_1', robot._current_wall_distance_mm, lateral,
+            robot._pp_reference_observations.pop(('PP', 7), None)
+        robot._last_pp_scene = ('PP', robot._current_wall_distance_mm, lateral,
                                 *robot._last_pp_scene[3:])
         robot._pp_record_reference_view(robot._last_pp_scene[3])
     robot._arena.pickup_recovery.search_positions_mm = (0, 325, -325)
@@ -380,8 +380,8 @@ def test_unknown_reference_skips_prior_negative_views_after_pickup(needs_retry):
     move(200, 325)
     scene()
     # Same ID object was observed, but fixed reference 7 was absent.
-    assert ('pp_1', 7) in robot._tag_observations
-    assert ('pp_1', 7) not in robot._pp_reference_observations
+    assert ('PP', 7) in robot._tag_observations
+    assert ('PP', 7) not in robot._pp_reference_observations
     robot._last_pp_scene = None  # Pick/store invalidates occupancy, not reference-search history.
     scenes.clear()
     moves.clear()
@@ -419,15 +419,15 @@ def test_correct_board_seen_across_three_viewpoints_never_manipulates():
         refs = {slot: tag(slot, slot * .1, .02) for slot in visible}
         objects = {cube: tag(cube, slot * .1, .065) for slot, cube in robot.board.items()
                    if slot in visible and cube is not None}
-        robot._last_pp_scene = ('pp_1', 200, lateral, refs, objects)
+        robot._last_pp_scene = ('PP', 200, lateral, refs, objects)
         for slot, detection in refs.items():
-            robot._pp_reference_observations[('pp_1', slot)] = TagObservation(
-                'pp_1', 200, lateral, 200, lateral, detection)
+            robot._pp_reference_observations[('PP', slot)] = TagObservation(
+                'PP', 200, lateral, 200, lateral, detection)
         for cube, detection in objects.items():
-            robot._tag_observations[('pp_1', cube)] = TagObservation(
-                'pp_1', 200, lateral, 200, lateral, detection)
+            robot._tag_observations[('PP', cube)] = TagObservation(
+                'PP', 200, lateral, 200, lateral, detection)
     robot._observe_visit, robot._move_to_table_position = scene, move
-    visit = Visit('pp', 'pp_1', (), None, tuple((i, i) for i in range(1, 7)))
+    visit = Visit('pp', 'PP', (), None, tuple((i, i) for i in range(1, 7)))
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert scenes == [0, 325, -325]
     assert robot.events == []
@@ -444,7 +444,7 @@ def test_pending_pick_is_reconsidered_if_its_own_refresh_finds_correct_pair():
         scenes += 1
         observe()
         robot._last_pp_scene[3].pop(1)  # Unknown reference permits selection before pickup.
-        robot._pp_reference_observations.pop(('pp_1', 1), None)
+        robot._pp_reference_observations.pop(('PP', 1), None)
     def step(value):
         if value.action == 'pick':
             # A late refresh (e.g. the direct pose disappeared) finds both tags.
@@ -452,7 +452,7 @@ def test_pending_pick_is_reconsidered_if_its_own_refresh_finds_correct_pair():
             robot._pp_skip_confirmed_pick(value.tag_id)
         execute(value)
     robot._observe_visit, robot._execute_step = scene, step
-    visit = Visit('pp', 'pp_1', (), None, ((1, 1),))
+    visit = Visit('pp', 'PP', (), None, ((1, 1),))
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert scenes == 1
     assert robot.events == [] and robot.board[1] == 1
@@ -466,9 +466,9 @@ def test_unseen_destination_reference_does_not_prevent_wrong_cube_pick():
         observe()
         if not robot.events:
             robot._last_pp_scene[3].pop(2)
-            robot._pp_reference_observations.pop(('pp_1', 2), None)
+            robot._pp_reference_observations.pop(('PP', 2), None)
     robot._observe_visit = scene
-    visit = Visit('pp', 'pp_1', (), None, ((2, 2),))
+    visit = Visit('pp', 'PP', (), None, ((2, 2),))
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert [event[0] for event in robot.events] == ['pick', 'store', 'retrieve', 'place_on_precision_table']
     assert robot.board[2] == 2
@@ -489,13 +489,13 @@ def test_selection_finds_other_wrong_cube_without_searching_for_object_one():
         refs = {slot: tag(slot, slot * .1, .02) for slot in visible}
         objects = {cube: tag(cube, slot * .1, .065) for slot, cube in robot.board.items()
                    if slot in visible and cube is not None}
-        robot._last_pp_scene = ('pp_1', 200, lateral, refs, objects)
+        robot._last_pp_scene = ('PP', 200, lateral, refs, objects)
         for slot, detection in refs.items():
-            robot._pp_reference_observations[('pp_1', slot)] = TagObservation(
-                'pp_1', 200, lateral, 200, lateral, detection)
+            robot._pp_reference_observations[('PP', slot)] = TagObservation(
+                'PP', 200, lateral, 200, lateral, detection)
         for cube, detection in objects.items():
-            robot._tag_observations[('pp_1', cube)] = TagObservation(
-                'pp_1', 200, lateral, 200, lateral, detection)
+            robot._tag_observations[('PP', cube)] = TagObservation(
+                'PP', 200, lateral, 200, lateral, detection)
     robot._observe_visit, robot._move_to_table_position = scene, move
     robot._pp_organizing = True
     final = {i: i for i in range(1, 7)}
@@ -513,8 +513,8 @@ def test_select_work_prioritizes_visible_wrong_cube_over_distant_memory():
     robot = Robot({1: 2, 2: 1, 3: 4, 4: 3, 5: None, 6: None, 7: None})
     robot._observe_visit()
     # Object 1 is cached from a distant pickup position, but not visible here.
-    detection = robot._tag_observations[('pp_1', 1)].detection
-    robot._tag_observations[('pp_1', 1)] = TagObservation('pp_1', 200, -325, 200, -325, detection)
+    detection = robot._tag_observations[('PP', 1)].detection
+    robot._tag_observations[('PP', 1)] = TagObservation('PP', 200, -325, 200, -325, detection)
     robot._last_pp_scene[4].pop(1)
     robot._last_pp_scene[4].pop(2)
     final = {i: i for i in range(1, 5)}
@@ -543,17 +543,17 @@ def test_after_moving_six_keeps_scan_history_and_goes_directly_to_unseen_side():
         refs = {slot: tag(slot, slot * .1, .02) for slot in visible}
         objects = {cube: tag(cube, slot * .1, .065) for slot, cube in robot.board.items()
                    if slot in visible and cube is not None}
-        robot._last_pp_scene = ('pp_1', wall, lateral, refs, objects)
+        robot._last_pp_scene = ('PP', wall, lateral, refs, objects)
         robot._pp_record_reference_view(refs)
         for slot, detection in refs.items():
-            robot._pp_reference_observations[('pp_1', slot)] = TagObservation(
-                'pp_1', wall, lateral, int(wall), lateral, detection)
+            robot._pp_reference_observations[('PP', slot)] = TagObservation(
+                'PP', wall, lateral, int(wall), lateral, detection)
         for cube, detection in objects.items():
-            robot._tag_observations[('pp_1', cube)] = TagObservation(
-                'pp_1', wall, lateral, int(wall), lateral, detection)
+            robot._tag_observations[('PP', cube)] = TagObservation(
+                'PP', wall, lateral, int(wall), lateral, detection)
     robot._observe_visit, robot._move_to_table_position = scene, move
     robot._precision_memory_destination = lambda _memory: (190, 310)
-    visit = Visit('pp', 'pp_1', (), None, tuple((i, i) for i in range(1, 7)))
+    visit = Visit('pp', 'PP', (), None, tuple((i, i) for i in range(1, 7)))
     robot._run_precision_organization(None, Plan('test', (visit,)), visit)
     assert scenes == [0, 325, 310, -325]
     assert moves == [325, 310, -325]
@@ -562,7 +562,7 @@ def test_after_moving_six_keeps_scan_history_and_goes_directly_to_unseen_side():
     assert robot.board == {**{i: i for i in range(1, 7)}, 7: None}
     assert robot._pp_expected_occupancy[6] == 6
     assert robot._pp_expected_occupancy[7] is None
-    assert ('pp_1', 6) not in robot._tag_observations
+    assert ('PP', 6) not in robot._tag_observations
     assert {0, 325, 310, -325} <= {view[2] for view in robot._pp_selection_views}
 
 
@@ -571,7 +571,7 @@ def test_selection_revisits_old_scan_only_after_unseen_viewpoints_fail():
     robot._arena.pickup_recovery.search_positions_mm = (0, 325, -325)
     robot._pp_organizing = True
     robot._pp_final_state, robot._pp_verified = {1: 1}, set()
-    robot._pp_selection_views = {('pp_1', 200, 0, False), ('pp_1', 200, 325, False)}
+    robot._pp_selection_views = {('PP', 200, 0, False), ('PP', 200, 325, False)}
     robot._current_lateral_position_mm = 310
     robot._last_pp_scene = None
     robot._tag_observations = {}
@@ -584,11 +584,11 @@ def test_selection_revisits_old_scan_only_after_unseen_viewpoints_fail():
         lateral = robot._current_lateral_position_mm
         scenes.append(lateral)
         refs, objects = ({1: tag(1, .1, .02)}, {1: tag(1, .1, .065)}) if lateral == 0 else ({}, {})
-        robot._last_pp_scene = ('pp_1', 200, lateral, refs, objects)
+        robot._last_pp_scene = ('PP', 200, lateral, refs, objects)
         for cube, detection in objects.items():
-            robot._tag_observations[('pp_1', cube)] = TagObservation('pp_1', 200, lateral, 200, lateral, detection)
+            robot._tag_observations[('PP', cube)] = TagObservation('PP', 200, lateral, 200, lateral, detection)
         for ref, detection in refs.items():
-            robot._pp_reference_observations[('pp_1', ref)] = TagObservation('pp_1', 200, lateral, 200, lateral, detection)
+            robot._pp_reference_observations[('PP', ref)] = TagObservation('PP', 200, lateral, 200, lateral, detection)
     robot._move_to_table_position, robot._observe_visit = move, scene
     assert robot._pp_select_work({1: 1}, {1: 1}, robot._pp_verified) is None
     assert scenes == [-325, 0]

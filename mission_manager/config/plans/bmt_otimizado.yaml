@@ -1,0 +1,11 @@
+schema_version: 2
+plan_id: bmt_otimizado
+initial_location: start
+finish: true
+visits:
+  - target: WS_3
+    tasks:
+      - {action: pick, tag_ids: [4, 6, 13]}
+  - target: WS_1
+    tasks:
+      - {action: place_on_table, tag_ids: [13, 4, 6]}

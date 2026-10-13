@@ -9,11 +9,11 @@ from mission_manager.world_state import EMPTY
 
 def mission():
     return Plan('flexible', (
-        Visit('ws1', 'ws_1', tuple(Step(f'pick_{i}', 'pick', tag_id=i) for i in (1, 2, 3))),
-        Visit('ws2', 'ws_2', (Step('put_1', 'place_on_table', tag_id=1),
+        Visit('ws1', 'WS_1', tuple(Step(f'pick_{i}', 'pick', tag_id=i) for i in (1, 2, 3))),
+        Visit('ws2', 'WS_2', (Step('put_1', 'place_on_table', tag_id=1),
                             Step('put_2', 'place_in_container', tag_id=2, container_color='red'),
                             Step('pick_4', 'pick', tag_id=4))),
-        Visit('ws3', 'ws_3', (Step('put_3', 'place_on_shelf', tag_id=3),
+        Visit('ws3', 'WS_3', (Step('put_3', 'place_on_shelf', tag_id=3),
                             Step('put_4', 'place_on_table', tag_id=4))),
     ), finish=True)
 
@@ -26,10 +26,10 @@ def advance(scheduler, state, action, tag=None):
 @pytest.mark.parametrize('first_slot', ['left', 'right'])
 def test_same_tag_from_different_areas_can_deliver_either_stored_cube(first_slot):
     plan = Plan('duplicates', (
-        Visit('a', 'ws_1', (Step('p1', 'pick', tag_id=1),)),
-        Visit('b', 'ws_2', (Step('p2', 'pick', tag_id=1),)),
-        Visit('c', 'ws_3', (Step('d1', 'place_on_table', tag_id=1),)),
-        Visit('d', 'ws_4', (Step('d2', 'place_on_table', tag_id=1),)),
+        Visit('a', 'WS_1', (Step('p1', 'pick', tag_id=1),)),
+        Visit('b', 'WS_2', (Step('p2', 'pick', tag_id=1),)),
+        Visit('c', 'WS_3', (Step('d1', 'place_on_table', tag_id=1),)),
+        Visit('d', 'WS_4', (Step('d2', 'place_on_table', tag_id=1),)),
     ))
     scheduler = Scheduler(plan, ('left', 'right'))
     state = advance(scheduler, scheduler.initial_state, 'pick', 1)
@@ -48,15 +48,15 @@ def test_same_tag_from_different_areas_can_deliver_either_stored_cube(first_slot
     state = advance(scheduler, state, 'depart')
     assert scheduler.complete(state)
     assert state.slots == (EMPTY, EMPTY) and state.gripper == EMPTY
-    assert state.locations[scheduler.tag_indices[1]] == ('ws_3', 'ws_4')
+    assert state.locations[scheduler.tag_indices[1]] == ('WS_3', 'WS_4')
 
 
 def test_same_tag_cannot_be_collected_twice_from_same_area_without_delivery():
     plan = Plan('same_cube', (
-        Visit('a', 'ws_1', (Step('p1', 'pick', tag_id=1),)),
-        Visit('b', 'ws_1', (Step('p2', 'pick', tag_id=1),)),
-        Visit('c', 'ws_3', (Step('d1', 'place_on_table', tag_id=1),)),
-        Visit('d', 'ws_4', (Step('d2', 'place_on_table', tag_id=1),)),
+        Visit('a', 'WS_1', (Step('p1', 'pick', tag_id=1),)),
+        Visit('b', 'WS_1', (Step('p2', 'pick', tag_id=1),)),
+        Visit('c', 'WS_3', (Step('d1', 'place_on_table', tag_id=1),)),
+        Visit('d', 'WS_4', (Step('d2', 'place_on_table', tag_id=1),)),
     ))
     scheduler = Scheduler(plan, ('left', 'right'))
     assert not scheduler.feasible(scheduler.initial_state)
@@ -64,9 +64,9 @@ def test_same_tag_cannot_be_collected_twice_from_same_area_without_delivery():
 
 def test_duplicate_tag_copies_still_require_one_delivery_each():
     plan = Plan('missing_copy_delivery', (
-        Visit('a', 'ws_1', (Step('p1', 'pick', tag_id=1),)),
-        Visit('b', 'ws_2', (Step('p2', 'pick', tag_id=1),)),
-        Visit('c', 'ws_3', (Step('d1', 'place_on_table', tag_id=1),)),
+        Visit('a', 'WS_1', (Step('p1', 'pick', tag_id=1),)),
+        Visit('b', 'WS_2', (Step('p2', 'pick', tag_id=1),)),
+        Visit('c', 'WS_3', (Step('d1', 'place_on_table', tag_id=1),)),
     ))
     scheduler = Scheduler(plan, ('left', 'right'))
     assert not scheduler.feasible(scheduler.initial_state)
@@ -74,10 +74,10 @@ def test_duplicate_tag_copies_still_require_one_delivery_each():
 
 def test_stacked_copy_does_not_block_picking_same_tag_in_another_area():
     plan = Plan('duplicates_with_stack', (
-        Visit('a', 'ws_1', (Step('collect', 'pick', tag_ids=(1, 2)),)),
-        Visit('b', 'ws_3', (Step('pile', 'stack', tag_ids=(1, 2), support_tag_id=14),)),
-        Visit('c', 'ws_2', (Step('p1', 'pick', tag_id=1),)),
-        Visit('d', 'ws_4', (Step('d1', 'place_on_table', tag_id=1),)),
+        Visit('a', 'WS_1', (Step('collect', 'pick', tag_ids=(1, 2)),)),
+        Visit('b', 'WS_3', (Step('pile', 'stack', tag_ids=(1, 2), support_tag_id=14),)),
+        Visit('c', 'WS_2', (Step('p1', 'pick', tag_id=1),)),
+        Visit('d', 'WS_4', (Step('d1', 'place_on_table', tag_id=1),)),
     ))
     scheduler = Scheduler(plan, ('left', 'right'))
     state = advance(scheduler, scheduler.initial_state, 'pick', 2)
@@ -131,7 +131,7 @@ def test_later_tag_stored_and_mixed_next_visit_remains_viable():
 
 
 def test_preflight_rejects_missing_delivery_and_excess_capacity():
-    no_delivery = Plan('bad', (Visit('v', 'ws_1', (Step('p', 'pick', tag_id=1),)),))
+    no_delivery = Plan('bad', (Visit('v', 'WS_1', (Step('p', 'pick', tag_id=1),)),))
     assert not Scheduler(no_delivery, ('left', 'right')).feasible(
         Scheduler(no_delivery, ('left', 'right')).initial_state)
     plan = mission()
@@ -142,8 +142,8 @@ def test_preflight_rejects_missing_delivery_and_excess_capacity():
 @pytest.mark.parametrize('order', [(4, 5), (5, 4)])
 def test_stack_group_uses_confirmed_top_in_either_order(order):
     plan = Plan('stack', (
-        Visit('collect', 'ws_1', tuple(Step(f'p{i}', 'pick', tag_id=i) for i in order)),
-        Visit('deliver', 'ws_2', (Step('pile', 'stack', support_tag_id=14, tag_ids=(4, 5)),)),
+        Visit('collect', 'WS_1', tuple(Step(f'p{i}', 'pick', tag_id=i) for i in order)),
+        Visit('deliver', 'WS_2', (Step('pile', 'stack', support_tag_id=14, tag_ids=(4, 5)),)),
     ))
     scheduler = Scheduler(plan, ('left', 'right'))
     state = scheduler.initial_state
@@ -164,7 +164,7 @@ def test_stack_group_uses_confirmed_top_in_either_order(order):
 
 def test_support_cannot_be_picked_with_an_object_stacked_above_it():
     plan = Plan('dependency', (
-        Visit('v', 'ws_1', (Step('p4', 'pick', tag_id=4),
+        Visit('v', 'WS_1', (Step('p4', 'pick', tag_id=4),
                            Step('pile', 'stack', support_tag_id=14, tag_ids=(4,)),
                            Step('p14', 'pick', tag_id=14),
                            Step('put14', 'place_on_table', tag_id=14))),
@@ -187,9 +187,9 @@ def test_ranking_current_view_then_memory_then_task_id():
 
 def test_empty_visit_does_not_require_unnecessary_storage():
     plan = Plan('route', (
-        Visit('a', 'ws_1', (Step('p', 'pick', tag_id=1),)),
-        Visit('b', 'ws_2', ()),
-        Visit('c', 'ws_3', (Step('d', 'place_on_table', tag_id=1),)),
+        Visit('a', 'WS_1', (Step('p', 'pick', tag_id=1),)),
+        Visit('b', 'WS_2', ()),
+        Visit('c', 'WS_3', (Step('d', 'place_on_table', tag_id=1),)),
     ))
     scheduler = Scheduler(plan, ('right', 'left'))
     state = advance(scheduler, scheduler.initial_state, 'pick', 1)
@@ -204,9 +204,9 @@ def test_empty_visit_does_not_require_unnecessary_storage():
 @pytest.mark.parametrize('order', [(1, 2, 3), (3, 2, 1)])
 def test_full_cargo_can_cross_empty_visits_before_delivery(empty_visits, order):
     plan = Plan('transit', (
-        Visit('collect', 'ws_4', tuple(Step(f'p{i}', 'pick', tag_id=i) for i in order)),
-        *(Visit(f'transit{i}', 'ws_5', ()) for i in range(empty_visits)),
-        Visit('deliver', 'ws_6', tuple(Step(f'd{i}', 'place_on_table', tag_id=i) for i in order)),
+        Visit('collect', 'WS_4', tuple(Step(f'p{i}', 'pick', tag_id=i) for i in order)),
+        *(Visit(f'transit{i}', 'WS_5', ()) for i in range(empty_visits)),
+        Visit('deliver', 'WS_6', tuple(Step(f'd{i}', 'place_on_table', tag_id=i) for i in order)),
     ), finish=True)
     scheduler = Scheduler(plan, ('left', 'right'))
     assert scheduler.feasible(scheduler.initial_state)
@@ -229,7 +229,7 @@ def test_full_cargo_can_cross_empty_visits_before_delivery(empty_visits, order):
 
 def test_empty_visits_do_not_allow_skipping_next_manipulation_visit():
     plan = mission()
-    plan = replace(plan, visits=(plan.visits[0], Visit('transit', 'ws_4', ()), *plan.visits[1:]))
+    plan = replace(plan, visits=(plan.visits[0], Visit('transit', 'WS_4', ()), *plan.visits[1:]))
     scheduler = Scheduler(plan, ('left', 'right'))
     state = scheduler.initial_state
     for tag in (1, 2):
@@ -241,8 +241,8 @@ def test_empty_visits_do_not_allow_skipping_next_manipulation_visit():
 
 def test_trailing_empty_visits_do_not_allow_undelivered_cargo():
     plan = Plan('missing_delivery', (
-        Visit('collect', 'ws_4', (Step('p1', 'pick', tag_id=1),)),
-        Visit('transit', 'ws_5', ()),
+        Visit('collect', 'WS_4', (Step('p1', 'pick', tag_id=1),)),
+        Visit('transit', 'WS_5', ()),
     ), finish=True)
     scheduler = Scheduler(plan, ('left', 'right'))
     assert not scheduler.feasible(scheduler.initial_state)
@@ -258,9 +258,9 @@ def test_search_checks_cancellation():
 
 def test_precision_delivery_ranks_reference_separately_from_same_id_object():
     plan = Plan('pp_delivery', (
-        Visit('collect', 'ws_67', (Step('pick_1', 'pick', tag_id=1),
+        Visit('collect', 'WS_67', (Step('pick_1', 'pick', tag_id=1),
                                    Step('pick_2', 'pick', tag_id=2))),
-        Visit('deliver', 'pp_67', (
+        Visit('deliver', 'PP_67', (
             Step('place_1', 'place_on_precision_table', tag_id=1, reference_tag_id=1),
             Step('place_2', 'place_on_precision_table', tag_id=2, reference_tag_id=2))),
     ))
@@ -279,12 +279,12 @@ def test_precision_delivery_ranks_reference_separately_from_same_id_object():
 
 
 def test_infeasibility_names_collected_tag_without_delivery():
-    plan = Plan('missing', (Visit('source', 'sh_1', (Step('collect', 'pick', tag_ids=(1, 3)),)),
-                           Visit('destination', 'ws_4', (Step('pile', 'stack', tag_ids=(1,), support_tag_id=14),))))
+    plan = Plan('missing', (Visit('source', 'SH_1', (Step('collect', 'pick', tag_ids=(1, 3)),)),
+                           Visit('destination', 'WS_4', (Step('pile', 'stack', tag_ids=(1,), support_tag_id=14),))))
     scheduler = Scheduler(plan, ('left', 'right'))
     assert not scheduler.feasible(scheduler.initial_state)
     message = scheduler.infeasibility_reason(scheduler.initial_state)
-    assert 'tag 3' in message and "'source' (sh_1)" in message
+    assert 'tag 3' in message and "'source' (SH_1)" in message
     assert "tarefa 'collect'" in message and 'sem nenhuma tarefa de entrega' in message
 
 
@@ -293,16 +293,16 @@ def test_infeasibility_names_capacity_and_blocked_task():
     assert not scheduler.feasible(scheduler.initial_state)
     message = scheduler.infeasibility_reason(scheduler.initial_state)
     assert 'capacidade: 0 slots' in message
-    assert "'ws1' (ws_1)" in message
+    assert "'ws1' (WS_1)" in message
     assert 'garra ocupada pela tag' in message
     assert "tarefa 'pick_" in message
 
 
 def test_infeasibility_names_delivery_without_collection():
-    scheduler = Scheduler(Plan('missing_source', (Visit('deliver', 'ws_2', (
+    scheduler = Scheduler(Plan('missing_source', (Visit('deliver', 'WS_2', (
         Step('put_8', 'place_on_table', tag_id=8),)),)), ('left', 'right'))
     assert not scheduler.feasible(scheduler.initial_state)
     message = scheduler.infeasibility_reason(scheduler.initial_state)
     assert "tarefa 'put_8'" in message
     assert 'tag 8 não está na carga' in message
-    assert "'deliver' (ws_2)" in message
+    assert "'deliver' (WS_2)" in message

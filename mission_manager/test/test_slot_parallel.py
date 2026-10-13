@@ -34,7 +34,7 @@ def cargo_manager(operation, slot):
     manager._manipulation_failure = MissionManager._manipulation_failure
     cargo = FeedbackClient()
     manager._arena = _arena()
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 0.0
     manager._retreat_from_lateral_wall_before_slot_access = lambda *_args: None
@@ -217,7 +217,7 @@ def test_async_departure_is_not_repeated_and_nav_waits_for_cargo():
         assert not run.done()
         finish_cargo(cargo, 'store')
         run.result(timeout=2.0)
-    assert manager._departure_completed_for == 'ws_1'
+    assert manager._departure_completed_for == 'WS_1'
     assert events == ['off']
     manager._call_action = lambda *_args: events.append('nav')
     manager._navigate('start')
@@ -231,7 +231,7 @@ def planning_manager():
     manager._tag_observations = {}
     manager._container_observations = {}
     manager._placed_tag_viewpoints = {}
-    manager._visited_search_positions = {'ws_1': {0}}
+    manager._visited_search_positions = {'WS_1': {0}}
     manager._blocked_search_positions = {}
     manager._current_scene_observed = lambda: True
     return manager
@@ -239,14 +239,14 @@ def planning_manager():
 
 def test_store_lookahead_uses_next_cube_memory_without_committing_inventory():
     manager = planning_manager()
-    plan = Plan('test', (Visit('v1', 'ws_1', (
+    plan = Plan('test', (Visit('v1', 'WS_1', (
         Step('pick1', 'pick', tag_id=7), Step('pick2', 'pick', tag_id=8))),
-        Visit('v2', 'ws_1', (Step('place1', 'place_on_table', tag_id=7),
+        Visit('v2', 'WS_1', (Step('place1', 'place_on_table', tag_id=7),
                               Step('place2', 'place_on_table', tag_id=8)))))
     scheduler = Scheduler(plan, ('left', 'right'))
     picked = next(c for c in scheduler.choices(scheduler.initial_state) if c.step.tag_id == 7)
     store = next(c for c in scheduler.choices(picked.next_state) if c.step.action == 'store')
-    manager._tag_observations[('ws_1', 8)] = TagObservation('ws_1', 200, 100, 150, 120, object())
+    manager._tag_observations[('WS_1', 8)] = TagObservation('WS_1', 200, 100, 150, 120, object())
     before = manager._world_state.snapshot()
     assert manager._next_slot_movement(scheduler, store, plan) == SlotMovement(150, 120)
     assert manager._world_state.snapshot() == before
@@ -254,9 +254,9 @@ def test_store_lookahead_uses_next_cube_memory_without_committing_inventory():
 
 def test_lookahead_can_advance_existing_search_but_never_skips_observation():
     manager = planning_manager()
-    plan = Plan('test', (Visit('v1', 'ws_1', (
+    plan = Plan('test', (Visit('v1', 'WS_1', (
         Step('pick1', 'pick', tag_id=7), Step('pick2', 'pick', tag_id=8))),
-        Visit('v2', 'ws_1', (Step('place1', 'place_on_table', tag_id=7),
+        Visit('v2', 'WS_1', (Step('place1', 'place_on_table', tag_id=7),
                               Step('place2', 'place_on_table', tag_id=8)))))
     scheduler = Scheduler(plan, ('left', 'right'))
     picked = next(c for c in scheduler.choices(scheduler.initial_state) if c.step.tag_id == 7)
@@ -268,7 +268,7 @@ def test_lookahead_can_advance_existing_search_but_never_skips_observation():
 
 def test_retrieve_lookahead_uses_delivery_support_memory():
     manager = planning_manager()
-    manager._tag_observations[('ws_1', 9)] = TagObservation('ws_1', 200, -100, 150, -120, object())
+    manager._tag_observations[('WS_1', 9)] = TagObservation('WS_1', 200, -100, 150, -120, object())
     step = Step('stack', 'stack', tag_id=7, support_tag_id=9)
     state = object()
     scheduler = SimpleNamespace(select=lambda *_args: SimpleNamespace(step=step))
@@ -278,7 +278,7 @@ def test_retrieve_lookahead_uses_delivery_support_memory():
 
 @pytest.mark.parametrize('finish,next_target,expected', [
     (False, None, None), (True, None, SlotMovement(250, 0, True)),
-    (False, 'ws_1', None), (False, 'finish', SlotMovement(250, 0, True)),
+    (False, 'WS_1', None), (False, 'finish', SlotMovement(250, 0, True)),
 ])
 def test_departure_lookahead_requires_an_actual_next_navigation(finish, next_target, expected):
     manager = planning_manager()
@@ -322,9 +322,9 @@ def test_slot_timeout_allows_started_base_movement_to_finish(ready):
 def test_visit_scheduler_supplies_next_pick_movement_while_store_is_pending():
     from test_visit_executor import simulated_manager
 
-    plan = Plan('test', (Visit('v1', 'ws_1', (
+    plan = Plan('test', (Visit('v1', 'WS_1', (
         Step('pick1', 'pick', tag_id=7), Step('pick2', 'pick', tag_id=8))),
-        Visit('v2', 'ws_2', (Step('place1', 'place_on_table', tag_id=7),
+        Visit('v2', 'WS_2', (Step('place1', 'place_on_table', tag_id=7),
                               Step('place2', 'place_on_table', tag_id=8)))))
     manager, *_ = simulated_manager(plan)
     original_pick = manager._pick_client.responder
@@ -332,8 +332,8 @@ def test_visit_scheduler_supplies_next_pick_movement_while_store_is_pending():
     def pick(goal):
         result = original_pick(goal)
         if goal.tag_id == 7:
-            memory = manager._tag_observations[('ws_1', 8)]
-            manager._tag_observations[('ws_1', 8)] = replace(
+            memory = manager._tag_observations[('WS_1', 8)]
+            manager._tag_observations[('WS_1', 8)] = replace(
                 memory, lateral_position_mm=100, pickup_lateral_position_mm=100)
         return result
 
@@ -477,7 +477,7 @@ def test_obstacle_stop_lets_cargo_finish_and_preserves_partial_position(
         finish_protected_wall(wall, measured)
         assert updated.wait(1.0)
         assert manager._current_lateral_position_mm == measured
-        assert manager._blocked_search_positions['ws_1'] == {target}
+        assert manager._blocked_search_positions['WS_1'] == {target}
         assert not cargo.child.canceled.is_set()
         assert not run.done()
         finish_cargo(cargo, operation)
@@ -585,11 +585,11 @@ def test_departure_overlap_uses_its_own_flag(table_mode, boundary_enabled):
 def test_precision_organizer_passes_reference_destination_to_safe_overlap(operation, known_reference):
     from mission_manager.models import AsyncMotionConfig
     manager, cargo, wall, commands = cargo_manager(operation, 'left')
-    manager._arena.service_areas['ws_1'] = replace(manager._arena.service_areas['ws_1'], area_type='PP',
+    manager._arena.service_areas['WS_1'] = replace(manager._arena.service_areas['WS_1'], area_type='PP',
                                                 async_motion=AsyncMotionConfig('always', False))
-    manager._pp_reference_observations = {('ws_1', 8): object()} if known_reference else {}
-    manager._pp_reference_views = {('ws_1', 200, 0, False): frozenset({1}),
-                                   ('ws_1', 200, 250, False): frozenset({2})}
+    manager._pp_reference_observations = {('WS_1', 8): object()} if known_reference else {}
+    manager._pp_reference_views = {('WS_1', 200, 0, False): frozenset({1}),
+                                   ('WS_1', 200, 250, False): frozenset({2})}
     expected_travel = -100 if known_reference else -250
     manager._precision_memory_destination = lambda _memory: (200, -100)
     manager._pp_expected_occupancy = {}
@@ -598,7 +598,7 @@ def test_precision_organizer_passes_reference_destination_to_safe_overlap(operat
     manager._report_scheduled_operation = lambda *_args: None
     manager._last_pp_scene = None
     with ThreadPoolExecutor(max_workers=1) as executor:
-        run = executor.submit(manager._pp_run_operation, None, None, Visit('pp', 'ws_1', ()),
+        run = executor.submit(manager._pp_run_operation, None, None, Visit('pp', 'WS_1', ()),
                               operation, tag_id=7, reference_tag_id=8, slot_id='left')
         assert cargo.sent.wait(1.)
         assert not wall.sent.is_set()

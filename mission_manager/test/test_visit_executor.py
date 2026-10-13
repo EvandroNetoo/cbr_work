@@ -164,7 +164,7 @@ def simulated_manager(plan, visible=None):
 def test_cubos_1_2_3_plan_executes_with_duplicate_ids(source_colors):
     plan = load_plan(Path(__file__).parents[1] / 'config' / 'plans' / 'cubos_1_2_3.yaml')
     manager, navs, events, departures = simulated_manager(plan)
-    colors = dict(zip(('ws_1', 'ws_2'), source_colors))
+    colors = dict(zip(('WS_1', 'WS_2'), source_colors))
     analyze = manager._vision_client.responder
     def colored_scene(goal):
         result = analyze(goal)
@@ -180,12 +180,12 @@ def test_cubos_1_2_3_plan_executes_with_duplicate_ids(source_colors):
     manager._place_table_client.responder = colored_place
     validate_plan(plan, manager._arena)
     manager._run_plan(SimpleNamespace(publish_feedback=lambda _feedback: None), plan)
-    assert navs == ['ws_1', 'ws_2', 'ws_3', 'ws_4']
+    assert navs == ['WS_1', 'WS_2', 'WS_3', 'WS_4']
     assert [event for event in events if event[0] == 'pick'] == [('pick', 3), ('pick', 3)]
-    assert delivered == [('ws_3', 'red'), ('ws_4', 'blue')]
+    assert delivered == [('WS_3', 'red'), ('WS_4', 'blue')]
     assert [(out.tag_id, out.area_id) for out in manager._delivery_outcomes] == [
-        (3, 'ws_3'), (3, 'ws_4')]
-    _, gripper, slots = next(d for d in departures if d[0] == 'ws_3')
+        (3, 'WS_3'), (3, 'WS_4')]
+    _, gripper, slots = next(d for d in departures if d[0] == 'WS_3')
     assert [gripper, *slots.values()].count(3) == 2
     assert manager._world_state.snapshot() == (True, EMPTY, {'left': EMPTY, 'right': EMPTY})
     assert manager._completed_steps == plan.total_steps
@@ -193,16 +193,16 @@ def test_cubos_1_2_3_plan_executes_with_duplicate_ids(source_colors):
 
 def test_full_cargo_transits_empty_visit_without_observation_or_extra_transfer():
     plan = Plan('transit', (
-        Visit('collect', 'ws_4', tuple(Step(f'p{i}', 'pick', tag_id=i) for i in (1, 2, 3))),
-        Visit('transit', 'ws_5', ()),
-        Visit('deliver', 'ws_6', tuple(Step(f'd{i}', 'place_on_table', tag_id=i) for i in (1, 2, 3))),
+        Visit('collect', 'WS_4', tuple(Step(f'p{i}', 'pick', tag_id=i) for i in (1, 2, 3))),
+        Visit('transit', 'WS_5', ()),
+        Visit('deliver', 'WS_67', tuple(Step(f'd{i}', 'place_on_table', tag_id=i) for i in (1, 2, 3))),
     ), finish=True)
     manager, navs, events, departures = simulated_manager(plan)
     manager._run_plan(SimpleNamespace(publish_feedback=lambda _feedback: None), plan)
-    assert navs == ['ws_4', 'ws_5', 'ws_6', 'finish']
-    assert ('observe', 'ws_5') not in events
+    assert navs == ['WS_4', 'WS_5', 'WS_67', 'finish']
+    assert ('observe', 'WS_5') not in events
     transit_load = [(gripper, slots) for target, gripper, slots in departures
-                    if target in {'ws_5', 'ws_6'}]
+                    if target in {'WS_5', 'WS_67'}]
     assert transit_load == [(3, {'left': 1, 'right': 2})] * 2
     assert len(manager._store_client.goals) == 2
     assert len(manager._retrieve_client.goals) == 2
@@ -213,11 +213,11 @@ def test_full_cargo_transits_empty_visit_without_observation_or_extra_transfer()
 
 def transport_plan():
     return Plan('transport', (
-        Visit('a', 'ws_1', tuple(Step(f'p{i}', 'pick', tag_id=i) for i in (1, 2, 3))),
-        Visit('b', 'ws_2', (Step('d1', 'place_on_table', tag_id=1),
+        Visit('a', 'WS_1', tuple(Step(f'p{i}', 'pick', tag_id=i) for i in (1, 2, 3))),
+        Visit('b', 'WS_2', (Step('d1', 'place_on_table', tag_id=1),
                            Step('d2', 'place_in_container', tag_id=2, container_color='red'),
                            Step('p4', 'pick', tag_id=4))),
-        Visit('c', 'ws_3', (Step('d3', 'place_on_table', tag_id=3),
+        Visit('c', 'WS_3', (Step('d3', 'place_on_table', tag_id=3),
                            Step('d4', 'place_on_table', tag_id=4))),
     ), finish=True)
 
@@ -226,16 +226,16 @@ def test_transport_through_child_action_futures():
     plan = transport_plan()
     def visible(manager, tags):
         # First view shows only the later-destination object and a distractor.
-        if manager._current_location == 'ws_1' and manager._completed_steps == 1:
+        if manager._current_location == 'WS_1' and manager._completed_steps == 1:
             return {3, 99}
         return tags
     manager, navs, events, departures = simulated_manager(plan, visible)
     feedback = []
     manager._run_plan(SimpleNamespace(publish_feedback=feedback.append), plan)
-    assert navs == ['ws_1', 'ws_2', 'ws_3', 'finish']
+    assert navs == ['WS_1', 'WS_2', 'WS_3', 'finish']
     assert next(e for e in events if e[0] == 'pick') == ('pick', 3)
     assert set(tag for action, tag in events if action == 'pick') == {1, 2, 3, 4}
-    _, gripper, slots = next(d for d in departures if d[0] == 'ws_2')
+    _, gripper, slots = next(d for d in departures if d[0] == 'WS_2')
     assert gripper in {1, 2} and 3 in slots.values()
     assert manager._world_state.snapshot() == (True, EMPTY, {'left': EMPTY, 'right': EMPTY})
     assert manager._completed_steps == plan.total_steps
@@ -248,7 +248,7 @@ def test_transport_through_child_action_futures():
 
 
 def test_missing_first_pick_yields_to_other_identified_task():
-    plan = Plan('missing', (Visit('a', 'ws_1', (
+    plan = Plan('missing', (Visit('a', 'WS_1', (
         Step('p1', 'pick', tag_id=1), Step('p2', 'pick', tag_id=2),
         Step('d1', 'place_on_table', tag_id=1), Step('d2', 'place_on_table', tag_id=2))),))
     manager, _navs, events, _departures = simulated_manager(plan)
@@ -269,7 +269,7 @@ def test_missing_first_pick_yields_to_other_identified_task():
 
 
 def test_uncertain_effect_does_not_complete_task():
-    plan = Plan('uncertain', (Visit('a', 'ws_1', (
+    plan = Plan('uncertain', (Visit('a', 'WS_1', (
         Step('p1', 'pick', tag_id=1), Step('d1', 'place_on_table', tag_id=1))),))
     manager, *_ = simulated_manager(plan)
     def ambiguous(_goal):
@@ -303,8 +303,8 @@ def test_cancel_is_checked_during_route_planning():
 @pytest.mark.parametrize('first_pick', [4, 5])
 def test_stack_group_through_existing_stack_action(first_pick):
     plan = Plan('pile', (
-        Visit('a', 'ws_1', (Step('p4', 'pick', tag_id=4), Step('p5', 'pick', tag_id=5))),
-        Visit('b', 'ws_2', (Step('pile', 'stack', support_tag_id=14, tag_ids=(4, 5)),)),
+        Visit('a', 'WS_1', (Step('p4', 'pick', tag_id=4), Step('p5', 'pick', tag_id=5))),
+        Visit('b', 'WS_2', (Step('pile', 'stack', support_tag_id=14, tag_ids=(4, 5)),)),
     ))
     def visible(manager, tags):
         return {first_pick} if manager._completed_steps == 1 else tags
@@ -318,8 +318,8 @@ def test_stack_group_through_existing_stack_action(first_pick):
 
 def test_shelf_delivery_retrieves_declared_object():
     plan = Plan('shelf', (
-        Visit('a', 'ws_1', (Step('p1', 'pick', tag_id=1), Step('p2', 'pick', tag_id=2))),
-        Visit('b', 'sh_1', (Step('d1', 'place_on_shelf', tag_id=1),
+        Visit('a', 'WS_1', (Step('p1', 'pick', tag_id=1), Step('p2', 'pick', tag_id=2))),
+        Visit('b', 'SH_1', (Step('d1', 'place_on_shelf', tag_id=1),
                            Step('d2', 'place_on_shelf', tag_id=2))),
     ))
     manager, _navs, events, _departures = simulated_manager(plan)
@@ -330,8 +330,8 @@ def test_shelf_delivery_retrieves_declared_object():
 
 def test_container_fallback_records_actual_table_destination():
     plan = Plan('fallback', (
-        Visit('a', 'ws_1', (Step('p', 'pick', tag_id=1),)),
-        Visit('b', 'ws_2', (Step('d', 'place_in_container', tag_id=1, container_color='red'),)),
+        Visit('a', 'WS_1', (Step('p', 'pick', tag_id=1),)),
+        Visit('b', 'WS_2', (Step('d', 'place_in_container', tag_id=1, container_color='red'),)),
     ))
     manager, *_ = simulated_manager(plan)
     def missing(_goal):
@@ -345,13 +345,13 @@ def test_container_fallback_records_actual_table_destination():
     delivery = manager._delivery_outcomes[0]
     assert delivery.requested_action == 'place_in_container'
     assert delivery.actual_action == 'place_on_table_fallback'
-    assert delivery.area_id == 'ws_2' and delivery.container_color is None
+    assert delivery.area_id == 'WS_2' and delivery.container_color is None
     assert manager._completed_steps == plan.total_steps
     assert len(manager._place_table_client.goals) == 1
 
 
 def test_scan_reselects_at_each_viewpoint_and_stops_when_exhausted():
-    plan = Plan('scan', (Visit('a', 'ws_1', (
+    plan = Plan('scan', (Visit('a', 'WS_1', (
         Step('p1', 'pick', tag_id=1), Step('p2', 'pick', tag_id=2),
         Step('d1', 'place_on_table', tag_id=1), Step('d2', 'place_on_table', tag_id=2))),))
     def visible(manager, tags):
@@ -416,14 +416,14 @@ def test_only_immediate_pick_uses_scene_and_later_picks_align_and_analyze():
 
 
 def test_known_remote_tag_goes_to_configured_alignment_and_requests_fresh_analysis():
-    plan = Plan('remote', (Visit('a', 'ws_1', (
+    plan = Plan('remote', (Visit('a', 'WS_1', (
         Step('p', 'pick', tag_id=1), Step('d', 'place_on_table', tag_id=1))),))
     manager, *_ = simulated_manager(plan)
     from mission_manager.models import TagObservation
     known = detection(1)
     known.pose.position.x = 0.12
-    manager._tag_observations[('ws_1', 1)] = TagObservation(
-        'ws_1', 200.0, 250.0, 180, 130.0, known)
+    manager._tag_observations[('WS_1', 1)] = TagObservation(
+        'WS_1', 200.0, 250.0, 180, 130.0, known)
     moves = []
     original_move = manager._move_to_table_position
     def move(*args):
@@ -437,7 +437,7 @@ def test_known_remote_tag_goes_to_configured_alignment_and_requests_fresh_analys
 
 
 def test_recovery_after_cached_out_of_reach_disables_old_pose():
-    plan = Plan('recover', (Visit('a', 'ws_1', (
+    plan = Plan('recover', (Visit('a', 'WS_1', (
         Step('p', 'pick', tag_id=1), Step('d', 'place_on_table', tag_id=1))),))
     manager, *_ = simulated_manager(plan)
     original_pick = manager._pick_client.responder
@@ -463,7 +463,7 @@ def test_recovery_after_cached_out_of_reach_disables_old_pose():
 
 
 def test_same_viewpoint_after_another_task_does_not_authorize_direct_pick():
-    plan = Plan('single_use', (Visit('a', 'ws_1', (
+    plan = Plan('single_use', (Visit('a', 'WS_1', (
         Step('p1', 'pick', tag_id=1), Step('d1', 'place_on_table', tag_id=1),
         Step('p2', 'pick', tag_id=2), Step('d2', 'place_on_table', tag_id=2))),))
     manager, *_ = simulated_manager(plan)
@@ -475,10 +475,10 @@ def test_same_viewpoint_after_another_task_does_not_authorize_direct_pick():
 
 def test_return_to_last_analysis_point_does_not_renew_direct_permission():
     from interfaces.action import FollowWall
-    plan = Plan('return', (Visit('a', 'ws_1', (
+    plan = Plan('return', (Visit('a', 'WS_1', (
         Step('p1', 'pick', tag_id=1), Step('d1', 'place_on_table', tag_id=1))),))
     manager, *_ = simulated_manager(plan)
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._observe_visit()
     result = FollowWall.Result()
     result.final_average_distance_mm = 200.0
@@ -496,13 +496,13 @@ def test_return_to_last_analysis_point_does_not_renew_direct_permission():
 def test_intervening_operation_expires_immediate_scene_permission(action):
     plan = transport_plan()
     manager, *_ = simulated_manager(plan)
-    manager._current_location = 'ws_1'
+    manager._current_location = 'WS_1'
     manager._observe_visit()
     assert manager._direct_pick_observation is not None
     # Dispatch interception isolates lifetime of the permission from physical
     # preconditions of an unrelated operation (for example a loaded gripper).
     manager._execute_manipulation = lambda _step: None
-    manager._execute_step(Step('intervening', action, target='ws_2'))
+    manager._execute_step(Step('intervening', action, target='WS_2'))
     assert manager._direct_pick_observation is None
 
 
@@ -516,7 +516,7 @@ def test_pp_organization_executes_only_in_slots_and_retrieves_cargo(full_table):
         start[24] = final[24] = None
     generated = tuple(replace(t, step_id=f'pp_{i}') for i, t in enumerate(
         organize_precision_slots(start, final)))
-    plan = Plan('pp_sort', (Visit('pp', 'pp_1', generated,
+    plan = Plan('pp_sort', (Visit('pp', 'PP', generated,
                                 tuple(start.items()), tuple(final.items())),))
     manager, navs, events, departures = simulated_manager(plan)
     board = dict(start)
@@ -561,7 +561,7 @@ def test_pp_organization_executes_only_in_slots_and_retrieves_cargo(full_table):
     manager._pick_client.responder = pick
     manager._place_precision_client = SimulatedActionClient(place)
     manager._run_plan(SimpleNamespace(publish_feedback=lambda _: None), plan)
-    assert navs == ['pp_1']
+    assert navs == ['PP']
     assert board == final
     assert manager._world_state.snapshot() == (True, EMPTY, {'left': EMPTY, 'right': EMPTY})
     assert manager._completed_steps == plan.total_steps
@@ -578,8 +578,8 @@ def test_final_only_pp_through_child_action_messages_with_overlapping_ids(extra,
     final = {i: i for i in range(1, 8)}
     if extra:
         final[7] = None
-    visit = Visit('pp', 'pp_1', (), None, tuple(final.items()))
-    plan = Plan('pp', (visit, Visit('exit', 'ws_1', ())))
+    visit = Visit('pp', 'PP', (), None, tuple(final.items()))
+    plan = Plan('pp', (visit, Visit('exit', 'WS_1', ())))
     manager, navs, _, _ = simulated_manager(plan)
     board = {i: i % 7 + 1 for i in range(1, 8)}
     operations = []
@@ -638,13 +638,13 @@ def test_final_only_pp_through_child_action_messages_with_overlapping_ids(extra,
     manager._place_precision_client = SimulatedActionClient(place)
     manager._run_plan(SimpleNamespace(publish_feedback=lambda _f: None), plan)
     assert board == final
-    assert navs == ['pp_1', 'ws_1']
+    assert navs == ['PP', 'WS_1']
     assert len(manager._store_client.goals) == 7
     assert len(manager._retrieve_client.goals) == len(manager._delivery_outcomes) == (6 if extra else 7)
     known, held, cargo = manager._world_state.snapshot()
     assert known and held == EMPTY
     assert sorted(cargo.values()) == ([EMPTY, 7] if extra else [EMPTY, EMPTY])
-    assert ('pp_1', 1) in manager._pp_reference_observations
+    assert ('PP', 1) in manager._pp_reference_observations
     assert all(goal.use_observed_detection for goal in manager._pick_client.goals)
     if missing_after_place:
         assert missed_reference
@@ -666,9 +666,9 @@ def test_explicit_pp_deliveries_stop_search_when_references_are_seen():
     from interfaces.action import PlaceOnPrecisionTable
     from mission_manager.models import AsyncMotionConfig
     plan = Plan('pp_delivery', (
-        Visit('collect', 'ws_67', tuple(Step(f'pick_{tag}', 'pick', tag_id=tag)
+        Visit('collect', 'WS_67', tuple(Step(f'pick_{tag}', 'pick', tag_id=tag)
                                         for tag in (1, 2))),
-        Visit('deliver', 'pp_67', tuple(
+        Visit('deliver', 'PP_67', tuple(
             Step(f'place_{tag}', 'place_on_precision_table', tag_id=tag, reference_tag_id=tag)
             for tag in (1, 2))),
     ))
@@ -680,7 +680,7 @@ def test_explicit_pp_deliveries_stop_search_when_references_are_seen():
     search_moves = []
 
     def observe(goal):
-        if manager._current_location != 'pp_67':
+        if manager._current_location != 'PP_67':
             return analyze_objects(goal)
         pp_views.append(manager._current_lateral_position_mm)
         result = AnalyzeScene.Result()
@@ -705,7 +705,7 @@ def test_explicit_pp_deliveries_stop_search_when_references_are_seen():
     manager._move_to_next_search_position = search
     manager._place_precision_client = SimulatedActionClient(place)
     manager._run_plan(SimpleNamespace(publish_feedback=lambda _: None), plan)
-    assert navs == ['ws_67', 'pp_67']
+    assert navs == ['WS_67', 'PP_67']
     assert pp_views == [0, 325]
     assert search_moves == [0]
     assert [event for event in events if event[0] == 'pp_place'] == [

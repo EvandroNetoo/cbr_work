@@ -12,7 +12,7 @@ from mission_manager.scheduler import Scheduler
 def load_tasks(tmp_path, tasks):
     path = tmp_path / 'grouped.yaml'
     path.write_text(yaml.safe_dump({'schema_version': 2, 'plan_id': 'grouped',
-                                  'visits': [{'target': 'ws_1', 'tasks': tasks}]}))
+                                  'visits': [{'target': 'WS_1', 'tasks': tasks}]}))
     return load_plan(path)
 
 

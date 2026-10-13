@@ -62,7 +62,7 @@ def main():
     thread = None
     servers = []
     clients = []
-    scenes = {'ws_1': {1, 2, 3}, 'ws_2': {4}, 'ws_3': set()}
+    scenes = {'WS_1': {1, 2, 3}, 'WS_2': {4}, 'WS_3': set()}
     picked = []
     direct_picks = []
     arrivals = []

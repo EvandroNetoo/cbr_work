@@ -12,20 +12,20 @@ PACKAGE = Path(__file__).parents[1]
 def test_alignment_ignore_duration_is_individual_per_area(tmp_path):
     import yaml
     raw = yaml.safe_load(VALID_ARENA)
-    raw['service_areas']['ws_1']['alignment_error_ignore_sec'] = 0
-    raw['service_areas']['ws_3']['alignment_error_ignore_sec'] = 3.5
+    raw['service_areas']['WS_1']['alignment_error_ignore_sec'] = 0
+    raw['service_areas']['WS_3']['alignment_error_ignore_sec'] = 3.5
     arena = load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
-    assert arena.service_areas['ws_1'].alignment_error_ignore_sec == 0.0
-    assert arena.service_areas['ws_3'].alignment_error_ignore_sec == 3.5
+    assert arena.service_areas['WS_1'].alignment_error_ignore_sec == 0.0
+    assert arena.service_areas['WS_3'].alignment_error_ignore_sec == 3.5
     legacy = load_arena(_write(tmp_path, 'legacy.yaml', VALID_ARENA))
-    assert legacy.service_areas['ws_1'].alignment_error_ignore_sec is None
+    assert legacy.service_areas['WS_1'].alignment_error_ignore_sec is None
 
 
 @pytest.mark.parametrize('value', [-1, float('nan'), float('inf'), True, '1', None])
 def test_alignment_ignore_duration_rejects_invalid_values(tmp_path, value):
     import yaml
     raw = yaml.safe_load(VALID_ARENA)
-    raw['service_areas']['ws_1']['alignment_error_ignore_sec'] = value
+    raw['service_areas']['WS_1']['alignment_error_ignore_sec'] = value
     with pytest.raises(ConfigurationError, match='alignment_error_ignore_sec'):
         load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
 
@@ -85,13 +85,13 @@ pickup_recovery:
 start: {x_m: 0.0, y_m: 0.0, yaw_rad: 0.0}
 finish: {x_m: 3.0, y_m: 0.0, yaw_rad: 3.14}
 service_areas:
-  ws_1:
+  WS_1:
     x_m: 1.0
     y_m: 2.0
     yaw_rad: 1.57
     height_cm: 10.0
     type: WS
-  ws_3:
+  WS_3:
     x_m: 2.0
     y_m: 2.0
     yaw_rad: 1.57
@@ -116,17 +116,17 @@ def _write(tmp_path, name, content):
 def test_arena_merges_partial_alignment_override(tmp_path):
     arena = load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA))
 
-    assert arena.service_areas['ws_1'].alignment.distance_mm == 200
-    right = arena.service_areas['ws_3'].alignment
+    assert arena.service_areas['WS_1'].alignment.distance_mm == 200
+    right = arena.service_areas['WS_3'].alignment
     assert right.distance_mm == 180
     assert right.tolerance_mm == 10
     assert right.timeout_s == pytest.approx(10.0)
-    assert arena.service_areas['ws_1'].departure.distance_mm == 250
-    departure = arena.service_areas['ws_3'].departure
+    assert arena.service_areas['WS_1'].departure.distance_mm == 250
+    departure = arena.service_areas['WS_3'].departure
     assert departure.distance_mm == 300
     assert departure.tolerance_mm == 15
     assert departure.timeout_s == pytest.approx(8.0)
-    assert arena.service_areas['ws_1'].departure.lateral_position_mm == 0
+    assert arena.service_areas['WS_1'].departure.lateral_position_mm == 0
     assert departure.lateral_position_mm == -20
     assert departure.max_alignment_error_mm == 75
     assert departure.alignment_recovery_distance_mm == 80
@@ -143,18 +143,18 @@ def test_shelf_place_alignment_has_independent_defaults_and_local_override(tmp_p
 
     raw = yaml.safe_load(VALID_ARENA)
     arena = load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
-    assert arena.service_areas['ws_3'].shelf_place_alignment.distance_mm == 40
+    assert arena.service_areas['WS_3'].shelf_place_alignment.distance_mm == 40
     raw['shelf_place_alignment_defaults'] = {'distance_mm': 65, 'tolerance_mm': 7}
     arena = load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
-    assert arena.service_areas['ws_3'].shelf_place_alignment.distance_mm == 65
-    raw['service_areas']['ws_3']['shelf_place_alignment'] = {'distance_mm': 90}
+    assert arena.service_areas['WS_3'].shelf_place_alignment.distance_mm == 65
+    raw['service_areas']['WS_3']['shelf_place_alignment'] = {'distance_mm': 90}
     arena = load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
-    alignment = arena.service_areas['ws_3'].shelf_place_alignment
+    alignment = arena.service_areas['WS_3'].shelf_place_alignment
     assert alignment.distance_mm == 90
     assert alignment.tolerance_mm == 7
     assert alignment.timeout_s == 10.0
-    assert arena.service_areas['ws_3'].alignment.distance_mm == 180
-    assert arena.service_areas['ws_1'].shelf_place_alignment is None
+    assert arena.service_areas['WS_3'].alignment.distance_mm == 180
+    assert arena.service_areas['WS_1'].shelf_place_alignment is None
 
 
 @pytest.mark.parametrize('distance', [0, -1])
@@ -162,7 +162,7 @@ def test_shelf_place_alignment_rejects_invalid_distance(tmp_path, distance):
     import yaml
 
     raw = yaml.safe_load(VALID_ARENA)
-    raw['service_areas']['ws_3']['shelf_place_alignment'] = {'distance_mm': distance}
+    raw['service_areas']['WS_3']['shelf_place_alignment'] = {'distance_mm': distance}
     with pytest.raises(ConfigurationError):
         load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
 
@@ -225,7 +225,7 @@ def test_arena_allows_legacy_departure_without_safety_overrides(tmp_path):
 
     arena = load_arena(_write(tmp_path, 'arena.yaml', source))
 
-    departure = arena.service_areas['ws_1'].departure
+    departure = arena.service_areas['WS_1'].departure
     assert departure.max_alignment_error_mm is None
     assert departure.alignment_recovery_distance_mm is None
     assert departure.minimum_lateral_clearance_mm is None
@@ -244,11 +244,11 @@ def test_arena_rejects_search_position_outside_lateral_limits(tmp_path):
 def _plan_yaml(task=''):
     return f"""schema_version: 2
 plan_id: test
-initial_location: ws_1
+initial_location: WS_1
 finish: false
 visits:
   - id: visit_1
-    target: ws_1
+    target: WS_1
     tasks:
       - {{id: collect, action: pick, tag_ids: [1]}}
       - {{id: deliver, action: place_in_container, tag_ids: [1], container_color: red}}
@@ -266,7 +266,7 @@ def test_stack_requires_st_area(tmp_path, area_type):
     plan = load_plan(_write(tmp_path, 'plan.yaml', source))
     if area_type == 'ST':
         validate_plan(plan, arena)
-        area = arena.service_areas['ws_1']
+        area = arena.service_areas['WS_1']
         assert area.area_type == 'ST'
         assert area.height_cm == 10.0
         assert area.alignment.distance_mm == 200
@@ -285,7 +285,7 @@ def test_shipped_stacks_use_dedicated_st_area():
         for visit in plan.visits:
             for task in visit.tasks:
                 if task.action == 'stack':
-                    assert visit.target == 'st_1'
+                    assert visit.target == 'ST'
                     assert arena.service_areas[visit.target].area_type == 'ST'
                     stacks.append((path.name, task.tag_ids))
     assert stacks == [
@@ -294,7 +294,7 @@ def test_shipped_stacks_use_dedicated_st_area():
     ]
     final = load_plan(PACKAGE / 'config/plans/7_final_test.yaml')
     validate_plan(final, arena)
-    assert any(visit.target == 'ws_4' and task.action == 'pick'
+    assert any(visit.target == 'WS_4' and task.action == 'pick'
                for visit in final.visits for task in visit.tasks)
 
 
@@ -322,8 +322,8 @@ def test_plan_rejects_v1_with_migration_message(tmp_path):
 
 @pytest.mark.parametrize('old,new,match', [
     ('color: red', 'color: green', 'red ou blue'),
-    ('target: ws_1', 'target: missing', 'target desconhecido'),
-    ('initial_location: ws_1', 'initial_location: missing', 'initial_location'),
+    ('target: WS_1', 'target: missing', 'target desconhecido'),
+    ('initial_location: WS_1', 'initial_location: missing', 'initial_location'),
     ('id: deliver', 'id: collect', 'IDs duplicados'),
     ('tag_ids: [1], container_color', 'tag_ids: [2], container_color', 'inviável'),
     ('action: pick, tag_ids: [1]', 'action: store, slot_id: left', 'action desconhecida'),
@@ -350,7 +350,7 @@ def test_arena_remains_v1(tmp_path):
 
 
 def test_empty_navigation_visit_and_finish_default(tmp_path):
-    source = 'schema_version: 2\nplan_id: route\nvisits: [{id: route, target: ws_1}]\n'
+    source = 'schema_version: 2\nplan_id: route\nvisits: [{id: route, target: WS_1}]\n'
     plan = load_plan(_write(tmp_path, 'plan.yaml', source))
     validate_plan(plan, load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA)))
     assert not plan.finish and plan.initial_location == 'start'
@@ -360,57 +360,57 @@ def test_generated_ids_include_location_and_normalized_parameters(tmp_path):
     source = '''schema_version: 2
 plan_id: generated
 visits:
-  - target: ws_1
+  - target: WS_1
     tasks:
       - {action: pick, tag_ids: [2]}
       - {action: place_in_container, tag_ids: [2], container_color: RED}
       - {action: stack, tag_ids: [5, 4], support_tag_id: 14}
-  - target: ws_1
+  - target: WS_1
     tasks:
       - {action: pick, tag_ids: [2]}
 '''
     path = _write(tmp_path, 'plan.yaml', source)
     plan = load_plan(path)
     assert plan == load_plan(path)
-    assert [v.visit_id for v in plan.visits] == ['visit_ws_1', 'visit_ws_1_2']
+    assert [v.visit_id for v in plan.visits] == ['visit_WS_1', 'visit_WS_1_2']
     assert [t.step_id for t in plan.visits[0].tasks] == [
-        'visit_ws_1_pick_2', 'visit_ws_1_place_in_container_2_red',
-        'visit_ws_1_stack_4_5_on_14']
-    assert plan.visits[1].tasks[0].step_id == 'visit_ws_1_2_pick_2'
+        'visit_WS_1_pick_2', 'visit_WS_1_place_in_container_2_red',
+        'visit_WS_1_stack_4_5_on_14']
+    assert plan.visits[1].tasks[0].step_id == 'visit_WS_1_2_pick_2'
 
 
 def test_generated_ids_reserve_explicit_ids_and_distinguish_grouped_tasks(tmp_path):
     source = '''schema_version: 2
 plan_id: generated
 visits:
-  - target: ws_1
+  - target: WS_1
     tasks:
       - {action: pick, tag_ids: [2, 3]}
       - {action: place_on_table, tag_ids: [2, 3]}
-  - id: visit_ws_1
-    target: ws_1
+  - id: visit_WS_1
+    target: WS_1
     tasks: []
 '''
     plan = load_plan(_write(tmp_path, 'plan.yaml', source))
     validate_plan(plan, load_arena(_write(tmp_path, 'arena.yaml', VALID_ARENA)))
-    assert plan.visits[0].visit_id == 'visit_ws_1_2'
+    assert plan.visits[0].visit_id == 'visit_WS_1_2'
     assert [t.step_id for t in plan.visits[0].tasks] == [
-        'visit_ws_1_2_pick_2_3', 'visit_ws_1_2_place_on_table_2_3']
-    assert plan.visits[1].visit_id == 'visit_ws_1'
+        'visit_WS_1_2_pick_2_3', 'visit_WS_1_2_place_on_table_2_3']
+    assert plan.visits[1].visit_id == 'visit_WS_1'
 
 
 def test_explicit_task_id_is_reserved_before_generating_previous_task(tmp_path):
     source = '''schema_version: 2
 plan_id: generated
 visits:
-  - target: ws_1
+  - target: WS_1
     tasks:
       - {action: pick, tag_ids: [1]}
-      - {id: visit_ws_1_pick_1, action: place_on_table, tag_ids: [1]}
+      - {id: visit_WS_1_pick_1, action: place_on_table, tag_ids: [1]}
 '''
     plan = load_plan(_write(tmp_path, 'plan.yaml', source))
     assert [t.step_id for t in plan.visits[0].tasks] == [
-        'visit_ws_1_pick_1_2', 'visit_ws_1_pick_1']
+        'visit_WS_1_pick_1_2', 'visit_WS_1_pick_1']
 
 
 def test_inconsistent_simples_plan_is_not_installed():
@@ -421,7 +421,7 @@ def test_advanced_transportation_v2_preserves_active_route_and_deliveries():
     plan = load_plan(PACKAGE / 'config/plans/advanced_transportation_test_i.yaml')
     validate_plan(plan, load_arena(PACKAGE / 'config/arena.yaml'))
     assert [visit.target for visit in plan.visits] == [
-        'ws_3', 'ws_2', 'ws_1', 'ws_5', 'ws_6', 'sh_1', 'ws_1']
+        'WS_3', 'WS_2', 'WS_1', 'WS_5', 'WS_6', 'SH_1', 'WS_1']
     assert [(task.possible_tag_ids, task.tag_color, task.action) for task in plan.visits[1].tasks] == [
         ((1, 2), 'blue', 'place_in_container'), ((1, 2), 'red', 'place_on_table')]
     stack, = plan.visits[3].tasks
@@ -462,8 +462,8 @@ def test_safety_search_configuration_limits(tmp_path, positions, distance):
 def test_precision_plan_reference_validation(tmp_path, reference):
     import yaml
     raw = {'schema_version': 2, 'plan_id': 'pp', 'visits': [
-        {'target': 'ws_1', 'tasks': [{'action': 'pick', 'tag_ids': [5]}]},
-        {'target': 'ws_3', 'tasks': [{'action': 'place_on_precision_table',
+        {'target': 'WS_1', 'tasks': [{'action': 'pick', 'tag_ids': [5]}]},
+        {'target': 'WS_3', 'tasks': [{'action': 'place_on_precision_table',
                                     'tag_ids': [5], 'reference_tag_id': reference}]},
     ]}
     path = _write(tmp_path, 'plan.yaml', yaml.safe_dump(raw))
@@ -477,7 +477,7 @@ def test_precision_plan_reference_validation(tmp_path, reference):
     plan = load_plan(path)
     with pytest.raises(ConfigurationError, match='área PP'):
         validate_plan(plan, arena)
-    arena.service_areas['ws_3'] = replace(arena.service_areas['ws_3'], area_type='PP')
+    arena.service_areas['WS_3'] = replace(arena.service_areas['WS_3'], area_type='PP')
     validate_plan(plan, arena)
     task = plan.visits[1].tasks[0]
     assert task.reference_tag_id == 42
@@ -491,17 +491,17 @@ def test_async_motion_global_defaults_and_partial_area_overrides(tmp_path):
     import yaml
     raw = yaml.safe_load(VALID_ARENA)
     raw['async_motion_defaults'] = {'table_mode': 'always', 'approach_departure_enabled': False}
-    raw['service_areas']['ws_1']['async_motion'] = {'table_mode': 'disabled'}
-    raw['service_areas']['ws_3']['async_motion'] = {'approach_departure_enabled': True}
+    raw['service_areas']['WS_1']['async_motion'] = {'table_mode': 'disabled'}
+    raw['service_areas']['WS_3']['async_motion'] = {'approach_departure_enabled': True}
     arena = load_arena(_write(tmp_path, 'arena.yaml', yaml.safe_dump(raw)))
     assert arena.async_motion_defaults.table_mode == 'always'
-    assert arena.service_areas['ws_1'].async_motion.table_mode == 'disabled'
-    assert arena.service_areas['ws_1'].async_motion.approach_departure_enabled is False
-    assert arena.service_areas['ws_3'].async_motion.table_mode == 'always'
-    assert arena.service_areas['ws_3'].async_motion.approach_departure_enabled is True
+    assert arena.service_areas['WS_1'].async_motion.table_mode == 'disabled'
+    assert arena.service_areas['WS_1'].async_motion.approach_departure_enabled is False
+    assert arena.service_areas['WS_3'].async_motion.table_mode == 'always'
+    assert arena.service_areas['WS_3'].async_motion.approach_departure_enabled is True
     legacy = load_arena(_write(tmp_path, 'legacy.yaml', VALID_ARENA))
     assert legacy.async_motion_defaults.table_mode == 'opposite_sides'
-    assert legacy.service_areas['ws_1'].async_motion.approach_departure_enabled is True
+    assert legacy.service_areas['WS_1'].async_motion.approach_departure_enabled is True
 
 
 @pytest.mark.parametrize('block', [
@@ -514,7 +514,7 @@ def test_async_motion_rejects_invalid_global_or_area_settings(tmp_path, block, l
     import yaml
     raw = yaml.safe_load(VALID_ARENA)
     if local:
-        raw['service_areas']['ws_1']['async_motion'] = block
+        raw['service_areas']['WS_1']['async_motion'] = block
     else:
         raw['async_motion_defaults'] = block
     with pytest.raises(ConfigurationError, match='async_motion'):
