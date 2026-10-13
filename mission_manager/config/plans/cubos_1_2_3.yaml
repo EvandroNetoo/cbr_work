@@ -4,17 +4,17 @@ finish: false
 visits:
 - target: ws_1
   tasks:
-  - {action: pick, tag_ids: [1]}
+  - {action: pick, tag_ids: [3]}
 
 - target: ws_2
   tasks:
-  - {action: pick, tag_ids: [1]}
+  - {action: pick, tag_ids: [3]}
 
 - target: ws_3
   tasks:
-      - {action: place_on_table, tag_ids: [1]}
+  - {action: place_on_table, possible_tag_ids: [3], tag_color: red}
   
 - target: ws_4
   tasks:
-      - {action: place_on_table, tag_ids: [1]}
+  - {action: place_on_table, possible_tag_ids: [3], tag_color: blue}
 

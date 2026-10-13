@@ -501,7 +501,7 @@ class MissionManager(PrecisionRuntime, Node):
             return
 
         if operation == 'pick':
-            self._world_state.commit_pick(tag_id)
+            self._world_state.commit_pick(tag_id, getattr(self, '_current_location', None))
         elif operation == 'store':
             self._world_state.commit_store(tag_id, slot_id)
         elif operation == 'retrieve':
@@ -988,7 +988,7 @@ class MissionManager(PrecisionRuntime, Node):
         for detection in list(references.values()) + detections:
             color = {1: 'red', 2: 'blue'}.get(int(getattr(detection, 'color', 0)))
             if color is not None:
-                self._world_state.remember_tag_color(int(detection.id), color)
+                self._world_state.remember_tag_color(int(detection.id), color, self._current_location)
             pose = detection.pose.position
             pickup_wall, pickup_travel = self._pickup_recovery_correction(
                 self._current_wall_distance_mm,
@@ -1762,7 +1762,8 @@ class MissionManager(PrecisionRuntime, Node):
         tag = int(step.tag_id)
         if tag not in getattr(self, '_required_color_tags', set()):
             return detection
-        if tag in self._world_state.tag_colors():
+        area_id = getattr(self, '_current_location', None)
+        if self._world_state.object_color(tag, area_id) is not None:
             return detection
         config = self._pickup_config()
         max_attempts = max(1, config.max_reposition_attempts)
@@ -1775,14 +1776,14 @@ class MissionManager(PrecisionRuntime, Node):
                 raise TaskNotFound(f'AprilTag {tag} não visível para confirmar a cor.')
             color = {1: 'red', 2: 'blue'}.get(int(getattr(detection, 'color', 0)))
             if color is not None:
-                self._world_state.remember_tag_color(tag, color)
+                self._world_state.remember_tag_color(tag, color, area_id)
                 return detection
             pose = detection.pose.position
             aligned = (abs(pose.x - config.preferred_tag_x_m) <= config.travel_tolerance_mm / 1000.0
                        and abs(pose.y - config.preferred_tag_y_m) <= config.wall_tolerance_mm / 1000.0)
             if aligned:
                 color = random.choice(('red', 'blue'))
-                self._world_state.remember_tag_color(tag, color)
+                self._world_state.remember_tag_color(tag, color, area_id)
                 self.get_logger().warning(
                     f'AprilTag {tag} alinhada com cor UNKNOWN; cor sorteada: {color}.')
                 return detection
@@ -2548,7 +2549,7 @@ class MissionManager(PrecisionRuntime, Node):
                     raise StateConflict(f'A entrega exige {step.tag_id}, mas a garra contém {tag_id}.')
                 if step.possible_tag_ids and (
                     tag_id not in step.possible_tag_ids
-                    or self._world_state.tag_colors().get(tag_id) != step.tag_color
+                    or self._world_state.gripper_color() != step.tag_color
                 ):
                     raise StateConflict('Entrega exige uma tag candidata com a cor solicitada confirmada.')
                 self._last_delivery_action = step.action
@@ -2769,7 +2770,7 @@ class MissionManager(PrecisionRuntime, Node):
                     if (not known or gripper != state.gripper
                             or tuple(slots[slot] for slot in scheduler.slot_ids) != state.slots):
                         raise StepFailed('Carga física confirmada diverge do escalonador.')
-                    scheduler.set_tag_colors(self._world_state.tag_colors())
+                    scheduler.set_tag_colors(self._world_state.object_colors())
                     viable = scheduler.viable_choices(state)
                     if not viable:
                         raise StepFailed(f'Visita {visit.visit_id} bloqueada pela carga ou suportes.')

@@ -17,6 +17,8 @@ class WorldState:
     Gripper and cargo are the first state domain kept here.  Keeping the class
     in the mission package gives future state (objects, stations and arena
     facts) a single owner without coupling it to a physical capability server.
+    Tags are labels, not unique object identities: separate slots and the
+    gripper may contain different cubes bearing the same tag ID.
     """
 
     def __init__(self, cargo_slot_ids: list[str]) -> None:
@@ -32,16 +34,32 @@ class WorldState:
         """Start a new mission with an empty, known on-board inventory."""
         with self._lock:
             self._tag_colors = {}
+            self._object_colors = {}
+            self._gripper_source = None
+            self._slot_sources = {slot_id: None for slot_id in self._slot_ids}
             self._known = True
             self._gripper = EMPTY
             self._slots = {slot_id: EMPTY for slot_id in self._slot_ids}
 
-    def remember_tag_color(self, tag_id: int, color: str) -> None:
+    def remember_tag_color(self, tag_id: int, color: str, area_id: str | None = None) -> None:
         if color not in {'red', 'blue'}:
             return
         with self._lock:
             # Preserve the decision across later UNKNOWN or conflicting images.
             self._tag_colors.setdefault(tag_id, color)
+            self._object_colors.setdefault((area_id, tag_id), color)
+
+    def object_colors(self) -> dict[tuple[str | None, int], str]:
+        with self._lock:
+            return dict(self._object_colors)
+
+    def object_color(self, tag_id: int, area_id: str | None = None) -> str | None:
+        with self._lock:
+            return self._object_colors.get((area_id, tag_id), self._object_colors.get((None, tag_id)))
+
+    def gripper_color(self) -> str | None:
+        with self._lock:
+            return self.object_color(self._gripper, self._gripper_source)
 
     def tag_colors(self) -> dict[int, str]:
         with self._lock:
@@ -95,14 +113,13 @@ class WorldState:
                 raise StateConflict(
                     f'A garra já contém o objeto {self._gripper}.'
                 )
-            if tag_id in self._slots.values():
-                raise StateConflict(f'O objeto {tag_id} já está armazenado no robô.')
 
-    def commit_pick(self, tag_id: int) -> None:
+    def commit_pick(self, tag_id: int, area_id: str | None = None) -> None:
         with self._lock:
             self._require_known()
             self._require_object_id(tag_id)
             self._gripper = tag_id
+            self._gripper_source = area_id
 
     def validate_store(self, tag_id: int, slot_id: str) -> None:
         with self._lock:
@@ -126,6 +143,8 @@ class WorldState:
             self._require_slot(slot_id)
             self._gripper = EMPTY
             self._slots[slot_id] = tag_id
+            self._slot_sources[slot_id] = self._gripper_source
+            self._gripper_source = None
 
     def validate_retrieve(self, tag_id: int, slot_id: str) -> None:
         with self._lock:
@@ -149,6 +168,8 @@ class WorldState:
             self._require_slot(slot_id)
             self._slots[slot_id] = EMPTY
             self._gripper = tag_id
+            self._gripper_source = self._slot_sources[slot_id]
+            self._slot_sources[slot_id] = None
 
     def validate_place(self, tag_id: int) -> None:
         with self._lock:
@@ -163,3 +184,4 @@ class WorldState:
         with self._lock:
             self._require_known()
             self._gripper = EMPTY
+            self._gripper_source = None

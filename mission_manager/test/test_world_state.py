@@ -68,6 +68,42 @@ def test_cannot_overwrite_an_occupied_slot():
         state.validate_store(5, 'left')
 
 
+@pytest.mark.parametrize('first_slot', ['left', 'right'])
+def test_equal_ids_in_separate_slots_can_be_placed_in_either_order(first_slot):
+    state = WorldState(['left', 'right'])
+    for slot in ('left', 'right'):
+        state.validate_pick(1)
+        state.commit_pick(1)
+        state.validate_store(1, slot)
+        state.commit_store(1, slot)
+    assert state.snapshot() == (True, EMPTY, {'left': 1, 'right': 1})
+    for slot in (first_slot, 'right' if first_slot == 'left' else 'left'):
+        state.validate_retrieve(1, slot)
+        state.commit_retrieve(1, slot)
+        state.validate_place(1)
+        state.commit_place()
+    assert state.snapshot() == (True, EMPTY, {'left': EMPTY, 'right': EMPTY})
+
+
+def test_duplicate_tag_colors_follow_their_own_slots():
+    state = WorldState(['left', 'right'])
+    state.remember_tag_color(3, 'red', 'ws_1')
+    state.commit_pick(3, 'ws_1')
+    state.commit_store(3, 'left')
+    state.remember_tag_color(3, 'blue', 'ws_2')
+    state.commit_pick(3, 'ws_2')
+    assert state.gripper_color() == 'blue'
+    state.commit_store(3, 'right')
+    for slot, color in [('left', 'red'), ('right', 'blue')]:
+        state.commit_retrieve(3, slot)
+        assert state.gripper_color() == color
+        state.commit_place()
+        assert state.gripper_color() is None
+    assert state.object_colors() == {('ws_1', 3): 'red', ('ws_2', 3): 'blue'}
+    state.reset()
+    assert state.object_colors() == {}
+
+
 def test_actions_can_infer_objects_from_gripper_and_slot():
     state = WorldState(['left'])
     state.commit_pick(7)

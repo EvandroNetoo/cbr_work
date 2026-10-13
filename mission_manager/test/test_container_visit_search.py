@@ -132,7 +132,7 @@ def test_store_lookahead_does_not_move_to_apriltag_search_for_container():
     ))
     scheduler = Scheduler(plan, ('left', 'right'))
     state = replace(scheduler.initial_state, visit=1, done=scheduler.masks[0],
-                    gripper=2, slots=(1, EMPTY), locations=(None, None))
+                    gripper=2, slots=(1, EMPTY), locations=((), ()))
     store = next(c for c in scheduler.viable_choices(state) if c.step.action == 'store')
     manager = planning_manager()
     assert manager._scheduler_search_tag(scheduler, store.next_state) is None

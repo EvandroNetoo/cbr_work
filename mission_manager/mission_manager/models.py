@@ -179,6 +179,7 @@ class Step:
     prepare_retrieve: bool = False
     possible_tag_ids: tuple[int, ...] = ()
     tag_color: str | None = None
+    source_area: str | None = None
 
 
 @dataclass(frozen=True)

@@ -20,10 +20,14 @@ class State:
     done: int
     gripper: int
     slots: tuple[int, ...]
-    locations: tuple[str | None, ...]
+    # One entry per tag, containing the areas of all off-board copies.
+    # Equal IDs in different areas represent interchangeable physical cubes.
+    locations: tuple[tuple[str, ...], ...]
     tops: tuple[int, ...]
     regrasped: int = 0
     colors: tuple[str | None, ...] = ()
+    gripper_source: str | None = None
+    slot_sources: tuple[str | None, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -42,11 +46,17 @@ class Scheduler:
         self.plan = plan
         self.slot_ids = slot_ids
         self.check_canceled = check_canceled
-        self.tag_colors: dict[int, str] = {}
+        self.tag_colors: dict[int | tuple[str | None, int], str] = {}
         self.tasks: list[tuple[int, Step, int]] = []
         self.masks = []
         self.groups: list[tuple[int, Step]] = []
         sources = {}
+        for visit in plan.visits:
+            for task in visit.tasks:
+                if task.action == 'pick':
+                    for tag in task.tag_ids or (task.tag_id,):
+                        sources.setdefault(tag, set()).add(visit.target)
+        self.sources = sources
         supports = {}
         for vi, visit in enumerate(plan.visits):
             mask = 0
@@ -59,35 +69,53 @@ class Scheduler:
                     tags = task.tag_ids
                     supports.setdefault(task.support_tag_id, visit.target)
                 for tag in tags:
-                    atomic = replace(task, tag_id=tag, tag_ids=())
-                    mask |= 1 << len(self.tasks)
-                    self.tasks.append((vi, atomic, group))
-                    if task.action == 'pick':
-                        sources.setdefault(tag, visit.target)
+                    # A color filter applies independently to every physical
+                    # copy, even when several source areas use the same ID.
+                    areas = sorted(sources.get(tag, ())) if task.tag_color else [None]
+                    for area in areas or [None]:
+                        atomic = replace(task, tag_id=tag, tag_ids=(), source_area=area)
+                        mask |= 1 << len(self.tasks)
+                        self.tasks.append((vi, atomic, group))
             self.masks.append(mask)
-        initial = dict(supports)
-        initial.update(sources)
         self.tags = tuple(sorted({t.tag_id for _, t, _ in self.tasks} | set(supports)))
         self.tag_indices = {tag: i for i, tag in enumerate(self.tags)}
+        self.color_keys = tuple((area, tag) for tag in self.tags
+                                for area in sorted(sources.get(tag, ())) or [None])
+        self.color_indices = {key: i for i, key in enumerate(self.color_keys)}
         self.initial_state = State(0, 0, EMPTY, (EMPTY,) * len(slot_ids),
-                                   tuple(initial.get(tag) for tag in self.tags),
+                                   tuple(tuple(sorted(sources[tag])) if tag in sources
+                                         else (supports[tag],) if tag in supports else ()
+                                         for tag in self.tags),
                                    tuple(task.support_tag_id for _, task in self.groups),
-                                   colors=(None,) * len(self.tags))
+                                   colors=(None,) * len(self.color_keys),
+                                   slot_sources=(None,) * len(slot_ids))
         self._memo: dict[State, bool] = {}
 
-    def set_tag_colors(self, colors: Mapping[int, str]) -> None:
+    def set_tag_colors(self, colors: Mapping[int | tuple[str | None, int], str]) -> None:
         if dict(colors) != self.tag_colors:
             self.tag_colors = dict(colors)
             self._memo.clear()
+
+    def _color_index(self, task: Step) -> int:
+        area = task.source_area
+        if area is None:
+            area = next(iter(sorted(self.sources.get(task.tag_id, ()))), None)
+        return self.color_indices[(area, task.tag_id)]
+
+    def _matches_source(self, state: State, task: Step) -> bool:
+        return (len(self.sources.get(task.tag_id, ())) <= 1
+                or task.source_area == state.gripper_source)
 
     def complete(self, state: State) -> bool:
         return state.visit == len(self.plan.visits)
 
     def _available_support(self, state: State, tag: int, target: str) -> bool:
-        if state.locations[self.tag_indices[tag]] != target:
+        if target not in state.locations[self.tag_indices[tag]]:
             return False
         # A lower layer is no longer a free support after stacking above it.
-        for gi, (_vi, group) in enumerate(self.groups):
+        for gi, (vi, group) in enumerate(self.groups):
+            if self.plan.visits[vi].target != target:
+                continue
             used = {task.tag_id for index, (_v, task, g) in enumerate(self.tasks)
                     if g == gi and state.done & (1 << index)}
             if used and tag in used | {group.support_tag_id} and state.tops[gi] != tag:
@@ -98,10 +126,11 @@ class Scheduler:
         if self.complete(state):
             return ()
         visit = self.plan.visits[state.visit]
-        colors = list(state.colors or (None,) * len(self.tags))
-        for tag, color in self.tag_colors.items():
-            if tag in self.tag_indices:
-                ti = self.tag_indices[tag]
+        colors = list(state.colors or (None,) * len(self.color_keys))
+        for ti, key in enumerate(self.color_keys):
+            color = self.tag_colors.get(key, self.tag_colors.get(
+                (None, key[1]), self.tag_colors.get(key[1])))
+            if color is not None:
                 if colors[ti] is not None and colors[ti] != color:
                     return ()
                 colors[ti] = color
@@ -113,8 +142,9 @@ class Scheduler:
                                     if self.masks[vi] or self.plan.visits[vi].pp_final_state is not None), len(self.plan.visits))
             next_tags = {task.tag_id for vi, task, _ in self.tasks
                          if vi == next_work_visit and task.action != 'pick'
-                         and (task.tag_color is None or colors[self.tag_indices[task.tag_id]]
-                              in {None, task.tag_color})}
+                         and (task.tag_color is None or (
+                             self._matches_source(state, task)
+                             and colors[self._color_index(task)] in {None, task.tag_color}))}
             dynamic_ready = (visit.pp_final_state is None or visit.pp_start_state is not None
                              or (state.gripper == EMPTY and state.slots.count(EMPTY) >= 2))
             if dynamic_ready and (state.gripper == EMPTY or state.gripper in next_tags):
@@ -136,7 +166,7 @@ class Scheduler:
             tag = task.tag_id
             task_colors = list(colors)
             if task.tag_color is not None:
-                ti = self.tag_indices[tag]
+                ti = self._color_index(task)
                 color = task_colors[ti]
                 if color != task.tag_color:
                     if color is not None or speculative:
@@ -152,15 +182,18 @@ class Scheduler:
             tops = list(state.tops)
             regrasped = state.regrasped
             if task.action == 'pick':
-                if state.gripper != EMPTY or locations[self.tag_indices[tag]] != visit.target:
+                if state.gripper != EMPTY or visit.target not in locations[self.tag_indices[tag]]:
                     continue
                 if not self._available_support(state, tag, visit.target):
                     continue
-                locations[self.tag_indices[tag]] = None
+                remaining = list(locations[self.tag_indices[tag]])
+                remaining.remove(visit.target)
+                locations[self.tag_indices[tag]] = tuple(remaining)
                 regrasped &= ~(1 << self.tag_indices[tag])
                 gripper = tag
+                gripper_source = visit.target
             else:
-                if state.gripper != tag:
+                if state.gripper != tag or (task.tag_color and not self._matches_source(state, task)):
                     continue
                 if (task.action == 'place_on_precision_table'
                         and not state.regrasped & (1 << self.tag_indices[tag])):
@@ -171,28 +204,39 @@ class Scheduler:
                         continue
                     task = replace(task, support_tag_id=support)
                     tops[group] = tag
-                locations[self.tag_indices[tag]] = visit.target
+                locations[self.tag_indices[tag]] = tuple(sorted(
+                    (*locations[self.tag_indices[tag]], visit.target)))
                 gripper = EMPTY
+                gripper_source = None
             result.append(Choice(task, replace(state, done=state.done | (1 << index),
                                                gripper=gripper, locations=tuple(locations),
                                                tops=tuple(tops), regrasped=regrasped,
-                                               colors=tuple(task_colors)), index, task.step_id))
+                                               colors=tuple(task_colors),
+                                               gripper_source=gripper_source), index, task.step_id))
         if state.gripper != EMPTY:
             if EMPTY in state.slots:
                 slot = state.slots.index(EMPTY)
                 slots = list(state.slots)
                 slots[slot] = state.gripper
+                slot_sources = list(state.slot_sources or (None,) * len(state.slots))
+                slot_sources[slot] = state.gripper_source
                 result.append(Choice(Step('auto_store', 'store', tag_id=state.gripper,
                                           slot_id=self.slot_ids[slot]),
-                                     replace(state, gripper=EMPTY, slots=tuple(slots))))
+                                     replace(state, gripper=EMPTY, slots=tuple(slots),
+                                             gripper_source=None, slot_sources=tuple(slot_sources))))
         else:
             for slot, tag in enumerate(state.slots):
                 if tag != EMPTY and tag in self.tag_indices:
                     slots = list(state.slots)
                     slots[slot] = EMPTY
+                    slot_sources = list(state.slot_sources or (None,) * len(state.slots))
+                    gripper_source = slot_sources[slot]
+                    slot_sources[slot] = None
                     result.append(Choice(Step('auto_retrieve', 'retrieve', tag_id=tag,
                                               slot_id=self.slot_ids[slot]),
                                          replace(state, gripper=tag, slots=tuple(slots),
+                                                 gripper_source=gripper_source,
+                                                 slot_sources=tuple(slot_sources),
                                                  regrasped=state.regrasped | (1 << self.tag_indices[tag]))))
         return tuple(result)
 
@@ -251,7 +295,7 @@ class Scheduler:
             tag = task.tag_id
             location = blocked.locations[self.tag_indices[tag]]
             if task.action == 'pick':
-                if location != visit.target:
+                if visit.target not in location:
                     reason = f'tag está em {location!r}, não em {visit.target!r}'
                 elif not self._available_support(blocked, tag, visit.target):
                     reason = f'tag {tag} tem outro cubo empilhado acima'

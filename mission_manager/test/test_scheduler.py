@@ -23,6 +23,77 @@ def advance(scheduler, state, action, tag=None):
                 if c.step.action == action and (tag is None or c.step.tag_id == tag))
 
 
+@pytest.mark.parametrize('first_slot', ['left', 'right'])
+def test_same_tag_from_different_areas_can_deliver_either_stored_cube(first_slot):
+    plan = Plan('duplicates', (
+        Visit('a', 'ws_1', (Step('p1', 'pick', tag_id=1),)),
+        Visit('b', 'ws_2', (Step('p2', 'pick', tag_id=1),)),
+        Visit('c', 'ws_3', (Step('d1', 'place_on_table', tag_id=1),)),
+        Visit('d', 'ws_4', (Step('d2', 'place_on_table', tag_id=1),)),
+    ))
+    scheduler = Scheduler(plan, ('left', 'right'))
+    state = advance(scheduler, scheduler.initial_state, 'pick', 1)
+    state = advance(scheduler, state, 'store')
+    state = advance(scheduler, state, 'depart')
+    state = advance(scheduler, state, 'pick', 1)
+    state = advance(scheduler, state, 'depart')
+    state = advance(scheduler, state, 'store')
+    assert state.slots == (1, 1)
+    state = next(c.next_state for c in scheduler.viable_choices(state)
+                 if c.step.action == 'retrieve' and c.step.slot_id == first_slot)
+    state = advance(scheduler, state, 'place_on_table', 1)
+    state = advance(scheduler, state, 'depart')
+    state = advance(scheduler, state, 'retrieve', 1)
+    state = advance(scheduler, state, 'place_on_table', 1)
+    state = advance(scheduler, state, 'depart')
+    assert scheduler.complete(state)
+    assert state.slots == (EMPTY, EMPTY) and state.gripper == EMPTY
+    assert state.locations[scheduler.tag_indices[1]] == ('ws_3', 'ws_4')
+
+
+def test_same_tag_cannot_be_collected_twice_from_same_area_without_delivery():
+    plan = Plan('same_cube', (
+        Visit('a', 'ws_1', (Step('p1', 'pick', tag_id=1),)),
+        Visit('b', 'ws_1', (Step('p2', 'pick', tag_id=1),)),
+        Visit('c', 'ws_3', (Step('d1', 'place_on_table', tag_id=1),)),
+        Visit('d', 'ws_4', (Step('d2', 'place_on_table', tag_id=1),)),
+    ))
+    scheduler = Scheduler(plan, ('left', 'right'))
+    assert not scheduler.feasible(scheduler.initial_state)
+
+
+def test_duplicate_tag_copies_still_require_one_delivery_each():
+    plan = Plan('missing_copy_delivery', (
+        Visit('a', 'ws_1', (Step('p1', 'pick', tag_id=1),)),
+        Visit('b', 'ws_2', (Step('p2', 'pick', tag_id=1),)),
+        Visit('c', 'ws_3', (Step('d1', 'place_on_table', tag_id=1),)),
+    ))
+    scheduler = Scheduler(plan, ('left', 'right'))
+    assert not scheduler.feasible(scheduler.initial_state)
+
+
+def test_stacked_copy_does_not_block_picking_same_tag_in_another_area():
+    plan = Plan('duplicates_with_stack', (
+        Visit('a', 'ws_1', (Step('collect', 'pick', tag_ids=(1, 2)),)),
+        Visit('b', 'ws_3', (Step('pile', 'stack', tag_ids=(1, 2), support_tag_id=14),)),
+        Visit('c', 'ws_2', (Step('p1', 'pick', tag_id=1),)),
+        Visit('d', 'ws_4', (Step('d1', 'place_on_table', tag_id=1),)),
+    ))
+    scheduler = Scheduler(plan, ('left', 'right'))
+    state = advance(scheduler, scheduler.initial_state, 'pick', 2)
+    state = advance(scheduler, state, 'store')
+    state = advance(scheduler, state, 'pick', 1)
+    state = advance(scheduler, state, 'depart')
+    state = advance(scheduler, state, 'stack', 1)
+    state = advance(scheduler, state, 'retrieve', 2)
+    state = advance(scheduler, state, 'stack', 2)
+    state = advance(scheduler, state, 'depart')
+    state = advance(scheduler, state, 'pick', 1)
+    state = advance(scheduler, state, 'depart')
+    state = advance(scheduler, state, 'place_on_table', 1)
+    assert scheduler.complete(advance(scheduler, state, 'depart'))
+
+
 def test_different_identifications_choose_different_first_pick():
     scheduler = Scheduler(mission(), ('left', 'right'))
     state = scheduler.initial_state

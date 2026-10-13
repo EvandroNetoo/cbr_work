@@ -123,6 +123,10 @@ concluir as visitas. A arena permanece em `schema_version: 1`.
 
 Coletas e entregas explícitas informam uma lista não vazia `tag_ids`, sem
 repetições. Cada visita declara uma única task `pick` com todos os IDs a coletar.
+O mesmo ID pode identificar cubos em áreas de serviço diferentes, como no plano
+`cubos_1_2_3`. Eles podem ser transportados simultaneamente em slots diferentes
+ou na garra. Cada entrega consome um cubo com o ID solicitado, independentemente
+da área de origem; não é necessário entregar os cubos na ordem de coleta.
 Entregas com a mesma ação e os mesmos parâmetros também devem ser agrupadas
 na mesma lista. Fragmentar essas tarefas em várias entradas é rejeitado, mesmo
 quando cada entrada contém um único ID. Entregas com cores, filtros ou referências
@@ -144,9 +148,12 @@ Cada entrega condicional aplica-se a todos os candidatos da cor solicitada.
 Candidatos da outra cor são ignorados; nenhum candidato correspondente significa
 nenhuma entrega nessa tarefa. A cor do container é independente da cor do cubo.
 A missão não declara as cores dos cubos: `tag_color` é um filtro da ação.
-A cor observada é armazenada por ID durante a missão, inclusive após coleta,
+A cor observada é armazenada por área de coleta e ID durante a missão, inclusive após coleta,
 armazenamento, entrega e mudança de área. UNKNOWN e observações conflitantes
 posteriores não substituem uma cor já definida. A memória é limpa na próxima missão.
+Cubos com o mesmo ID em áreas diferentes mantêm cores independentes na garra e
+nos slots. Use `possible_tag_ids: [3]` (sem repetir o ID) para entregar os cubos
+de ID 3 que correspondem a `tag_color`, independentemente da origem.
 
 Antes de coletar uma tag usada em qualquer `possible_tag_ids`, o robô exige
 RED ou BLUE. Se a cor for UNKNOWN, alinha a base à tag e observa novamente.

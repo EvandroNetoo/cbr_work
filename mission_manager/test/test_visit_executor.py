@@ -15,7 +15,7 @@ from rclpy.task import Future
 import pytest
 
 from mission_manager.errors import MissionCanceled, StepFailed
-from mission_manager.loaders import load_arena
+from mission_manager.loaders import load_arena, load_plan, validate_plan
 from mission_manager.models import Plan, Step, Visit
 from mission_manager.node import MissionManager
 from mission_manager.world_state import EMPTY, WorldState
@@ -37,7 +37,7 @@ class SimulatedActionClient:
     def wait_for_server(self, timeout_sec):
         return True
 
-    def send_goal_async(self, goal):
+    def send_goal_async(self, goal, feedback_callback=None):
         self.goals.append(goal)
         result = self.responder(goal)
         def cancel():
@@ -97,7 +97,8 @@ def simulated_manager(plan, visible=None):
     manager._duration = lambda seconds: Duration(sec=int(seconds))
     manager._retreat_from_lateral_wall_before_slot_access = lambda *_args: None
     manager.get_logger = lambda: SimpleNamespace(info=lambda *_args: None, warning=lambda *_args: None, error=lambda *_args: None)
-    scenes = {visit.target: {task.tag_id for task in visit.tasks if task.action == 'pick'}
+    scenes = {visit.target: {tag for task in visit.tasks if task.action == 'pick'
+                            for tag in (task.tag_ids or (task.tag_id,))}
               for visit in plan.visits}
     navs = []
     events = []
@@ -157,6 +158,37 @@ def simulated_manager(plan, visible=None):
     manager._retreat_before_shelf_retrieve = lambda _area: None
     manager._restore_shelf_observation_distance = lambda _area: None
     return manager, navs, events, held_at_departure
+
+
+@pytest.mark.parametrize('source_colors', [('red', 'blue'), ('blue', 'red')])
+def test_cubos_1_2_3_plan_executes_with_duplicate_ids(source_colors):
+    plan = load_plan(Path(__file__).parents[1] / 'config' / 'plans' / 'cubos_1_2_3.yaml')
+    manager, navs, events, departures = simulated_manager(plan)
+    colors = dict(zip(('ws_1', 'ws_2'), source_colors))
+    analyze = manager._vision_client.responder
+    def colored_scene(goal):
+        result = analyze(goal)
+        for tag in result.best_apriltags_base:
+            tag.color = 1 if colors[manager._current_location] == 'red' else 2
+        return result
+    manager._vision_client.responder = colored_scene
+    delivered = []
+    place = manager._place_table_client.responder
+    def colored_place(goal):
+        delivered.append((manager._current_location, manager._world_state.gripper_color()))
+        return place(goal)
+    manager._place_table_client.responder = colored_place
+    validate_plan(plan, manager._arena)
+    manager._run_plan(SimpleNamespace(publish_feedback=lambda _feedback: None), plan)
+    assert navs == ['ws_1', 'ws_2', 'ws_3', 'ws_4']
+    assert [event for event in events if event[0] == 'pick'] == [('pick', 3), ('pick', 3)]
+    assert delivered == [('ws_3', 'red'), ('ws_4', 'blue')]
+    assert [(out.tag_id, out.area_id) for out in manager._delivery_outcomes] == [
+        (3, 'ws_3'), (3, 'ws_4')]
+    _, gripper, slots = next(d for d in departures if d[0] == 'ws_3')
+    assert [gripper, *slots.values()].count(3) == 2
+    assert manager._world_state.snapshot() == (True, EMPTY, {'left': EMPTY, 'right': EMPTY})
+    assert manager._completed_steps == plan.total_steps
 
 
 def test_full_cargo_transits_empty_visit_without_observation_or_extra_transfer():
