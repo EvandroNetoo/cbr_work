@@ -2,9 +2,9 @@
 # name: Final Test
 # duration_min: 30 (informativo; o executor não impõe esse prazo)
 # active_service_areas: [SH_1, WS_1, PP, WS_2, WS_3, ST, WS_4, WS_5]
-# Correspondências: SH_1=sh_1, PP=pp_1, ST=st_1, WS_n=ws_n.
-# ST usa a área cadastrada st_1; o container azul permanece em ws_5.
-# Suporte da pilha em st_1: AprilTag 14.
+# Correspondências: SH_1=SH_1, PP=PP, ST=ST, WS_n=ws_n.
+# ST usa a área cadastrada ST; o container azul permanece em WS_5.
+# Suporte da pilha em ST: AprilTag 14.
 # Referências livres na PP: 5 e 6, mantidas do exemplo anterior; confirmar na mesa.
 # Origens: SH_1 inferior=[1, 3], WS_1=[11, 8], WS_2=[2, 9],
 # WS_3=[6], WS_4=[4, 10], WS_5=[5]; PP e ST começam sem objetos transportados.
@@ -18,49 +18,49 @@ initial_location: start
 finish: true
 
 visits:
-  - target: sh_1
+  - target: SH_1
     tasks:
       - {action: pick, tag_ids: [1, 3]}
 
-  - target: st_1
+  - target: ST
     tasks:
       - {action: stack, support_tag_id: 14, tag_ids: [1, 3]}
 
-  - target: ws_1
+  - target: WS_1
     tasks:
       - {action: pick, tag_ids: [11, 8]}
 
-  - target: ws_3
+  - target: WS_3
     tasks:
       - {action: place_in_container, container_color: red, tag_ids: [11]}
       - {action: pick, tag_ids: [6]}
 
-  - target: sh_1
+  - target: SH_1
     tasks:
       - {action: place_on_shelf, tag_ids: [6]}
 
-  - target: ws_4
+  - target: WS_4
     tasks:
       - {action: pick, tag_ids: [4, 10]}
 
-  - target: ws_5
+  - target: WS_5
     tasks:
       - {action: place_in_container, container_color: blue, tag_ids: [4, 8]}
       - {action: pick, tag_ids: [5]}
 
-  - target: sh_1
+  - target: SH_1
     tasks:
       - {action: place_on_shelf, tag_ids: [10]}
 
-  - target: ws_2
+  - target: WS_2
     tasks:
       - {action: pick, tag_ids: [2, 9]}
 
-  - target: ws_3
+  - target: WS_3
     tasks:
       - {action: place_in_container, container_color: red, tag_ids: [2]}
 
-  - target: pp_1
+  - target: PP
     tasks:
       - {action: place_on_precision_table, tag_ids: [9], reference_tag_id: 5}
       - {action: place_on_precision_table, tag_ids: [5], reference_tag_id: 6}

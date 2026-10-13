@@ -98,7 +98,7 @@ finish:
   yaw_rad: 3.14
 
 service_areas:
-  sh_1:
+  SH_1:
     x_m: 1.333
     y_m: 1.414
     yaw_rad: -1.570
@@ -107,14 +107,14 @@ service_areas:
     alignment:
       distance_mm: 80
 
-  ws_1:
+  WS_1:
     x_m: 3.13
     y_m: 1.36
     yaw_rad: 1.570
     height_cm: 10.5
     type: WS
 
-  pp_1:
+  PP:
     x_m: 3.13
     y_m: 2.67
     yaw_rad: -1.570
@@ -123,42 +123,42 @@ service_areas:
     alignment:
       distance_mm: 80
 
-  ws_2:
+  WS_2:
     x_m: 2.2
     y_m: 2.476
     yaw_rad: 1.570
     height_cm: 6
     type: WS
 
-  ws_3:
+  WS_3:
     x_m: 2.2
     y_m: 3.755
     yaw_rad: -1.570
     height_cm: 6
     type: WS
 
-  st_1:
+  ST:
     x_m: 4.38
     y_m: 4.830
     yaw_rad: 1.570
     height_cm: 16.0
     type: ST
 
-  ws_4:
+  WS_4:
     x_m: 4.38
     y_m: 4.830
     yaw_rad: 1.570
     height_cm: 16.0
     type: WS
 
-  ws_5:
+  WS_5:
     x_m: 4.38
     y_m: 6.100
     yaw_rad: -1.570
     height_cm: 16.0
     type: WS
 
-  pp_67:
+  PP_67:
     x_m: 2.55
     y_m: 3.31
     yaw_rad: 1.570
@@ -167,7 +167,7 @@ service_areas:
     async_motion:
       table_mode: always
 
-  ws_67:
+  WS_67:
     x_m: 2.55
     y_m: 4.51
     yaw_rad: -1.570

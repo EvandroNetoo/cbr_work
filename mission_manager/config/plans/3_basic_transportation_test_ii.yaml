@@ -1,7 +1,7 @@
 # Migrado dos passos ativos; rota e destinos preservados.
 # Teste de 8 minutos. Exemplo de cinco ATTCs e quatro destinos ativos.
-# Neste exemplo, a tag 5 começa na ws_2 e vai para ws_1; as tags 1 a 4
-# começam na ws_1 e vão para ws_2, ws_3 e ws_4. Ajuste cada coleta e
+# Neste exemplo, a tag 5 começa na WS_2 e vai para WS_1; as tags 1 a 4
+# começam na WS_1 e vão para WS_2, WS_3 e WS_4. Ajuste cada coleta e
 # destino conforme a distribuição real e as AprilTags sorteadas.
 # Calibre em arena.yaml as alturas reais (5, 10 ou 15 cm), poses e mapa
 # de navegação após posicionar os dois obstáculos. O YAML não configura
@@ -10,21 +10,21 @@ schema_version: 2
 plan_id: basic_transportation_test_ii
 finish: true
 visits:
-  - target: ws_2
+  - target: WS_2
     tasks:
       - {action: pick, tag_ids: [1]}
-  - target: ws_1
+  - target: WS_1
     tasks:
       - {action: place_on_table, tag_ids: [1]}
       - {action: pick, tag_ids: [2, 3]}
-  - target: ws_3
+  - target: WS_3
     tasks:
       - {action: place_on_table, tag_ids: [3]}
       - {action: pick, tag_ids: [5]}
-  - target: ws_4
+  - target: WS_4
     tasks:
       - {action: place_on_table, tag_ids: [5]}
       - {action: pick, tag_ids: [4]} 
-  - target: ws_2
+  - target: WS_2
     tasks:
       - {action: place_on_table, tag_ids: [2, 4]}

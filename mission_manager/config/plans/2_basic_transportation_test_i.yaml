@@ -1,6 +1,6 @@
 # Migrado dos passos ativos; rota e destinos preservados.
-# Teste de 6 minutos. Exemplo: tags 1, 2 e 3 na ws_1, destinadas,
-# respectivamente, às ws_2, ws_3.
+# Teste de 6 minutos. Exemplo: tags 1, 2 e 3 na WS_1, destinadas,
+# respectivamente, às WS_2, WS_3.
 # Ajuste IDs, origem e destinos após o sorteio. Calibre as três áreas ativas
 # em arena.yaml para as alturas reais de 5 ou 10 cm antes de executar.
 # O formato atual do plano não recebe o sorteio nem impõe o prazo.
@@ -8,17 +8,17 @@ schema_version: 2
 plan_id: basic_transportation_test_i
 finish: true
 visits:
-  - target: ws_1
+  - target: WS_1
     tasks:
       - {action: pick, tag_ids: [1]}
-  - target: ws_2
+  - target: WS_2
     tasks:
       - {action: place_on_table, tag_ids: [1]}
       - {action: pick, tag_ids: [2]}
-  - target: ws_3
+  - target: WS_3
     tasks:
       - {action: place_on_table, tag_ids: [2]}
       - {action: pick, tag_ids: [3]}
-  - target: ws_1
+  - target: WS_1
     tasks:
       - {action: place_on_table, tag_ids: [3]}
