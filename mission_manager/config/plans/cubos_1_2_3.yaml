@@ -2,11 +2,19 @@ schema_version: 2
 plan_id: cubos_1_2_3
 finish: false
 visits:
-- target: sh_1
+- target: ws_1
   tasks:
-  - {action: pick, tag_ids: [5, 9]}
+  - {action: pick, tag_ids: [1]}
+
+- target: ws_2
+  tasks:
+  - {action: pick, tag_ids: [1]}
+
+- target: ws_3
+  tasks:
+      - {action: place_on_table, tag_ids: [1]}
   
 - target: ws_4
   tasks:
-      - {action: stack, support_tag_id: 14, tag_ids: [5, 9]}
+      - {action: place_on_table, tag_ids: [1]}
 

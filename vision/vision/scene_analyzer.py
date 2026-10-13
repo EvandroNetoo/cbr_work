@@ -208,6 +208,7 @@ class SceneAnalyzer(
         self.declare_parameter('tag_frame_prefix', 'apriltag')
         self.declare_parameter('family', 'tag36h11')
         self.declare_parameter('tag_size_m', 0.032)
+        self.declare_parameter('apriltag_min_y_m', -0.35)
         self.declare_parameter('cube_color_min_band_pixels', 20)
         self.declare_parameter('cube_color_min_colored_pixels', 12)
         self.declare_parameter('cube_color_min_colored_fraction', 0.30)
@@ -280,6 +281,10 @@ class SceneAnalyzer(
         self.floor_frame = str(self.get_parameter('floor_frame').value)
         self.tag_frame_prefix = str(self.get_parameter('tag_frame_prefix').value)
         self.tag_size_m = float(self.get_parameter('tag_size_m').value)
+        self.apriltag_min_y_m = float(
+            self.get_parameter('apriltag_min_y_m').value)
+        if not math.isfinite(self.apriltag_min_y_m):
+            raise ValueError('apriltag_min_y_m must be finite.')
         self.cube_color_criteria = CubeColorCriteria(
             min_band_pixels=int(self.get_parameter(
                 'cube_color_min_band_pixels').value),
@@ -1110,7 +1115,8 @@ class SceneAnalyzer(
             [0.0, 0.0, 1.0],
         ], dtype=np.float64)
         detections = []
-        frame_color_votes: dict[int, tuple[int, float]] = {}
+        accepted_detections = []
+        camera_detections = []
         camera_items: list[AprilTagStampedDetection] = []
         camera_poses: list[PoseStamped] = []
         transforms: list[TransformStamped] = []
@@ -1147,8 +1153,7 @@ class SceneAnalyzer(
                 item.color = color
                 item.color_confidence = confidence
                 item.color_observation_count = int(color != UNKNOWN)
-                if color != UNKNOWN:
-                    frame_color_votes[item.id] = (color, confidence)
+                camera_detections.append(detection)
                 camera_items.append(item)
                 stamped = PoseStamped(header=item.header, pose=pose)
                 camera_poses.append(stamped)
@@ -1179,6 +1184,7 @@ class SceneAnalyzer(
         base_poses: list[PoseStamped] = []
         container_base_items: list[ContainerStampedDetection] = []
         base_transform = None
+        accepted_indices = []
         needs_base = bool(camera_poses or active_detectors &
                           (TABLE_SURFACE | CONTAINERS_HSV))
         if needs_base and tf_buffer is not None:
@@ -1197,12 +1203,28 @@ class SceneAnalyzer(
                         base_transform = session.last_base_transform
             if base_transform is not None:
                 session.last_base_transform = copy.deepcopy(base_transform)
-                for item, pose_camera in zip(camera_items, camera_poses):
+                for index, (item, pose_camera) in enumerate(
+                        zip(camera_items, camera_poses)):
                     pose_base = do_transform_pose_stamped(
                         pose_camera, base_transform)
+                    y = pose_base.pose.position.y
+                    if (not math.isfinite(y)
+                            or y < getattr(self, 'apriltag_min_y_m', -0.35)):
+                        continue
+                    accepted_indices.append(index)
                     base_items.append(self.to_stamped_detection_from_item(
                         item, pose_base.pose, self.base_frame))
                     base_poses.append(pose_base)
+        # Filter all representations together before publishing, pose ranking
+        # or color voting. Without TF the workspace limit cannot be checked.
+        camera_items = [camera_items[i] for i in accepted_indices]
+        camera_poses = [camera_poses[i] for i in accepted_indices]
+        transforms = [transforms[i] for i in accepted_indices]
+        accepted_detections = [camera_detections[i] for i in accepted_indices]
+        frame_color_votes = {
+            item.id: (item.color, item.color_confidence)
+            for item in camera_items if item.color != UNKNOWN
+        }
         hsv_observations = []
         if active_detectors & CONTAINERS_HSV and base_transform is not None:
             floor_z = 0.0
@@ -1374,7 +1396,8 @@ class SceneAnalyzer(
                 if debug_detectors & APRILTAGS:
                     self.publish_detection_debug_image(
                         message, bgr, detections, camera_items, session,
-                        self._detector_observation_fps(session, APRILTAGS))
+                        self._detector_observation_fps(session, APRILTAGS),
+                        accepted_detections=accepted_detections)
                 if debug_detectors & CONTAINERS_HSV:
                     self.publish_hsv_container_debug_image(
                         message, bgr, masks, hsv_blobs, session)

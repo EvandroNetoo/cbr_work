@@ -968,8 +968,7 @@ def test_vision_only_releases_resources_it_enabled(initially_on, hold_led_off):
         ]
 
 
-@pytest.mark.parametrize('pp,expected_count', [(True, 2), (False, 1)])
-def test_frame_preserves_equal_tag_ids_by_pp_height_only(pp, expected_count):
+def _apriltag_frame_fixture(pp=False):
     from sensor_msgs.msg import CameraInfo
     goal = AnalyzeScene.Goal(requested_detectors=AnalyzeScene.Goal.APRILTAGS,
                classify_pp_tags=pp, pp_reference_z_m=.02, pp_reference_z_tolerance_m=.015)
@@ -1011,9 +1010,79 @@ def test_frame_preserves_equal_tag_ids_by_pp_height_only(pp, expected_count):
     analyzer.tf_broadcaster = SimpleNamespace(sendTransform=transforms.extend)
     message = Image()
     message.header.frame_id = 'camera'
+    return analyzer, session, message, detections, transform, transforms
+
+
+@pytest.mark.parametrize('pp,expected_count', [(True, 2), (False, 1)])
+def test_frame_preserves_equal_tag_ids_by_pp_height_only(pp, expected_count):
+    analyzer, session, message, _, _, transforms = _apriltag_frame_fixture(pp)
     analyzer._process_image(message)
     assert session.frames_with_base_transform == 1
     assert len(session.best_base) == len(session.best_camera) == expected_count
     if pp:
         assert {item.pose.position.z for item in session.best_base.values()} == {.02, .07}
         assert {item.child_frame_id for item in transforms} == {'tag_tag36h11_1_reference', 'tag_tag36h11_1_object'}
+
+
+@pytest.mark.parametrize('pp', [False, True])
+@pytest.mark.parametrize('local_y,limit,expected', [
+    (-0.30, -0.35, 1),
+    (-0.35, -0.35, 1),
+    (-0.350001, -0.35, 0),
+    (-0.40, -0.45, 1),
+])
+def test_apriltag_workspace_filters_duplicate_before_ranking_and_color_votes(
+        monkeypatch, pp, local_y, limit, expected):
+    analyzer, session, message, detections, transform, transforms = (
+        _apriltag_frame_fixture(pp))
+    analyzer.apriltag_min_y_m = limit
+    # Camera coordinates alone would accept both; apply the base translation.
+    transform.transform.translation.y = -0.20
+    detections[0].pose_t[1, 0] = local_y + 0.20
+    detections[1].pose_t[1, 0] = -0.60 + 0.20
+    # The distant duplicate would win pose ranking and overwrite the color vote.
+    detections[0].pose_err = 0.02
+    detections[1].pose_err = 0.001
+    colors = iter([(RED, 0.9), (BLUE, 0.99)])
+    monkeypatch.setattr('vision.scene_analyzer.classify_cube_color',
+                        lambda *_args: next(colors))
+    outputs = {}
+    for name in ('camera_pose_publisher', 'camera_detection_publisher',
+                 'pose_publisher', 'detection_publisher'):
+        setattr(analyzer, name, SimpleNamespace(
+            publish=lambda value, key=name: outputs.setdefault(key, value)))
+
+    analyzer._process_image(message)
+
+    assert len(session.best_base) == len(session.best_camera) == expected
+    assert len(session.latest_camera) == len(session.latest_base) == expected
+    assert len(transforms) == expected
+    assert len(outputs['camera_pose_publisher'].poses) == expected
+    assert len(outputs['pose_publisher'].poses) == expected
+    assert len(outputs['camera_detection_publisher'].detections) == expected
+    assert len(outputs['detection_publisher'].detections) == expected
+    if expected:
+        selected = next(iter(session.best_base.values()))
+        assert selected.pose.position.y == pytest.approx(local_y)
+        assert selected.pose_error == 0.02
+        assert session.cube_color_votes == {1: [(RED, 0.9)]}
+        if pp:
+            assert transforms[0].child_frame_id.endswith('_reference')
+    else:
+        assert session.cube_color_votes == {}
+
+
+def test_apriltag_workspace_rejects_tags_without_base_tf():
+    analyzer, session, message, _, _, transforms = _apriltag_frame_fixture()
+
+    def missing_transform(*_args, **_kwargs):
+        raise TransformException('no TF')
+
+    analyzer.tf_buffer.lookup_transform = missing_transform
+    analyzer._process_image(message)
+
+    assert session.frames_with_base_transform == 0
+    assert session.best_camera == session.best_base == {}
+    assert session.latest_camera == session.latest_base == []
+    assert session.cube_color_votes == {}
+    assert transforms == []

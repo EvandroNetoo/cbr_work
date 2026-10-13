@@ -9,6 +9,9 @@ scene_analyzer:
     tag_frame_prefix: apriltag
     family: tag36h11
     tag_size_m: 0.032
+    # Limite inclusivo no eixo Y de base_frame (arm_base_link no bringup).
+    # Tags com Y < -0.35 m pertencem à região distante e são ignoradas.
+    apriltag_min_y_m: -0.35
     # pupil_apriltags releases the GIL and scales well across the four ARM
     # cores. Leave one core available for ROS, TF and the OpenCV path.
     nthreads: 3

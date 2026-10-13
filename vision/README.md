@@ -27,6 +27,15 @@ ros2 action send_goal /vision/analyze_scene interfaces/action/AnalyzeScene \
 
 ## Tagged cube color
 
+AprilTags are accepted only when their transformed Y coordinate in `base_frame`
+is at least `apriltag_min_y_m` (default: -0.35 m, inclusive). Robot bringup sets
+`base_frame` to `arm_base_link`: Y=-0.30 m is accepted and Y=-0.40 m is ignored.
+Set this limit in `config/vision.yaml`. The filter runs before selecting the
+best pose per ID and accumulating color votes, so a distant duplicate cannot
+replace a local tag. It also filters camera outputs and tag TF frames. Without
+the camera-to-base TF, tags are ignored because their Y cannot be checked.
+Rejected candidates appear in red in the live debug image.
+
 The AprilTag detector reads narrow bands outside all four detected tag edges.
 The bands start at the detected edges of the 32 mm tag, include its white
 margin, and use small HSV crops of the rectified camera image. They come from

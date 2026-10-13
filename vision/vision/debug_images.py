@@ -360,15 +360,21 @@ class DebugImagesMixin:
 
     def publish_detection_debug_image(
             self, source: Image, bgr: np.ndarray, detections,
-            camera_items, session: Session, fps: float) -> None:
+            camera_items, session: Session, fps: float,
+            *, accepted_detections=None) -> None:
         """Publish tags and their sampled edge bands on the color image."""
         debug = bgr.copy()
         items_by_id = {item.id: item for item in camera_items}
+        accepted_objects = (
+            {id(detection) for detection in accepted_detections}
+            if accepted_detections is not None else None)
         accepted = 0
         for detection in detections:
             is_accepted = (
                 detection.hamming <= self.max_hamming
                 and detection.decision_margin >= self.min_decision_margin
+                and (accepted_objects is None
+                     or id(detection) in accepted_objects)
             )
             accepted += int(is_accepted)
             color = (0, 200, 0) if is_accepted else (0, 0, 255)
@@ -378,7 +384,8 @@ class DebugImagesMixin:
             center = tuple(map(
                 int, np.rint(np.asarray(detection.center)).reshape(2)))
             cv2.circle(debug, center, 3, color, -1, cv2.LINE_AA)
-            item = items_by_id.get(int(detection.tag_id))
+            item = (items_by_id.get(int(detection.tag_id))
+                    if is_accepted else None)
             if item is not None:
                 for polygon in outer_edge_strips(detection.corners):
                     cv2.polylines(debug, [polygon], True, (0, 255, 255), 1)
