@@ -6,6 +6,10 @@ float32 ws_height_cm
 # Manager-only handshake: detect the support and request base alignment before
 # attempting placement. False preserves direct standalone stack commands.
 bool require_alignment
+# Only supplied for the next cube of a confirmed stack, at the same base pose.
+# Perception remains the first choice; this pose is used only if the tag is absent.
+bool has_previous_placed_pose
+geometry_msgs/PoseStamped previous_placed_pose
 ---
 uint8 RECOVERY_NONE=0
 uint8 RECOVERY_ALIGNMENT_REQUIRED=3

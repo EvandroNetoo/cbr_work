@@ -725,5 +725,4 @@ def validate_plan(plan: Plan, arena: Arena, cargo_slot_ids=('left', 'right'),
     from .scheduler import Scheduler
     scheduler = Scheduler(plan, tuple(cargo_slot_ids), check_canceled)
     if not scheduler.feasible(scheduler.initial_state):
-        raise ConfigurationError(
-            'Missão inviável: verifique coletas, entregas, suportes, capacidade e garra na próxima visita.')
+        raise ConfigurationError(scheduler.infeasibility_reason(scheduler.initial_state))

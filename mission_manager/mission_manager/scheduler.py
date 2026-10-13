@@ -201,10 +201,13 @@ class Scheduler:
         if state in self._memo:
             return self._memo[state]
         parents = {state: None}
+        furthest = state
         pending = [state]
         while pending:
             self.check_canceled()
             current = pending.pop()
+            if (current.visit, current.done.bit_count()) > (furthest.visit, furthest.done.bit_count()):
+                furthest = current
             if self.complete(current) or self._memo.get(current) is True:
                 while current is not None:
                     self._memo[current] = True
@@ -218,8 +221,75 @@ class Scheduler:
                 if child not in parents:
                     parents[child] = current
                     pending.append(child)
+        self._failure_state = furthest
         self._memo.update((visited, False) for visited in parents)
         return False
+
+    def infeasibility_reason(self, state: State) -> str:
+        """Explain an impossible plan with task IDs, tags and inventory evidence."""
+        deliveries = {task.tag_id for _vi, task, _group in self.tasks if task.action != 'pick'}
+        if not any(visit.pp_final_state is not None for visit in self.plan.visits):
+            missing = [(vi, task) for vi, task, _group in self.tasks
+                       if task.action == 'pick' and task.tag_id not in deliveries]
+            if missing:
+                details = '; '.join(
+                    f"tag {task.tag_id} coletada na visita {vi + 1} "
+                    f"'{self.plan.visits[vi].visit_id}' ({self.plan.visits[vi].target}), "
+                    f"tarefa '{task.step_id}', sem nenhuma tarefa de entrega no plano"
+                    for vi, task in missing)
+                return (f'Missão inviável: {details}. Adicione a tag à entrega no destino '
+                        'desejado ou remova sua coleta; a missão exige carga e garra vazias ao terminar.')
+        self.feasible(state)
+        blocked = getattr(self, '_failure_state', state)
+        visit = self.plan.visits[blocked.visit]
+        inventory = {slot: tag for slot, tag in zip(self.slot_ids, blocked.slots) if tag != EMPTY}
+        held = 'vazia' if blocked.gripper == EMPTY else f'tag {blocked.gripper}'
+        details = []
+        for index, (vi, task, group) in enumerate(self.tasks):
+            if vi != blocked.visit or blocked.done & (1 << index):
+                continue
+            tag = task.tag_id
+            location = blocked.locations[self.tag_indices[tag]]
+            if task.action == 'pick':
+                if location != visit.target:
+                    reason = f'tag está em {location!r}, não em {visit.target!r}'
+                elif not self._available_support(blocked, tag, visit.target):
+                    reason = f'tag {tag} tem outro cubo empilhado acima'
+                elif blocked.gripper != EMPTY:
+                    reason = f'garra ocupada pela tag {blocked.gripper}'
+                else:
+                    reason = 'a coleta não permite concluir as tarefas restantes'
+            elif group >= 0 and not self._available_support(blocked, blocked.tops[group], visit.target):
+                support = blocked.tops[group]
+                reason = (f'apoio {support} indisponível em {visit.target}; '
+                          f'localização do apoio: {blocked.locations[self.tag_indices[support]]!r} '
+                          '(pode estar coberto por outro cubo)')
+            elif blocked.gripper != tag:
+                reason = (f'tag {tag} está no slot {next(slot for slot, value in inventory.items() if value == tag)!r}'
+                          if tag in inventory.values() else f'tag {tag} não está na carga; localização: {location!r}')
+            elif task.action == 'place_on_precision_table' and not blocked.regrasped & (1 << self.tag_indices[tag]):
+                reason = 'depósito PP exige guardar no slot e retirar novamente antes de depositar'
+            else:
+                reason = 'esta tarefa não permite concluir o restante da missão'
+            details.append(f"tarefa '{task.step_id}' ({task.action}, tag {tag}): {reason}")
+        if not details:
+            remaining = [tag for tag in (blocked.gripper, *blocked.slots) if tag != EMPTY]
+            if remaining:
+                next_visit = next((v for v in range(blocked.visit + 1, len(self.plan.visits))
+                                   if self.masks[v] or self.plan.visits[v].pp_final_state is not None), None)
+                details.append(f'carga restante com tags {remaining}')
+                if next_visit is not None:
+                    details.append(f'garra não pode sair carregada para a próxima visita de trabalho '
+                                   f'{next_visit + 1} ({self.plan.visits[next_visit].target}) '
+                                   'sem uma entrega correspondente nessa visita')
+                else:
+                    details.append('não há próximas entregas para esvaziar a carga')
+            if visit.pp_final_state is not None and visit.pp_start_state is None:
+                details.append('organização PP exige garra vazia e pelo menos dois slots livres')
+        capacity = (f'capacidade: {len(self.slot_ids)} slots; livres: {blocked.slots.count(EMPTY)}')
+        return (f"Missão inviável: nenhuma sequência de operações conclui o plano. "
+                f"Estado alcançável na visita {blocked.visit + 1} '{visit.visit_id}' ({visit.target}): "
+                f"garra {held}; carga {inventory}; {capacity}. " + '; '.join(details) + '.')
 
     def viable_choices(self, state: State) -> tuple[Choice, ...]:
         return tuple(choice for choice in self.choices(state) if self.feasible(choice.next_state))

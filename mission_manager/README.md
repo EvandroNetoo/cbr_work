@@ -154,7 +154,7 @@ Se a tag já estiver alinhada e continuar UNKNOWN, sorteia RED ou BLUE e guarda
 o resultado. Tags sem uso em `possible_tag_ids` não exigem confirmação nem
 alinhamento por cor. Falha de alinhamento ou ausência da tag não autoriza o sorteio.
 
-A validação antes de aceitar a missão verifica listas, cores, campos exclusivos,
+A validação antes de iniciar a missão verifica listas, cores, campos exclusivos,
 coletas dos candidatos e viabilidade da rota/carga. Como as cores reais ainda não
 são conhecidas, a busca inicial considera atribuições possíveis e consistentes;
 a execução recalcula a viabilidade conforme aprende as cores. Uma distribuição
@@ -494,7 +494,7 @@ ros2 action send_goal /mission/execute interfaces/action/ExecuteMission \
   "{plan_id: transportar_container_empilhar}" --feedback
 ```
 
-Somente uma missão é aceita por vez. Falhas sem recuperação encerram a missão;
+Somente uma missão é executada por vez. Falhas sem recuperação encerram a missão;
 uma coleta não encontrada na posição atual retorna à seleção de tarefas. O
 cancelamento é propagado para o goal filho ativo. O fallback de mesa existente
 é preservado para depósitos em mesa/contêiner, com destino efetivo registrado.
@@ -729,3 +729,20 @@ O formato antigo com `start_state` e `final_state` continua aceito e usa o
 planejador da distribuição declarada. Esses dois mapas precisam ter os mesmos
 slots e objetos. A organização exige `type: PP`, offset calibrado e não pode ser
 misturada com actions explícitas dentro da mesma visita.
+
+
+Erros de `ExecuteMission` aparecem no próprio resultado de
+`ros2 action send_goal /mission/execute interfaces/action/ExecuteMission "{plan_id: 7_final_test}" --feedback`.
+O servidor aceita a solicitação no protocolo ROS 2 e valida o plano antes de
+iniciar a missão. Se houver erro, encerra a action com status `ABORTED`,
+`completed_steps: 0`, código `CONFIGURATION_ERROR` e o motivo em `message`.
+Solicitações durante outra missão retornam `BUSY`, sem alterar a missão atual.
+A validação informa tags coletadas sem entrega e suas visitas/tarefas; para
+outros bloqueios, informa uma configuração alcançável, tarefas pendentes,
+localização dos objetos, garra e ocupação dos slots. O mesmo erro é registrado
+em nível ERROR no log do nó e em `/rosout`.
+
+O identificador deve ser o nome do YAML sem extensão, iniciando por letra ou
+número e contendo apenas letras ASCII, números, hífen e sublinhado.
+Após atualizar a interface `ExecuteMission`, recompile `interfaces` e
+`mission_manager` também nos computadores que enviam essa action e reinicie os nós.

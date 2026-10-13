@@ -1,4 +1,5 @@
 from dataclasses import replace
+import copy
 import threading
 from types import SimpleNamespace
 
@@ -2916,3 +2917,29 @@ def test_pp_reach_recovery_rechecks_slot_before_retrying_pick(already_correct):
         assert len(calls) == 2
         assert manager._world_state.snapshot()[:2] == (True, 2)
     assert len(observations) == 1
+
+
+def test_stack_passes_previous_pose_only_for_confirmed_top_at_same_base_position():
+    manager = _stack_search_manager()
+    captured = []
+    def call(_client, goal, *_args, **_kwargs):
+        captured.append(copy.deepcopy(goal))
+        result = _place_result(StackObject, ManipulationResult.SUCCESS,
+                               location=ManipulationResult.LOCATION_DESTINATION)
+        result.placed_pose.header.frame_id = 'arm_base_link'
+        result.placed_pose.pose.position.z = 0.12 if len(captured) == 1 else 0.162
+        result.placed_pose.pose.orientation.w = 1.0
+        return result
+    manager._call_action = call
+    manager._stack_alignment = ('ws_1', frozenset({4}),
+        manager._current_wall_distance_mm, manager._current_lateral_position_mm)
+    manager._execute_manipulation(Step('first', 'stack', support_tag_id=4))
+    manager._world_state.commit_pick(11)
+    manager._execute_manipulation(Step('second', 'stack', support_tag_id=5))
+    assert not captured[0].has_previous_placed_pose
+    assert captured[1].has_previous_placed_pose
+    assert captured[1].previous_placed_pose.pose.position.z == pytest.approx(0.12)
+    assert manager._stack_previous_pose(5) is None
+    assert manager._stack_previous_pose(11).pose.position.z == pytest.approx(0.162)
+    manager._current_lateral_position_mm += 10
+    assert manager._stack_previous_pose(11) is None

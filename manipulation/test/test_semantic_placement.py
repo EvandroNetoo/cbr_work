@@ -1222,3 +1222,35 @@ def test_pp_same_id_reference_and_object_never_confuse_release_target(blocked):
     else:
         server._execute_place_on_precision_table(SimpleNamespace(request=goal))
         assert releases[0].pose.position.z == pytest.approx(.02)
+
+
+@pytest.mark.parametrize('has_previous, visible', [(False, False), (True, False), (True, True)])
+def test_stack_missing_tag_uses_only_supplied_previous_pose(has_previous, visible):
+    server = _operation_only_server()
+    profile = replace(_cartesian_profile(), name='stack', strategy='tag_relative',
+                      calibrated_reference=True, reference_offset_xyz=(0.0, 0.0, 0.02),
+                      missing_tag_offset_xyz=(0.01, -0.02, 0.042))
+    server._profiles = SimpleNamespace(placements={'stack': profile},
+        pickup_profile=lambda _: SimpleNamespace(observation_state='detect_apriltags'))
+    server._arm_state = lambda *_: None
+    server.get_parameter = lambda _: SimpleNamespace(value=2.0)
+    server._analyze_for_operation = lambda *args, **kwargs: ([], [], None)
+    def detect(*args):
+        if not visible:
+            raise RuntimeError('AprilTag 5 não encontrada')
+        return (0.03, -0.24, 0.15, 0.0)
+    server._motion = SimpleNamespace(pose_da_april_tag=detect)
+    releases = []
+    server._release_at_pose = lambda *args: releases.append(args[2])
+    goal = StackObject.Goal(support_tag_id=5, has_previous_placed_pose=has_previous)
+    goal.previous_placed_pose = _pose()
+    if not has_previous:
+        with pytest.raises(ObjectNotFound):
+            server._execute_stack(SimpleNamespace(request=goal))
+        assert not releases
+    else:
+        server._execute_stack(SimpleNamespace(request=goal))
+        pos = releases[0].pose.position
+        expected = (0.03, -0.24, 0.17) if visible else (0.01, -0.02, 0.142)
+        assert (pos.x, pos.y, pos.z) == pytest.approx(expected)
+        assert goal.previous_placed_pose.pose.position.z == 0.10

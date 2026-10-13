@@ -1817,6 +1817,32 @@ class ManipulationServer(Node):
                     reference_tags, reference_tag_id, duration)
             except RuntimeError as error:
                 if 'não encontrada' in str(error).lower():
+                    request = goal_handle.request
+                    if profile_name == 'stack' and request.has_previous_placed_pose:
+                        release_pose = copy.deepcopy(request.previous_placed_pose)
+                        position = release_pose.pose.position
+                        orientation = release_pose.pose.orientation
+                        if (release_pose.header.frame_id != REFERENCIAL_BASE
+                                or not all(math.isfinite(v) for v in (
+                                    position.x, position.y, position.z,
+                                    orientation.x, orientation.y, orientation.z, orientation.w))
+                                or not math.isclose(sum(v * v for v in (
+                                    orientation.x, orientation.y, orientation.z, orientation.w)),
+                                    1.0, abs_tol=1e-3)):
+                            raise ConfigurationError('Pose anterior de empilhamento inválida.')
+                        dx, dy, dz = profile.missing_tag_offset_xyz
+                        position.x += dx
+                        position.y += dy
+                        position.z += dz
+                        self._feedback(
+                            goal_handle, action_type, ManipulationFeedback.OBSERVING, 0.30,
+                            f'AprilTag {reference_tag_id} ausente; usando último empilhamento '
+                            f'com offset XYZ {profile.missing_tag_offset_xyz} m.',
+                        )
+                        return self._release_at_pose(
+                            goal_handle, action_type, release_pose, profile,
+                            f'empilhamento por pose anterior (AprilTag {reference_tag_id} ausente)',
+                        )
                     raise ObjectNotFound(str(error)) from error
                 raise
             dx, dy, dz = profile.reference_offset_xyz

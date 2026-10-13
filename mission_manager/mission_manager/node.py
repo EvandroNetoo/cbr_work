@@ -154,11 +154,13 @@ class MissionManager(PrecisionRuntime, Node):
         self._cancel_event = threading.Event()
         self._lock = threading.RLock()
         self._busy = False
+        self._mission_goal_handle = None
         self._status = 'idle'
         self._active_world_operation = ''
         self._current_step_index = 0
         self._current_location = 'start'
         self._stack_alignment = None
+        self._last_stack_placement = None
         self._current_wall_distance_mm: float | None = None
         self._current_lateral_position_mm = 0.0
         self._last_follow_wall_result: FollowWall.Result | None = None
@@ -267,24 +269,15 @@ class MissionManager(PrecisionRuntime, Node):
         self._state_publisher.publish(self._state_message())
 
     def _goal_callback(self, goal_request: ExecuteMission.Goal) -> GoalResponse:
-        plan_id = str(goal_request.plan_id)
-        with self._lock:
-            if self._busy or not PLAN_ID_PATTERN.fullmatch(plan_id):
-                return GoalResponse.REJECT
-            self._cancel_event.clear()
-            self._busy = True
-        try:
-            self._accepted_mission_files = self._load_goal_files(plan_id)
-        except (ConfigurationError, MissionCanceled) as error:
-            self.get_logger().warning(f'Missão {plan_id} rejeitada: {error}')
-            with self._lock:
-                self._busy = False
-            return GoalResponse.REJECT
+        # ROS goal rejection has no message field. Return validation errors in
+        # the action result so standard clients (including ros2 CLI) display them.
         return GoalResponse.ACCEPT
 
-    def _cancel_callback(self, _goal_handle: Any) -> CancelResponse:
-        self._cancel_event.set()
-        self._cancel_active_child()
+    def _cancel_callback(self, goal_handle: Any) -> CancelResponse:
+        with self._lock:
+            if goal_handle is getattr(self, '_mission_goal_handle', None):
+                self._cancel_event.set()
+                self._cancel_active_child()
         return CancelResponse.ACCEPT
 
     def _cancel_active_child(self) -> None:
@@ -2091,6 +2084,25 @@ class MissionManager(PrecisionRuntime, Node):
             self._current_wall_distance_mm, self._current_lateral_position_mm,
         )
 
+    def _stack_previous_pose(self, support_tag_id):
+        memory = getattr(self, '_last_stack_placement', None)
+        if (memory is not None
+                and self._current_wall_distance_mm is not None
+                and memory[:4] == (
+                support_tag_id, self._current_location,
+                self._current_wall_distance_mm, self._current_lateral_position_mm)):
+            return memory[4]
+        return None
+
+    def _remember_stack_placement(self, tag_id, result):
+        pose = getattr(result, 'placed_pose', None)
+        self._last_stack_placement = None
+        if pose is not None and pose.header.frame_id:
+            self._last_stack_placement = (
+                tag_id, self._current_location, self._current_wall_distance_mm,
+                self._current_lateral_position_mm, copy.deepcopy(pose),
+            )
+
     def _execute_stack_with_search(self, step, goal, tag_id, timeout) -> None:
         with self._search_session():
             self._execute_stack_with_search_impl(step, goal, tag_id, timeout)
@@ -2126,6 +2138,8 @@ class MissionManager(PrecisionRuntime, Node):
         original_observation = None
         alignment_completed = (self._pp_destination_is_aligned(reference_tag_id) if precision
                                else self._stack_is_aligned(reference_tag_id))
+        if not precision and self._stack_previous_pose(reference_tag_id) is not None:
+            alignment_completed = True
         if config.enabled and not alignment_completed:
             placed_viewpoint = (False if precision else
                                 self._position_from_placed_tag_memory(reference_tag_id))
@@ -2171,6 +2185,11 @@ class MissionManager(PrecisionRuntime, Node):
         pp_retry_count = 0
         while True:
             goal.require_alignment = not alignment_completed
+            if not precision:
+                previous_pose = self._stack_previous_pose(reference_tag_id)
+                goal.has_previous_placed_pose = previous_pose is not None
+                if previous_pose is not None:
+                    goal.previous_placed_pose = copy.deepcopy(previous_pose)
             result = self._call_manipulation_action(
                 client, goal,
                 f"passo '{step.step_id}' ({step.action})", timeout, 'place', tag_id,
@@ -2180,6 +2199,7 @@ class MissionManager(PrecisionRuntime, Node):
                 self._remember_placed_tag_viewpoint(tag_id)
                 if not precision:
                     self._remember_stack_alignment(tag_id, reference_tag_id)
+                    self._remember_stack_placement(tag_id, result)
                 return
             if not result.outcome.effect_known:
                 raise StepFailed(
@@ -2192,6 +2212,7 @@ class MissionManager(PrecisionRuntime, Node):
                 self._remember_placed_tag_viewpoint(tag_id)
                 if not precision:
                     self._remember_stack_alignment(tag_id, reference_tag_id)
+                    self._remember_stack_placement(tag_id, result)
                 self.get_logger().warning(
                     f"Passo '{step.step_id}' confirmou o depósito antes "
                     f'de falhar durante a finalização: {failure}. O fluxo da '
@@ -2714,7 +2735,7 @@ class MissionManager(PrecisionRuntime, Node):
                                      for tag in task.possible_tag_ids}
         state = scheduler.initial_state
         if not scheduler.feasible(state):
-            raise ConfigurationError('Missão inviável para a carga configurada.')
+            raise ConfigurationError(scheduler.infeasibility_reason(state))
         while not scheduler.complete(state):
             visit = plan.visits[state.visit]
             nav = Step(visit.visit_id, 'navigate', target=visit.target)
@@ -2853,7 +2874,10 @@ class MissionManager(PrecisionRuntime, Node):
 
     def _load_goal_files(self, plan_id: str) -> tuple[Arena, Plan]:
         if not PLAN_ID_PATTERN.fullmatch(plan_id):
-            raise ConfigurationError('plan_id possui formato inválido.')
+            raise ConfigurationError(
+                f'plan_id {plan_id!r} inválido: use o nome do arquivo YAML sem extensão, '
+                'começando por letra ou número e contendo apenas letras ASCII, '
+                'números, hífen ou sublinhado.')
         arena_path = Path(str(self.get_parameter('arena_file').value))
         plans_root = Path(
             str(self.get_parameter('plans_directory').value)
@@ -2907,7 +2931,46 @@ class MissionManager(PrecisionRuntime, Node):
         return result
 
     def _execute_callback(self, goal_handle: Any) -> ExecuteMission.Result:
+        plan_id = str(goal_handle.request.plan_id)
+        with self._lock:
+            if getattr(goal_handle, 'is_cancel_requested', False):
+                return self._result(goal_handle, ExecuteMission.Result.CANCELED, 0, '',
+                                    f'Missão {plan_id!r} cancelada antes de iniciar.')
+            if getattr(self, '_busy', False):
+                message = (f'Missão {plan_id!r} recusada: já existe uma missão em andamento. '
+                           'Aguarde a conclusão ou cancele a missão atual antes de enviar outra.')
+                self.get_logger().error(message)
+                return self._result(goal_handle, ExecuteMission.Result.BUSY, 0, '', message)
+            self._busy = True
+            self._mission_goal_handle = goal_handle
+            self._cancel_event.clear()
+        try:
+            if getattr(self, '_pp_inventory_pending', False):
+                known, held, cargo = self._world_state.snapshot()
+                if not known or held != EMPTY or any(tag != EMPTY for tag in cargo.values()):
+                    raise StepFailed('Carga remanescente da organização PP: recupere a carga antes de iniciar outra missão.')
+            arena, plan = self._load_goal_files(plan_id)
+            self._check_canceled()
+            return self._execute_validated_mission(goal_handle, arena, plan)
+        except (ConfigurationError, StepFailed, MissionCanceled) as error:
+            code = (ExecuteMission.Result.CONFIGURATION_ERROR if isinstance(error, ConfigurationError)
+                    else ExecuteMission.Result.CANCELED if isinstance(error, MissionCanceled)
+                    else ExecuteMission.Result.STEP_FAILED)
+            message = f'Missão {plan_id!r} não iniciada: {error}'
+            self.get_logger().error(message)
+            return self._result(goal_handle, code, 0, '', message)
+        except Exception as error:
+            message = f'Falha interna ao iniciar missão {plan_id!r}: {error}'
+            self.get_logger().error(message)
+            return self._result(goal_handle, ExecuteMission.Result.INTERNAL_ERROR, 0, '', message)
+        finally:
+            with self._lock:
+                self._mission_goal_handle = None
+                self._busy = False
+
+    def _execute_validated_mission(self, goal_handle: Any, arena: Arena, plan: Plan) -> ExecuteMission.Result:
         self._stack_alignment = None
+        self._last_stack_placement = None
         self._status = 'running'
         self._departure_completed_for = None
         self._service_area_vision_active = False
@@ -2940,15 +3003,7 @@ class MissionManager(PrecisionRuntime, Node):
         self._delivery_outcomes = []
         self._flexible_pick = False
         try:
-            if getattr(self, '_pp_inventory_pending', False):
-                known, held, cargo = self._world_state.snapshot()
-                if not known or held != EMPTY or any(tag != EMPTY for tag in cargo.values()):
-                    raise StepFailed('Carga remanescente da organização PP: recupere a carga antes de iniciar outra missão.')
-                self._pp_inventory_pending = False
-            accepted_files = getattr(self, '_accepted_mission_files', None)
-            self._accepted_mission_files = None
-            arena, plan = (accepted_files if accepted_files is not None else
-                           self._load_goal_files(str(goal_handle.request.plan_id)))
+            self._pp_inventory_pending = False
             self._arena = arena
             self._current_location = plan.initial_location
             if self._current_location in arena.service_areas:
@@ -3013,7 +3068,6 @@ class MissionManager(PrecisionRuntime, Node):
             self._active_world_operation = ''
             self._publish_world_state()
             with self._lock:
-                self._busy = False
                 self._active_children = {}
 
     def destroy_node(self):

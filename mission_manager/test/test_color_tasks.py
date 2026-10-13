@@ -173,20 +173,65 @@ def test_color_memory_survives_transfers_and_resets_with_mission():
     assert world.tag_colors() == {}
 
 
-def test_goal_is_validated_before_acceptance():
+def test_invalid_goal_returns_explanation_without_starting_mission():
+    from interfaces.action import ExecuteMission
     manager = color_manager()
+    errors = []
+    manager.get_logger = lambda: SimpleNamespace(error=errors.append)
     manager._busy = False
     manager._lock = threading.RLock()
     manager._cancel_event = threading.Event()
+    before = manager._world_state.snapshot()
     def invalid(_plan_id):
-        raise ConfigurationError('possible_tag_ids exige tag_color')
+        raise ConfigurationError("Tarefa 'deliver': tag 3 sem coleta anterior")
     manager._load_goal_files = invalid
-    assert manager._goal_callback(SimpleNamespace(plan_id='invalid')) == GoalResponse.REJECT
+    manager._execute_validated_mission = lambda *_: pytest.fail('não executar plano inválido')
+    aborted = []
+    handle = SimpleNamespace(request=SimpleNamespace(plan_id='invalid'), abort=lambda: aborted.append(True))
+    assert manager._goal_callback(handle.request) == GoalResponse.ACCEPT
+    result = manager._execute_callback(handle)
+    assert result.code == ExecuteMission.Result.CONFIGURATION_ERROR
+    assert "Tarefa 'deliver': tag 3 sem coleta anterior" in result.message
+    assert result.completed_steps == 0
+    assert aborted == [True]
     assert not manager._busy
-    manager._load_goal_files = lambda _: ('arena', 'validated_plan')
-    assert manager._goal_callback(SimpleNamespace(plan_id='valid')) == GoalResponse.ACCEPT
-    assert manager._accepted_mission_files == ('arena', 'validated_plan')
-    assert manager._goal_callback(SimpleNamespace(plan_id='valid')) == GoalResponse.REJECT
+    assert manager._world_state.snapshot() == before
+    assert result.message == errors[-1]
+
+
+def test_busy_goal_returns_explanation_without_changing_active_mission():
+    from interfaces.action import ExecuteMission
+    manager = color_manager()
+    manager._lock = threading.RLock()
+    manager._busy = True
+    manager._cancel_event = threading.Event()
+    manager._cancel_event.set()
+    errors = []
+    manager.get_logger = lambda: SimpleNamespace(error=errors.append)
+    manager._load_goal_files = lambda *_: pytest.fail('não carregar outro plano durante missão')
+    handle = SimpleNamespace(request=SimpleNamespace(plan_id='another'), abort=lambda: None)
+    assert manager._goal_callback(handle.request) == GoalResponse.ACCEPT
+    result = manager._execute_callback(handle)
+    assert result.code == ExecuteMission.Result.BUSY
+    assert 'missão em andamento' in result.message
+    assert manager._busy
+    assert manager._cancel_event.is_set()
+
+
+def test_valid_goal_reserves_executor_and_runs_validated_files():
+    manager = color_manager()
+    manager._lock = threading.RLock()
+    manager._busy = False
+    manager._cancel_event = threading.Event()
+    manager._load_goal_files = lambda _: ('arena', 'plan')
+    def execute(handle, arena, plan):
+        assert manager._busy
+        assert (arena, plan) == ('arena', 'plan')
+        return 'executed'
+    manager._execute_validated_mission = execute
+    handle = SimpleNamespace(request=SimpleNamespace(plan_id='valid'))
+    assert manager._execute_callback(handle) == 'executed'
+    assert not manager._busy
 
 
 @pytest.mark.parametrize('split', [False, True])
@@ -237,3 +282,18 @@ def test_example_color_routes_are_feasible_with_configured_service_areas():
             scheduler = Scheduler(plan, ('left', 'right'))
             scheduler.set_tag_colors(dict(zip((1, 2), colors)))
             assert scheduler.feasible(scheduler.initial_state)
+
+
+def test_canceling_other_goal_does_not_cancel_active_mission():
+    manager = color_manager()
+    manager._lock = threading.RLock()
+    manager._cancel_event = threading.Event()
+    manager._mission_goal_handle = object()
+    canceled_children = []
+    manager._cancel_active_child = lambda: canceled_children.append(True)
+    manager._cancel_callback(object())
+    assert not manager._cancel_event.is_set()
+    assert not canceled_children
+    manager._cancel_callback(manager._mission_goal_handle)
+    assert manager._cancel_event.is_set()
+    assert canceled_children == [True]

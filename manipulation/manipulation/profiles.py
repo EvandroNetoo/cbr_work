@@ -91,6 +91,7 @@ class PlacementProfile:
     link3_to_link4_max_deg: float = -10.0
     tilt_tolerance_deg: float | None = None
     base_wiggle: BaseWiggleProfile = BaseWiggleProfile()
+    missing_tag_offset_xyz: tuple[float, float, float] = (0.0, 0.0, 0.042)
 
 
 @dataclass(frozen=True)
@@ -323,7 +324,7 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
             {
                 'strategy', 'enabled', 'named_state',
                 'approach_height_m', 'retreat_height_m',
-                'reference_offset_xyz', 'yaw_offset_deg',
+                'reference_offset_xyz', 'yaw_offset_deg', 'missing_tag_offset_xyz',
                 'calibrated_reference',
                 'tcp_release_offset_cm',
                 'free_space_half_extent_x_m', 'free_space_half_extent_y_m',
@@ -351,7 +352,16 @@ def load_profiles(profiles_path: str | Path, cargo_path: str | Path) -> ProfileS
             raise ConfigurationError(
                 f'placements.{name}.reference_offset_xyz deve ter três valores.'
             )
+        missing_offset = raw.get('missing_tag_offset_xyz', [0.0, 0.0, 0.042])
+        if not isinstance(missing_offset, list) or len(missing_offset) != 3:
+            raise ConfigurationError(
+                f'placements.{name}.missing_tag_offset_xyz deve ter três valores.'
+            )
         profile = PlacementProfile(
+            missing_tag_offset_xyz=tuple(
+                _number(value, f'placements.{name}.missing_tag_offset_xyz')
+                for value in missing_offset
+            ),
             name=name,
             strategy=strategy,
             base_wiggle=_base_wiggle(raw.get('base_wiggle', {}), f'placements.{name}.base_wiggle'),

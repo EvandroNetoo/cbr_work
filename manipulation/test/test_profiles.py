@@ -280,3 +280,13 @@ def test_precision_profile_loads_independent_calibration_and_requires_tag_strate
     path.write_text(yaml.safe_dump(raw))
     with pytest.raises(ConfigurationError, match='precision_table.strategy'):
         load_profiles(path, PACKAGE / 'config/cargo_slots.yaml')
+
+
+@pytest.mark.parametrize('offset', [[0, 0], [0, 0, float('nan')], [True, 0, 0], 'invalid'])
+def test_stack_missing_tag_offset_rejects_invalid_values(tmp_path, offset):
+    raw = yaml.safe_load((PACKAGE / 'config/profiles.yaml').read_text())
+    raw['placements']['stack']['missing_tag_offset_xyz'] = offset
+    path = tmp_path / 'profiles.yaml'
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ConfigurationError, match='missing_tag_offset_xyz'):
+        load_profiles(path, PACKAGE / 'config/cargo_slots.yaml')

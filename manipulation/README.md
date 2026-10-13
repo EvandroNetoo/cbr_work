@@ -391,3 +391,20 @@ cancelamento padrão da action continua ativo e impede a abertura da garra.
 Não há controle de força nem ajuste automático de Z. Para desativar a etapa,
 use `enabled: false`. Durante a rebolada, a manipulação controla a base;
 o fluxo normal do Mission Manager não executa FollowWall simultaneamente.
+
+
+Empilhamento com tag de apoio ausente: o primeiro depósito exige a detecção de
+`support_tag_id`. Nos próximos cubos da mesma pilha, o manager envia a última pose
+de soltura confirmada apenas quando o apoio é o último cubo depositado e a base
+está na mesma posição. A tag continua sendo consultada; se não for encontrada,
+o depósito usa a pose anterior somada a `placements.stack.missing_tag_offset_xyz`
+em `config/profiles.yaml`. O offset é `[x, y, z]`, em metros nos eixos de
+`arm_base_link`; o padrão `[0.0, 0.0, 0.042]` sobe um cubo de 42 mm. A orientação
+anterior é preservada. Cada depósito confirmado atualiza a pose, de modo que
+faltas consecutivas da tag acumulam o offset. Erros de percepção ou movimento
+continuam sendo reportados. Comandos diretos de `StackObject` só habilitam esse
+fallback ao fornecer `has_previous_placed_pose` e `previous_placed_pose`.
+
+Após atualizar `StackObject.action`, recompile `interfaces`, `manipulation` e
+`mission_manager` em todos os computadores que utilizam essa action e reinicie
+os nós com o ambiente atualizado.

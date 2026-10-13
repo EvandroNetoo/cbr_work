@@ -96,6 +96,9 @@ placements:
     # Partial image-edge contours may be targets when the fit is plausible.
 
   stack:
+    # Se a tag do último cubo depositado não aparecer, somar este XYZ à
+    # última pose de soltura, em arm_base_link e metros. Z = altura do cubo.
+    missing_tag_offset_xyz: [0.0, 0.0, 0.042]
     strategy: tag_relative
     # Offset calibrado do TCP em relação à tag do cubo de apoio.
     enabled: true

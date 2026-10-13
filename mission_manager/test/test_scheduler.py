@@ -205,3 +205,33 @@ def test_precision_delivery_ranks_reference_separately_from_same_id_object():
     assert (choice.step.action, choice.step.tag_id) == ('retrieve', 1)
     pick_state = scheduler.initial_state
     assert scheduler.select(pick_state, {('reference', 1): 0}) is None
+
+
+def test_infeasibility_names_collected_tag_without_delivery():
+    plan = Plan('missing', (Visit('source', 'sh_1', (Step('collect', 'pick', tag_ids=(1, 3)),)),
+                           Visit('destination', 'ws_4', (Step('pile', 'stack', tag_ids=(1,), support_tag_id=14),))))
+    scheduler = Scheduler(plan, ('left', 'right'))
+    assert not scheduler.feasible(scheduler.initial_state)
+    message = scheduler.infeasibility_reason(scheduler.initial_state)
+    assert 'tag 3' in message and "'source' (sh_1)" in message
+    assert "tarefa 'collect'" in message and 'sem nenhuma tarefa de entrega' in message
+
+
+def test_infeasibility_names_capacity_and_blocked_task():
+    scheduler = Scheduler(mission(), ())
+    assert not scheduler.feasible(scheduler.initial_state)
+    message = scheduler.infeasibility_reason(scheduler.initial_state)
+    assert 'capacidade: 0 slots' in message
+    assert "'ws1' (ws_1)" in message
+    assert 'garra ocupada pela tag' in message
+    assert "tarefa 'pick_" in message
+
+
+def test_infeasibility_names_delivery_without_collection():
+    scheduler = Scheduler(Plan('missing_source', (Visit('deliver', 'ws_2', (
+        Step('put_8', 'place_on_table', tag_id=8),)),)), ('left', 'right'))
+    assert not scheduler.feasible(scheduler.initial_state)
+    message = scheduler.infeasibility_reason(scheduler.initial_state)
+    assert "tarefa 'put_8'" in message
+    assert 'tag 8 não está na carga' in message
+    assert "'deliver' (ws_2)" in message
