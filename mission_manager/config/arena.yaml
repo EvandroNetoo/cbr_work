@@ -1,7 +1,7 @@
 schema_version: 1
 frame_id: map
 
-# Padrão para WS, SH e PP. Cada área pode sobrescrever em async_motion.
+# Padrão para WS, SH, PP e ST. Cada área pode sobrescrever em async_motion.
 async_motion_defaults:
   # disabled: sequencial; opposite_sides: compartimento e movimento em lados opostos;
   # always: paralelo sempre que houver movimento e a fase segura permitir.
@@ -137,6 +137,13 @@ service_areas:
     height_cm: 6
     type: WS
 
+  st_1:
+    x_m: 4.38
+    y_m: 4.830
+    yaw_rad: 1.570
+    height_cm: 16.0
+    type: ST
+
   ws_4:
     x_m: 4.38
     y_m: 4.830
@@ -183,7 +190,7 @@ service_areas:
   #   y_m: 2.0                  # Posição Y no mapa, em metros.
   #   yaw_rad: 1.5707963268     # Orientação no mapa, em radianos.
   #   height_cm: 10.0           # Altura da superfície usada na coleta, em cm.
-  #   type: SH                  # Valores aceitos: WS, SH ou PP.
+  #   type: SH                  # Valores aceitos: WS, SH, PP ou ST.
   #   alignment_error_ignore_sec: 1.0  # Janela após primeira leitura VL53 válida (>= 0).
   #   shelf_place_alignment:    # Somente SH; herda shelf_place_alignment_defaults.
   #     distance_mm: 40         # Distância frontal obrigatória antes do depósito.

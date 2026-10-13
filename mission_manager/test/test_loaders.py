@@ -256,6 +256,48 @@ visits:
 """
 
 
+@pytest.mark.parametrize('area_type', ['ST', 'WS', 'SH', 'PP'])
+def test_stack_requires_st_area(tmp_path, area_type):
+    arena = load_arena(_write(
+        tmp_path, 'arena.yaml', VALID_ARENA.replace('type: WS', f'type: {area_type}')))
+    source = _plan_yaml().replace(
+        'action: place_in_container, tag_ids: [1], container_color: red',
+        'action: stack, tag_ids: [1], support_tag_id: 14')
+    plan = load_plan(_write(tmp_path, 'plan.yaml', source))
+    if area_type == 'ST':
+        validate_plan(plan, arena)
+        area = arena.service_areas['ws_1']
+        assert area.area_type == 'ST'
+        assert area.height_cm == 10.0
+        assert area.alignment.distance_mm == 200
+        assert area.departure.distance_mm == 250
+        assert area.async_motion == arena.async_motion_defaults
+    else:
+        with pytest.raises(ConfigurationError, match='stack exige área ST'):
+            validate_plan(plan, arena)
+
+
+def test_shipped_stacks_use_dedicated_st_area():
+    arena = load_arena(PACKAGE / 'config/arena.yaml')
+    stacks = []
+    for path in sorted((PACKAGE / 'config/plans').glob('*.yaml')):
+        plan = load_plan(path)
+        for visit in plan.visits:
+            for task in visit.tasks:
+                if task.action == 'stack':
+                    assert visit.target == 'st_1'
+                    assert arena.service_areas[visit.target].area_type == 'ST'
+                    stacks.append((path.name, task.tag_ids))
+    assert stacks == [
+        ('5_advanced_transportation_test_i.yaml', (4, 5)),
+        ('7_final_test.yaml', (1, 3)),
+    ]
+    final = load_plan(PACKAGE / 'config/plans/7_final_test.yaml')
+    validate_plan(final, arena)
+    assert any(visit.target == 'ws_4' and task.action == 'pick'
+               for visit in final.visits for task in visit.tasks)
+
+
 @pytest.mark.parametrize('path', sorted((PACKAGE / 'config' / 'plans').glob('*.yaml')))
 def test_installed_plans_are_complete_and_feasible(path):
     arena = load_arena(PACKAGE / 'config' / 'arena.yaml')

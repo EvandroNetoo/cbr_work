@@ -25,7 +25,7 @@ def disable_parallel_motion(manager):
     manager._async_motion_config = lambda *_args: AsyncMotionConfig('disabled', False)
 
 
-@pytest.mark.parametrize('area_type', ['PP', 'WS', 'SH'])
+@pytest.mark.parametrize('area_type', ['PP', 'WS', 'SH', 'ST'])
 @pytest.mark.parametrize('visible_blue', [True, False])
 @pytest.mark.parametrize('conditional', [True, False])
 def test_second_container_delivery_uses_hsv_and_its_own_search(area_type, visible_blue, conditional):

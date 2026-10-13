@@ -38,7 +38,7 @@ frontais; `disabled` mantém a execução sequencial. O executor usa o deslocame
 efetivo após os limites laterais e o recuo de folga existentes. Sem destino
 conhecido ou sem movimento além da tolerância, não inicia sobreposição.
 
-O padrão vale para WS, SH e PP, em `arena.yaml`:
+O padrão vale para WS, SH, PP e ST, em `arena.yaml`:
 
 ```yaml
 async_motion_defaults:
@@ -171,12 +171,17 @@ um limite superior, pois candidatos de outra cor não geram manipulação.
 
  As entregas disponíveis são
 `place_on_table`, `place_in_container` (`container_color: red|blue`),
-`place_on_shelf` e `stack`. Uma pilha sem ordem fixa é declarada assim:
+`place_on_shelf` e `stack`. Empilhamentos (`stack`) exigem uma área de tipo
+`ST` (stacking), como `st_1` em `arena.yaml`. A ST usa a altura, o alinhamento,
+o recuo e a recuperação configurados para a área. Uma pilha sem ordem fixa
+é declarada em uma visita a essa área assim:
 
 ```yaml
-- action: stack
-  support_tag_id: 14
-  tag_ids: [4, 5]
+- target: st_1
+  tasks:
+    - action: stack
+      support_tag_id: 14
+      tag_ids: [4, 5]
 ```
 
 Qualquer membro pode ser o primeiro sobre 14. O próximo é colocado sobre o
@@ -290,7 +295,7 @@ inválida e comunicação continuam encerrando a missão.
 
 ## Áreas de serviço e prateleira (SH)
 
-Câmera e LED são ativados na chegada a qualquer área `WS`, `SH` ou `PP`,
+Câmera e LED são ativados na chegada a qualquer área `WS`, `SH`, `PP` ou `ST`,
 antes do alinhamento. Também são ativados se `initial_location` for uma área
 de serviço. São desligados antes do recuo de saída e ao encerrar a missão,
 inclusive em cancelamento ou falha.

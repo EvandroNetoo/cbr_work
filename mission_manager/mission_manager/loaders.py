@@ -462,7 +462,7 @@ def load_arena(path: str | Path) -> Arena:
         ).upper()
         if area_type not in SERVICE_AREA_TYPES:
             raise ConfigurationError(
-                f"arena.service_areas.{area_name}.type deve ser WS, SH ou PP."
+                f"arena.service_areas.{area_name}.type deve ser WS, SH, PP ou ST."
             )
         if 'shelf_place_alignment' in raw and area_type != 'SH':
             raise ConfigurationError(
@@ -718,6 +718,10 @@ def validate_plan(plan: Plan, arena: Arena, cargo_slot_ids=('left', 'right'),
             if set(task.possible_tag_ids) - collected:
                 raise ConfigurationError(
                     f"Tarefa '{task.step_id}': possible_tag_ids exige coleta nesta visita ou em visita anterior.")
+            if (task.action == 'stack'
+                    and arena.service_areas[visit.target].area_type != 'ST'):
+                raise ConfigurationError(
+                    f"Visita '{visit.visit_id}': stack exige área ST.")
             if (task.action == 'place_on_precision_table'
                     and arena.service_areas[visit.target].area_type != 'PP'):
                 raise ConfigurationError(

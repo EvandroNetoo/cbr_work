@@ -18,7 +18,7 @@ visits:
     tasks:
       - {action: pick, tag_ids: [4, 5]}
 
-  - target: ws_5
+  - target: st_1
     tasks:
       - {action: stack, support_tag_id: 14, tag_ids: [4, 5]}
 

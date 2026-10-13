@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-SERVICE_AREA_TYPES = frozenset({'WS', 'SH', 'PP'})
+SERVICE_AREA_TYPES = frozenset({'WS', 'SH', 'PP', 'ST'})
 STEP_ACTIONS = frozenset({
     'navigate',
     'pick',

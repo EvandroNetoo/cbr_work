@@ -577,7 +577,7 @@ def test_pickup_recovery_stops_at_absolute_lateral_limit():
     assert 'limitada para 25 mm' in warnings[0]
 
 
-@pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP'])
+@pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP', 'ST'])
 def test_pick_retries_after_one_recoverable_result(area_type):
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
@@ -1743,7 +1743,7 @@ def test_executor_maps_sequential_steps_to_semantic_action_goals():
     assert calls[5][1].ws_height_cm == 12.5
 
 
-@pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP'])
+@pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP', 'ST'])
 def test_service_area_vision_is_enabled_after_navigation_and_before_alignment(area_type):
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
@@ -1771,7 +1771,7 @@ def test_service_area_vision_is_enabled_after_navigation_and_before_alignment(ar
     assert sorted(events[2:]) == ['align', 'observe']
 
 
-@pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP'])
+@pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP', 'ST'])
 def test_service_area_vision_is_disabled_before_departure_alignment(area_type):
     manager = MissionManager.__new__(MissionManager)
     manager._arena = _arena()
@@ -2023,7 +2023,7 @@ def _stack_search_manager():
 
 
 @pytest.mark.parametrize('enabled', [False, True])
-@pytest.mark.parametrize('area_type', ['WS', 'SH'])
+@pytest.mark.parametrize('area_type', ['WS', 'SH', 'ST'])
 def test_stack_aligns_first_cube_with_own_targets_and_reuses_alignment(enabled, area_type):
     manager = _stack_search_manager()
     manager._arena = replace(manager._arena, pickup_recovery=replace(
@@ -2325,7 +2325,7 @@ def test_second_stack_uses_first_stacks_placement_viewpoint():
     assert moves == [(200, 0.0)]
 
 
-@pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP'])
+@pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP', 'ST'])
 @pytest.mark.parametrize('ending', ['success', 'failure', 'cancel'])
 def test_initial_service_area_enables_vision_and_cleans_up(area_type, ending):
     manager = MissionManager.__new__(MissionManager)
