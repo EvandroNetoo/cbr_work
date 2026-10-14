@@ -2,6 +2,33 @@ schema_version: 2
 plan_id: cubos_1_2_3
 finish: false
 visits:
-  - target: PP
+  - target: WS_1
     tasks:
-    - final_state: {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
+    - {action: pick, tag_ids: [1, 2, 3]}
+  - target: WS_2
+    tasks:
+    - {action: place_on_table, tag_ids: [1, 2, 3]}
+  - target: WS_1
+    tasks:
+    - {action: pick, tag_ids: [4, 5, 6]}
+  - target: WS_2
+    tasks:
+    - {action: place_on_table, tag_ids: [4, 5, 6]}
+  - target: WS_1
+    tasks:
+    - {action: pick, tag_ids: [8, 9, 10]}
+  - target: WS_2
+    tasks:
+    - {action: place_on_table, tag_ids: [8, 9, 10]}
+  - target: WS_1
+    tasks:
+    - {action: pick, tag_ids: [11, 12, 13]}
+  - target: WS_2
+    tasks:
+    - {action: place_on_table, tag_ids: [11, 12, 13]}
+  - target: WS_1
+    tasks:
+    - {action: pick, tag_ids: [14, 15]}
+  - target: WS_2
+    tasks:
+    - {action: place_on_table, tag_ids: [14, 15]}

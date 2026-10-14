@@ -1,13 +1,58 @@
 """Reactive PP organization with role-separated perception and two cargo slots."""
 import math
+from types import SimpleNamespace
 
-from .errors import StepFailed, PrecisionSlotOccupied, PrecisionObjectAlreadyCorrect
+from .errors import DestinationUnavailable, StepFailed, PrecisionSlotOccupied, PrecisionObjectAlreadyCorrect, PrecisionTaskFailed
 from .models import Step, DeliveryOutcome, SlotMovement
 from .precision_perception import slot_occupant
 from .world_state import EMPTY
+from .resilience import MissionResilience
 
 
-class PrecisionRuntime:
+class PrecisionRuntime(MissionResilience):
+    def _pp_observe_retry(self):
+        error = self._retry_operation(self._observe_visit, 'Percepção PP')
+        if error is not None:
+            raise StepFailed(f'Percepção PP indisponível: {error}')
+
+    def _pp_seek_for_object(self, reference, tag_id, visit):
+        if hasattr(self, '_begin_destination_search'):
+            self._begin_destination_search('apriltags')
+        observed = []
+        error = self._retry_operation(
+            lambda: observed.append(self._pp_seek_reference(reference)),
+            f'Busca da referência PP {reference} para cubo {tag_id}',
+            passthrough=(DestinationUnavailable,))
+        if error is not None:
+            raise PrecisionTaskFailed(Step(visit.visit_id, 'place_on_precision_table',
+                                          tag_id=tag_id, reference_tag_id=reference), error)
+        return observed[-1]
+
+    def _pp_fallback_for_object(self, goal_handle, plan, visit, tag_id, reference):
+        """A missing PP reference sends its cube to the common fallback."""
+        known, held, cargo = self._world_state.snapshot()
+        if known and held == EMPTY:
+            slot = next((slot for slot, cube in cargo.items() if cube == tag_id), None)
+            if slot is not None:
+                self._pp_run_operation(goal_handle, plan, visit, 'retrieve', tag_id=tag_id, slot_id=slot)
+        step = Step(f'{visit.visit_id}_pp_fallback_{tag_id}', 'place_on_precision_table',
+                    tag_id=tag_id, reference_tag_id=reference)
+        self._report_scheduled_operation(goal_handle, plan, step, step.step_id,
+                                         f'PP: referência {reference} ausente; fallback do cubo {tag_id}')
+        _, _, cargo = self._world_state.snapshot()
+        error = self._retry_operation(
+            lambda: self._execute_place_fallback(
+                step, tag_id, float(self._arena.service_areas[self._current_location].height_cm),
+                self._manipulation_timeout()),
+            step.step_id, expected=SimpleNamespace(gripper=EMPTY, slots=tuple(cargo.values())))
+        if error is not None:
+            raise PrecisionTaskFailed(step, error)
+        self._completed_steps += 1
+        self._last_pp_scene = None
+        self._delivery_outcomes.append(DeliveryOutcome(
+            step.step_id, tag_id, visit.target, step.action, 'place_on_table_fallback'))
+        raise PrecisionTaskFailed(step, 'Referência PP ausente após busca completa; cubo depositado no fallback.')
+
     def _is_precision_area(self):
         arena = getattr(self, '_arena', None)
         area = arena.service_areas.get(getattr(self, '_current_location', '')) if arena else None
@@ -127,7 +172,7 @@ class PrecisionRuntime:
         attempted = set() if attempted is None else attempted
         while True:
             while self._pp_move_to_next_search_point(tag_id, reference=reference, attempted=attempted):
-                self._observe_visit()
+                self._pp_observe_retry()
                 refs, objects = self._pp_scene()
                 if tag_id is None or tag_id in (refs if reference else objects):
                     return
@@ -137,7 +182,16 @@ class PrecisionRuntime:
             # pickup can have uncovered a previously occluded fixed reference.
             attempted.difference_update(deferred)
             deferred = None
-        raise StepFailed(f'PP: {"referência" if reference else "objeto"} {tag_id} não encontrado após busca.')
+        if reference and self._arena.pickup_recovery.safety_search_positions_mm:
+            # Normal PP search already examined the configured geometry. Finish
+            # the detector's safety phases, including the view with LED off.
+            while self._move_to_next_safety_position('apriltags'):
+                self._pp_observe_retry()
+                refs, _objects = self._pp_scene()
+                if tag_id in refs:
+                    return
+        error_type = DestinationUnavailable if reference else StepFailed
+        raise error_type(f'PP: {"referência" if reference else "objeto"} {tag_id} não encontrado após busca.')
 
     def _pp_destination_is_aligned(self, tag_id):
         aligned = getattr(self, '_pp_aligned_reference', None)
@@ -169,14 +223,14 @@ class PrecisionRuntime:
                          or abs(lateral - self._current_lateral_position_mm) > config.travel_tolerance_mm)
                 if moved:
                     self._move_to_table_position(wall, lateral, f'alinhamento PP pela referência {tag_id}')
-                    self._observe_visit()
+                    self._pp_observe_retry()
             else:
                 wall = lateral = None
             # Reuse an existing scene when no movement/transfer invalidated it.
             try:
                 refs, objects = self._pp_scene()
             except StepFailed:
-                self._observe_visit()
+                self._pp_observe_retry()
                 refs, objects = self._pp_scene()
             if tag_id not in refs:
                 self._pp_aligned_reference = None
@@ -205,12 +259,12 @@ class PrecisionRuntime:
         try:
             _refs, objects = self._pp_scene()
         except StepFailed:
-            self._observe_visit()
+            self._pp_observe_retry()
             _refs, objects = self._pp_scene()
         if tag_id in objects:
             return
         if self._position_from_memory(tag_id) is not None:
-            self._observe_visit()
+            self._pp_observe_retry()
             _refs, objects = self._pp_scene()
             if tag_id in objects:
                 return
@@ -225,12 +279,27 @@ class PrecisionRuntime:
                                          f'PP: {action} objeto {tag_id}, referência {reference_tag_id}')
         sources = [reference for reference, cube in
                    getattr(self, '_pp_expected_occupancy', {}).items() if cube == tag_id]
-        movement = (self._pp_transfer_movement(reference_tag_id)
-                    if action in {'store', 'retrieve'} and reference_tag_id is not None else None)
-        if movement is None:
-            self._execute_step(step)
-        else:
-            self._execute_step(step, slot_movement=movement)
+        _, _, before_cargo = self._world_state.snapshot()
+        expected_cargo = dict(before_cargo)
+        if action == 'store':
+            expected_cargo[slot_id] = tag_id
+        elif action == 'retrieve':
+            expected_cargo[slot_id] = EMPTY
+        expected = SimpleNamespace(gripper=tag_id if action in {'pick', 'retrieve'} else EMPTY,
+                                   slots=tuple(expected_cargo.values()))
+        def execute():
+            movement = (self._pp_transfer_movement(reference_tag_id)
+                        if action in {'store', 'retrieve'} and reference_tag_id is not None else None)
+            if movement is None:
+                self._execute_step(step)
+            else:
+                self._execute_step(step, slot_movement=movement)
+        error = self._retry_operation(
+            execute, step.step_id, expected=expected,
+            before_retry=lambda: self._refresh_failed_step(step),
+            passthrough=(PrecisionSlotOccupied, PrecisionObjectAlreadyCorrect))
+        if error is not None:
+            raise PrecisionTaskFailed(step, error)
         known, held, cargo = self._world_state.snapshot()
         correct = {'pick': held == tag_id, 'store': held == EMPTY and cargo.get(slot_id) == tag_id,
                    'retrieve': held == tag_id and cargo.get(slot_id) == EMPTY,
@@ -248,6 +317,10 @@ class PrecisionRuntime:
                 if source in getattr(self, '_pp_final_state', {}) and self._pp_final_state[source] is None:
                     self._pp_verified.add(source)
         if action == 'place_on_precision_table':
+            if getattr(self, '_last_delivery_action', None) == 'place_on_table_fallback':
+                self._delivery_outcomes.append(DeliveryOutcome(
+                    step.step_id, tag_id, visit.target, action, 'place_on_table_fallback'))
+                raise PrecisionTaskFailed(step, 'Destino PP ausente após busca completa; cubo depositado no fallback.')
             self._pp_expected_occupancy[reference_tag_id] = tag_id
             self._delivery_outcomes.append(DeliveryOutcome(step.step_id, tag_id, visit.target,
                                                           action, action, reference_tag_id=reference_tag_id))
@@ -277,6 +350,9 @@ class PrecisionRuntime:
 
     def _pp_pick_store(self, goal_handle, plan, visit, tag_id, *, observed=False, skip_if_correct=False,
                        destination_reference=None):
+        if tag_id in getattr(self, '_pp_failed_tags', set()):
+            raise PrecisionTaskFailed(Step(visit.visit_id, 'pick', tag_id=tag_id),
+                                      'Objeto já abandonado nesta visita PP.')
         known, held, cargo = self._world_state.snapshot()
         free = next((slot for slot, tag in cargo.items() if tag == EMPTY), None)
         if not known or held != EMPTY or free is None:
@@ -287,9 +363,15 @@ class PrecisionRuntime:
             except StepFailed:
                 objects = {}
             if tag_id not in objects:
-                self._pp_find_object(tag_id)
+                error = self._retry_operation(lambda: self._pp_find_object(tag_id),
+                                              f'Busca PP do cubo {tag_id}')
+                if error is not None:
+                    raise PrecisionTaskFailed(Step(visit.visit_id, 'pick', tag_id=tag_id), error)
         else:
-            self._pp_find_object(tag_id)
+            error = self._retry_operation(lambda: self._pp_find_object(tag_id),
+                                          f'Busca PP do cubo {tag_id}')
+            if error is not None:
+                raise PrecisionTaskFailed(Step(visit.visit_id, 'pick', tag_id=tag_id), error)
         # The immediate pick must consume the supplied pose without normal base alignment.
         self._pp_direct_pick_tag = tag_id
         self._pp_skip_correct_pick_tag = tag_id if skip_if_correct else None
@@ -311,6 +393,8 @@ class PrecisionRuntime:
         config = self._arena.precision_perception
         visible = self._pp_scene()[1] if visible_only else None
         candidates = sorted(self._tag_observations.items(), key=lambda item: (
+            (bool(getattr(self, '_pp_failed_tags', set())) and
+             getattr(self, '_pp_expected_occupancy', {}).get(destinations.get(item[0][1]), EMPTY) is not None),
             abs(item[1].pickup_lateral_position_mm - self._current_lateral_position_mm), item[0]))
         for (area, tag), obj in candidates:
             if area != self._current_location or tag not in destinations or destinations[tag] in verified:
@@ -381,21 +465,23 @@ class PrecisionRuntime:
                     raise StepFailed(f'PP: objeto {", ".join(missing)} não encontrado '
                                      'ou posição correta não confirmada após busca de organização.')
                 raise StepFailed('PP: alojamentos vazios exigidos não confirmados após busca de organização.')
-            self._observe_visit()
+            self._pp_observe_retry()
 
     def _pp_surplus_destination(self, final):
         """An unrequested cube may use an unspecified cavity, never the tabletop."""
         if len(final) == 7:
             return None  # Every cavity is prescribed; there is no unspecified destination to search.
         refs = self._pp_reference_observations
-        candidates = [tag for (area, tag) in refs if area == self._current_location and tag not in final]
+        candidates = [tag for (area, tag) in refs if area == self._current_location and tag not in final
+                      and tag not in getattr(self, '_pp_abandoned_references', set())]
         config = self._arena.pickup_recovery
         area = self._arena.service_areas[self._current_location]
         if not candidates:
             for lateral in config.search_positions_mm:
                 self._move_to_table_position(area.alignment.distance_mm, lateral, 'busca dos 7 alojamentos PP')
-                self._observe_visit()
-            candidates = [tag for (area_id, tag) in refs if area_id == self._current_location and tag not in final]
+                self._pp_observe_retry()
+            candidates = [tag for (area_id, tag) in refs if area_id == self._current_location and tag not in final
+                          and tag not in getattr(self, '_pp_abandoned_references', set())]
         for reference in candidates:
             if self._pp_seek_reference(reference) is None:
                 return reference
@@ -408,7 +494,11 @@ class PrecisionRuntime:
             target = destinations.get(cube)
             if target is not None:
                 examined.add(target)
-                if self._pp_seek_reference(target) is None:
+                try:
+                    occupant = self._pp_seek_reference(target)
+                except DestinationUnavailable:
+                    continue
+                if occupant is None:
                     return slot, cube, target
         # A source cavity was emptied by pickup. It can temporarily buffer a
         # normalized cube when both desired destinations are still occupied.
@@ -419,12 +509,16 @@ class PrecisionRuntime:
                 if area != self._current_location or target in examined:
                     continue
                 examined.add(target)
-                if self._pp_seek_reference(target) is None:
+                try:
+                    occupant = self._pp_seek_reference(target)
+                except DestinationUnavailable:
+                    continue
+                if occupant is None:
                     slot, cube = carried[0]
                     return slot, cube, target
             if not self._pp_move_to_next_search_point(None, reference=True, attempted=attempted):
-                raise StepFailed('PP: carga cheia e nenhum alojamento vazio encontrado após busca.')
-            self._observe_visit()
+                raise DestinationUnavailable('PP: carga cheia e nenhum alojamento vazio encontrado após busca.')
+            self._pp_observe_retry()
 
     def _run_precision_organization(self, goal_handle, plan, visit):
         known, held, cargo = self._world_state.snapshot()
@@ -441,110 +535,158 @@ class PrecisionRuntime:
         self._pp_reference_views = {}
         self._pp_selection_views = set()
         self._pp_expected_occupancy = {}
+        self._pp_failed_tags = set()
+        self._pp_abandoned_references = set()
         try:
-            self._observe_visit()
+            self._pp_observe_retry()
             self._pp_scene()
             # Every successful iteration fixes a prescribed cavity, or drains a surplus cube.
             for _iteration in range(84):
-                self._check_canceled()
-                _, _, cargo = self._world_state.snapshot()
-                carried_items = [(slot, tag) for slot, tag in cargo.items()
-                                 if tag != EMPTY and slot in self._pp_owned_slots]
-                carried_items.sort(key=lambda item: item[1] not in destinations)
-                carried = carried_items[0] if carried_items else None
-                if len(verified) == len(final) and not carried_items:
-                    return
-                if carried:
-                    selected_slot, cube = carried
-                    target = destinations.get(cube)
-                    if (any(tag in destinations for _slot, tag in carried_items)
-                            and all(tag != EMPTY for tag in cargo.values())):
-                        selected_slot, cube, target = self._pp_full_cargo_destination(
-                            carried_items, destinations)
-                    if target is None:
-                        target = self._pp_surplus_destination(final)
+                target = None
+                try:
+                    self._check_canceled()
+                    _, _, cargo = self._world_state.snapshot()
+                    carried_items = [(slot, tag) for slot, tag in cargo.items()
+                                     if tag != EMPTY and slot in self._pp_owned_slots]
+                    carried_items.sort(key=lambda item: item[1] not in destinations)
+                    carried = carried_items[0] if carried_items else None
+                    if len(verified) == len(final) and not carried_items:
+                        return
+                    if carried:
+                        selected_slot, cube = carried
+                        target = destinations.get(cube)
+                        if (any(tag in destinations for _slot, tag in carried_items)
+                                and all(tag != EMPTY for tag in cargo.values())):
+                            try:
+                                selected_slot, cube, target = self._pp_full_cargo_destination(
+                                    carried_items, destinations)
+                            except DestinationUnavailable:
+                                self._pp_fallback_for_object(goal_handle, plan, visit, cube, target)
                         if target is None:
-                            if len(verified) == len(final):
-                                # No unrequested cavity is free: retain surplus internally.
-                                return
-                            # Keep the surplus on-board and advance the chain into
-                            # a fresh confirmed vacancy using the second compartment.
-                            cleared_null = False
-                            for candidate, desired in final.items():
-                                if candidate in verified:
-                                    continue
-                                occupant = self._pp_seek_reference(candidate)
-                                if occupant == desired:
-                                    verified.add(candidate)
-                                elif desired is None:
-                                    self._pp_pick_store(goal_handle, plan, visit, occupant, observed=True)
-                                    verified.add(candidate)
-                                    cleared_null = True
-                                    break
-                                elif occupant is None:
-                                    target, cube = candidate, desired
-                                    selected_slot = self._pp_pick_store(goal_handle, plan, visit, cube)
-                                    break
+                            target = self._pp_surplus_destination(final)
                             if target is None:
                                 if len(verified) == len(final):
+                                    # No unrequested cavity is free: retain surplus internally.
                                     return
-                                # A null cavity just cleared may complete the board on the next pass.
-                                if cleared_null:
-                                    continue
-                                raise StepFailed('PP: objeto excedente armazenado, sem alojamento livre para continuar.')
-                else:
-                    if len(verified) == len(final):
-                        return
-                    selected = self._pp_select_work(final, destinations, verified)
-                    if selected is None:
-                        return
-                    cube, target, clearing = selected
-                    if clearing:
-                        self._pp_pick_store(goal_handle, plan, visit, cube, observed=True)
-                        verified.add(target)
-                        continue
-                    selected_slot = self._pp_pick_store(goal_handle, plan, visit, cube, skip_if_correct=True,
-                                                        destination_reference=target)
-                    if selected_slot is None:
-                        continue  # Search proved this pending cube is already correct.
-                occupant = self._pp_seek_reference(target)
-                if occupant is not None:
-                    if occupant == cube:
-                        raise StepFailed(f'PP: objeto {cube} aparece na carga e no destino; detecção ambígua.')
-                    self._pp_pick_store(goal_handle, plan, visit, occupant, observed=True)
-                    # Its confirmed pickup clears the slot. Retrieve next; the place
-                    # action takes the final snapshot and realigns only if cargo access moved the base.
-                self._pp_run_operation(goal_handle, plan, visit, 'retrieve', tag_id=cube, slot_id=selected_slot,
-                                       reference_tag_id=target)
-                try:
-                    self._pp_run_operation(goal_handle, plan, visit, 'place_on_precision_table',
-                                           tag_id=cube, reference_tag_id=target)
-                except PrecisionSlotOccupied:
-                    # Retrieval freed this compartment. Return the held cube to
-                    # it, then plan from the new occupancy on the next iteration.
-                    verified.discard(target)
+                                # Keep the surplus on-board and advance the chain into
+                                # a fresh confirmed vacancy using the second compartment.
+                                cleared_null = False
+                                for candidate, desired in final.items():
+                                    if candidate in verified:
+                                        continue
+                                    occupant = self._pp_seek_reference(candidate)
+                                    if occupant == desired:
+                                        verified.add(candidate)
+                                    elif desired is None:
+                                        self._pp_pick_store(goal_handle, plan, visit, occupant, observed=True)
+                                        verified.add(candidate)
+                                        cleared_null = True
+                                        break
+                                    elif occupant is None:
+                                        target, cube = candidate, desired
+                                        selected_slot = self._pp_pick_store(goal_handle, plan, visit, cube)
+                                        break
+                                if target is None:
+                                    if len(verified) == len(final):
+                                        return
+                                    # A null cavity just cleared may complete the board on the next pass.
+                                    if cleared_null:
+                                        continue
+                                    raise StepFailed('PP: objeto excedente armazenado, sem alojamento livre para continuar.')
+                    else:
+                        if len(verified) == len(final):
+                            return
+                        selected = self._pp_select_work(final, destinations, verified)
+                        if selected is None:
+                            return
+                        cube, target, clearing = selected
+                        if clearing:
+                            self._pp_pick_store(goal_handle, plan, visit, cube, observed=True)
+                            verified.add(target)
+                            continue
+                        selected_slot = self._pp_pick_store(goal_handle, plan, visit, cube, skip_if_correct=True,
+                                                            destination_reference=target)
+                        if selected_slot is None:
+                            continue  # Search proved this pending cube is already correct.
+                    # A retained failed cube reduces capacity. Use a confirmed
+                    # vacancy as a temporary buffer before collecting an occupant.
+                    if getattr(self, '_pp_failed_tags', set()):
+                        cargo = self._world_state.snapshot()[2]
+                        if all(tag != EMPTY for tag in cargo.values()):
+                            owned = [(slot, tag) for slot, tag in cargo.items()
+                                     if slot in self._pp_owned_slots and tag not in self._pp_failed_tags]
+                            if owned:
+                                try:
+                                    selected_slot, cube, target = self._pp_full_cargo_destination(owned, destinations)
+                                except DestinationUnavailable:
+                                    self._pp_fallback_for_object(goal_handle, plan, visit, cube, target)
                     try:
-                        refs, objects = self._pp_scene()
-                    except StepFailed:
-                        refs = objects = {}
-                    for reference in tuple(verified):
-                        if reference in refs:
-                            try:
-                                occupant = slot_occupant(reference, refs, objects,
-                                                         self._arena.precision_perception)
-                            except StepFailed:
-                                verified.discard(reference)
-                            else:
-                                if occupant != final[reference]:
+                        occupant = self._pp_seek_for_object(target, cube, visit)
+                    except DestinationUnavailable:
+                        self._pp_fallback_for_object(goal_handle, plan, visit, cube, target)
+                    if occupant is not None:
+                        if occupant == cube:
+                            raise StepFailed(f'PP: objeto {cube} aparece na carga e no destino; detecção ambígua.')
+                        self._pp_pick_store(goal_handle, plan, visit, occupant, observed=True)
+                        # Its confirmed pickup clears the slot. Retrieve next; the place
+                        # action takes the final snapshot and realigns only if cargo access moved the base.
+                    self._pp_run_operation(goal_handle, plan, visit, 'retrieve', tag_id=cube, slot_id=selected_slot,
+                                           reference_tag_id=target)
+                    try:
+                        self._pp_run_operation(goal_handle, plan, visit, 'place_on_precision_table',
+                                               tag_id=cube, reference_tag_id=target)
+                    except PrecisionSlotOccupied:
+                        # Retrieval freed this compartment. Return the held cube to
+                        # it, then plan from the new occupancy on the next iteration.
+                        verified.discard(target)
+                        try:
+                            refs, objects = self._pp_scene()
+                        except StepFailed:
+                            refs = objects = {}
+                        for reference in tuple(verified):
+                            if reference in refs:
+                                try:
+                                    occupant = slot_occupant(reference, refs, objects,
+                                                             self._arena.precision_perception)
+                                except StepFailed:
                                     verified.discard(reference)
-                    self._pp_run_operation(goal_handle, plan, visit, 'store',
-                                           tag_id=cube, slot_id=selected_slot)
+                                else:
+                                    if occupant != final[reference]:
+                                        verified.discard(reference)
+                        self._pp_run_operation(goal_handle, plan, visit, 'store',
+                                               tag_id=cube, slot_id=selected_slot)
+                        continue
+                    # Trust the physical release result; no post-deposit camera session.
+                    if target in final and final[target] == cube:
+                        verified.add(target)
+                    else:
+                        verified.discard(target)
+                except PrecisionTaskFailed as error:
+                    failed = error.step
+                    self._pp_failed_tags.add(failed.tag_id)
+                    self._record_mission_failure(failed, error)
+                    # Remove only goals involving this cube or its blocked cavity.
+                    abandoned = {reference for reference, desired in final.items()
+                                 if desired == failed.tag_id or reference == target}
+                    abandoned_tags = {final[reference] for reference in abandoned
+                                      if final[reference] is not None}
+                    self._pp_failed_tags.update(abandoned_tags)
+                    self._pp_abandoned_references.update(abandoned)
+                    for reference in abandoned:
+                        final.pop(reference, None)
+                        verified.discard(reference)
+                    destinations = {tag: reference for reference, tag in final.items() if tag is not None}
+                    self._pp_final_state = final
+                    for slot, cube in self._world_state.snapshot()[2].items():
+                        if cube in self._pp_failed_tags:
+                            self._pp_owned_slots.discard(slot)
+                    self._retain_failed_held_object(goal_handle, plan, visit)
+                    for slot, cube in self._world_state.snapshot()[2].items():
+                        if cube in self._pp_failed_tags:
+                            self._pp_owned_slots.discard(slot)
+                    if self._world_state.snapshot()[1] != EMPTY:
+                        raise StepFailed('PP: cubo abandonado permanece na garra; demais coletas indisponíveis.')
                     continue
-                # Trust the physical release result; no post-deposit camera session.
-                if target in final and final[target] == cube:
-                    verified.add(target)
-                else:
-                    verified.discard(target)
             raise StepFailed('PP: limite de organização atingido sem confirmar final_state.')
         finally:
             self._pp_organizing = False

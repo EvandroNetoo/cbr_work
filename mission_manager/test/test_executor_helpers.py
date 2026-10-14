@@ -2015,6 +2015,7 @@ def _stack_search_manager():
     manager._placed_tag_viewpoints = {}
     manager._blocked_search_positions = {}
     manager._stack_client = object()
+    manager._place_table_client = object()
     manager._manipulation_timeout = lambda: 120.0
     manager._prepare_for_pick_observation = lambda: None
     manager.get_logger = lambda: SimpleNamespace(
@@ -2166,8 +2167,9 @@ def test_stack_searches_all_apriltag_positions_after_support_tag_is_missing():
             Step('stack', 'stack', support_tag_id=4))
 
     assert travels == [325, -650]
-    assert len(goals) == 3
-    assert all(goal.support_tag_id == 4 for goal in goals)
+    assert len(goals) == 4
+    assert all(goal.support_tag_id == 4 for goal in goals[:-1])
+    assert goals[-1].use_fallback_pose
     assert manager._world_state.snapshot()[1] == 5
 
 
@@ -2259,7 +2261,7 @@ def test_stack_goes_to_remembered_apriltag_before_analyzing():
     assert manager._placed_tag_viewpoints[('WS_1', 5)] == (200, 325.0)
 
 
-def test_stack_skips_positions_already_analyzed_without_tag():
+def test_stack_rechecks_other_positions_before_fallback():
     manager = _stack_search_manager()
     manager._visited_search_positions = {'WS_1': {0, 325}}
     moves = []
@@ -2283,8 +2285,9 @@ def test_stack_skips_positions_already_analyzed_without_tag():
         manager._execute_manipulation(
             Step('stack', 'stack', support_tag_id=4))
 
-    assert moves == [(200, -325)]
-    assert len(calls) == 1
+    assert moves == [(200, 325), (200, -325)]
+    assert len(calls) == 3
+    assert calls[-1].use_fallback_pose
 
 
 def test_second_stack_uses_first_stacks_placement_viewpoint():
@@ -2530,7 +2533,7 @@ def test_safety_search_is_used_by_other_perception_actions(action):
     assert views[:3] == [(200.0, False)] * 3
     assert views[3:10] == [(60.0, False)] * 7
     assert views[10:17] == [(60.0, True)] * 7
-    assert len(views) == (17 if action == 'stack' else 18)
+    assert len(views) == 18
 
 
 def test_cached_pick_result_preserves_other_tags_and_scene_history():
@@ -2753,7 +2756,7 @@ def test_pp_final_place_searches_even_when_all_object_viewpoints_were_visited():
     manager._move_to_table_position, manager._call_action = move, call
     manager._recover_pick = lambda *_args, **_kwargs: None
     manager._execute_manipulation(Step('pp', 'place_on_precision_table', tag_id=5, reference_tag_id=4))
-    assert views == [(0., False), (0., True), (325., True), (325., False)]
+    assert views == [(0., False), (325., True), (325., False)]
     assert manager._world_state.snapshot()[1] == EMPTY
 
 

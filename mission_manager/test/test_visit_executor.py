@@ -288,9 +288,10 @@ def test_failed_transfer_identifies_pending_task():
     plan = transport_plan()
     manager, *_ = simulated_manager(plan)
     manager._store_client.wait_for_server = lambda **_kwargs: False
-    with pytest.raises(StepFailed, match='Servidor indisponível'):
-        manager._run_plan(SimpleNamespace(publish_feedback=lambda _f: None), plan)
-    assert manager._failed_step_id in {'p1', 'p2', 'p3'}
+    manager._run_plan(SimpleNamespace(publish_feedback=lambda _f: None), plan)
+    assert manager._mission_failures
+    assert any('Servidor indisponível' in message for _, message in manager._mission_failures)
+    assert manager._world_state.snapshot()[0]
 
 
 def test_cancel_is_checked_during_route_planning():
@@ -381,12 +382,17 @@ def test_scan_reselects_at_each_viewpoint_and_stops_when_exhausted():
     assert moves == [250, -250]
 
     missing_manager, *_ = simulated_manager(plan, lambda *_args: {99})
+    def missing_pick(_goal):
+        result = outcome(PickObject, ManipulationResult.LOCATION_SOURCE)
+        result.outcome.code = ManipulationResult.OBJECT_NOT_FOUND
+        return result
+    missing_manager._pick_client.responder = missing_pick
     calls = []
     missing_manager._move_to_next_search_position = lambda _tag: calls.append(_tag) and False
-    with pytest.raises(StepFailed, match='pendentes não encontrados'):
-        missing_manager._run_plan(SimpleNamespace(publish_feedback=lambda _f: None), plan)
+    missing_manager._run_plan(SimpleNamespace(publish_feedback=lambda _f: None), plan)
     assert missing_manager._completed_steps == 1
-    assert not missing_manager._pick_client.goals
+    assert len(missing_manager._pick_client.goals) <= 4
+    assert missing_manager._mission_failures
 
 
 def test_only_immediate_pick_uses_scene_and_later_picks_align_and_analyze():
@@ -654,12 +660,13 @@ def test_final_only_pp_through_child_action_messages_with_overlapping_ids(extra,
         # One alignment per destination, with no movement before picking its occupant or placing.
         assert len(moves) == 7
     if extra:
-        before = manager._world_state.snapshot()
-        handle = SimpleNamespace(request=SimpleNamespace(plan_id='pp'), abort=lambda: None)
+        arena = manager._arena
+        manager._load_goal_files = lambda _plan_id: (arena, plan)
+        handle = SimpleNamespace(request=SimpleNamespace(plan_id='pp'), abort=lambda: None,
+                                 succeed=lambda: None, publish_feedback=lambda _: None)
         result = manager._execute_callback(handle)
-        assert result.code == ExecuteMission.Result.STEP_FAILED
-        assert 'Carga remanescente' in result.message
-        assert manager._world_state.snapshot() == before
+        assert result.code == ExecuteMission.Result.SUCCESS
+        assert manager._world_state.snapshot() == (True, EMPTY, {'left': EMPTY, 'right': EMPTY})
 
 
 def test_explicit_pp_deliveries_stop_search_when_references_are_seen():

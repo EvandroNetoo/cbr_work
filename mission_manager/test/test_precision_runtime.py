@@ -58,6 +58,7 @@ class Robot(PrecisionRuntime):
         self.held = EMPTY
         self.cargo = {'left': EMPTY, 'right': EMPTY}
         self.events = []
+        self.fallback = []
         self._completed_steps = 0
         self._delivery_outcomes = []
         self._current_location = 'PP'
@@ -69,9 +70,18 @@ class Robot(PrecisionRuntime):
         self._arena = NS(precision_perception=config,
                          pickup_recovery=NS(search_positions_mm=(0, 100), safety_search_positions_mm=(),
                                             safety_search_distance_mm=100, wall_tolerance_mm=5, travel_tolerance_mm=5),
-                         service_areas={'PP': NS(area_type='PP', alignment=NS(distance_mm=200))})
+                         service_areas={'PP': NS(area_type='PP', height_cm=12.5, alignment=NS(distance_mm=200))})
         self._world_state = NS(snapshot=lambda: (True, self.held, dict(self.cargo)))
     def _check_canceled(self): pass
+    def _manipulation_timeout(self): return 1.
+    def _execute_place_fallback(self, step, tag_id, _height, _timeout):
+        assert self.held == tag_id
+        self.events.append(('fallback', tag_id, None, None))
+        self.fallback.append(tag_id)
+        self.held = EMPTY
+        self._last_delivery_action = 'place_on_table_fallback'
+    def get_logger(self):
+        return NS(warning=lambda *_: None, error=lambda *_: None)
     def _report_scheduled_operation(self, *args): pass
     def _precision_memory_destination(self, memory): return 200, 0
     def _move_to_table_position(self, *args): pass
@@ -98,6 +108,7 @@ class Robot(PrecisionRuntime):
             assert self.held == EMPTY
             self.held, self.cargo[step.slot_id] = self.cargo[step.slot_id], EMPTY
         else:
+            self._last_delivery_action = step.action
             assert self.board[step.reference_tag_id] is None
             self.board[step.reference_tag_id], self.held = self.held, EMPTY
 
@@ -162,13 +173,16 @@ def test_permutations_with_full_board_and_with_one_unknown_surplus():
         run(dict(zip(range(1, 8), (*permutation, 7, 5, 6))), {i: i for i in range(1, 7)})
 
 
-def test_missing_reference_is_unknown_even_with_object_seen():
+def test_missing_reference_searches_then_retrieves_cube_for_fallback():
     robot = Robot({1: 2, 2: None, 3: None, 4: None, 5: None, 6: None, 7: None})
     visit = Visit('pp', 'PP', (), None, ((8, 2),))
-    with pytest.raises(StepFailed, match='referência 8 não encontrado'):
-        robot._run_precision_organization(None, Plan('test', (visit,)), visit)
-    assert [event[0] for event in robot.events] == ['pick', 'store']
-    assert robot.held == EMPTY and 2 in robot.cargo.values()
+    robot._run_precision_organization(None, Plan('test', (visit,)), visit)
+    assert robot._mission_failures
+    assert [event[0] for event in robot.events] == ['pick', 'store', 'retrieve', 'fallback']
+    assert robot.held == EMPTY and all(cube == EMPTY for cube in robot.cargo.values())
+    assert robot.fallback == [2]
+    assert robot._delivery_outcomes[-1].actual_action == 'place_on_table_fallback'
+    assert robot._delivery_outcomes[-1].reference_tag_id is None
 
 
 def test_capacity_exhaustion_never_picks_another_cube():

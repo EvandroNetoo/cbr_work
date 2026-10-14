@@ -69,6 +69,10 @@ class WorldState:
         with self._lock:
             return self._known, self._gripper, dict(self._slots)
 
+    def inventory_sources(self) -> tuple[str | None, dict[str, str | None]]:
+        with self._lock:
+            return self._gripper_source, dict(self._slot_sources)
+
     def mark_unknown(self) -> None:
         with self._lock:
             self._known = False

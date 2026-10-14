@@ -4,6 +4,48 @@ Executor por visitas das missões da RoboCup@Work. O pacote não controla motore
 diretamente: ele compõe Nav2, alinhamento VL53 e as actions semânticas do pacote
 `manipulation`.
 
+## Falhas durante a missão
+
+`operation_max_attempts: 2` em `config/mission_manager.yaml` permite uma nova
+tentativa após falha de uma operação do executor. Vale para coleta, transferências
+da carga, depósitos, percepção, busca e navegação. As buscas geométricas e os
+recuos internos das actions continuam existindo dentro de cada tentativa.
+Exceções inesperadas também entram neste tratamento; cancelamento do cliente
+continua interrompendo a missão imediatamente.
+
+Esgotadas as tentativas, o escalonador ignora as próximas tarefas daquele objeto
+e as dependências de empilhamento. Por exemplo, falhar na coleta do cubo 1 remove
+seu depósito na mesa 2, mas mantém a visita à mesa 2 e o trabalho com outros
+cubos. Grupos são filtrados por cubo; um membro ignorado não passa a ser o apoio
+da pilha. Rotas por cor preservam outra cópia da mesma tag em uma origem diferente.
+O YAML original não é alterado: o descarte vale somente para a execução atual.
+
+O inventário físico é preservado. Um cubo cujo depósito ou retirada falhou pode
+ficar na garra ou ocupar um compartimento; os próximos passos usam apenas a
+capacidade disponível. A organização PP também descarta os objetivos dependentes
+do cubo que falhou e pode usar alojamentos vazios como apoio temporário para os
+demais cubos. Se não houver capacidade para uma tarefa, ela é ignorada e a rota
+continua. Se a transferência já foi confirmada e o erro ocorreu no recolhimento
+do braço, ela é contabilizada e não é repetida.
+
+Falhar ao chegar ou alinhar em uma visita ignora suas tarefas e dependências, mas
+mantém as visitas seguintes. Ao terminar, uma missão com descartes retorna
+`STEP_FAILED`, com o primeiro passo que falhou e um resumo dos descartes em
+`message`. `completed_steps` conta somente operações concluídas; os logs mostram
+as tentativas e objetos ignorados. O servidor continua disponível.
+
+Há duas situações em que os movimentos são suspensos com erro controlado: carga
+com efeito físico desconhecido e action enviada sem término confirmado. Não é
+seguro repetir uma coleta ou iniciar outro movimento nessas condições. O processo
+ROS permanece ativo. Ao iniciar uma nova missão válida, o gerenciador limpa todo
+o estado da execução anterior, inclusive carga retida/incerta, progresso,
+observações, objetos abandonados e flags de actions sem término confirmado.
+Cada missão começa do primeiro passo, assumindo garra e compartimentos vazios,
+sem precisar reiniciar o nó. Esse reset é lógico: não movimenta nem descarrega
+fisicamente o robô.
+Falhas de inicialização/configuração, encerramento do ROS ou término externo do
+processo não são falhas de tarefa recuperáveis por este mecanismo.
+
 ## Arquivos
 
 - `config/arena.yaml`: poses fixas, alturas, tipos, alinhamento, recuo e
@@ -474,17 +516,34 @@ de AprilTag. Se a cor solicitada não apareceu na última observação da posiç
 atual, não repete a mesma detecção. `place_on_table` mantém seu conjunto de
 busca independente.
 
-Contêiner e espaço livre também usam as duas varreduras de segurança antes
-de esgotar a busca. A busca de espaço livre é renovada em cada depósito, pois
-a ocupação da mesa pode mudar.
+Contêiner, espaço livre, apoio de pilha e referência PP também usam as duas
+varreduras de segurança antes de esgotar a busca de depósito. As varreduras de
+segurança são renovadas para cada cubo, pois a ocupação e a visibilidade podem
+mudar. São examinados os pontos configurados da área atual; o fallback não
+inicia uma busca por outras áreas da arena.
 
-Depois de examinar as posições padrão e de segurança, o gerenciador chama
+Depois de examinar as posições padrão e de segurança sem encontrar um destino,
+inclusive quando falta o apoio de `stack` ou a referência de
+`place_on_precision_table`, o gerenciador chama
 `PlaceOnTable` em modo de fallback. Nesse modo, a percepção é ignorada e a
 posição padrão `x=0`, `y=-0,20` é usada com a altura, o offset do TCP, a
 orientação preferencial e as restrições normais do perfil `table`. Se uma action
 confirmar que a garra já foi aberta no destino e falhar somente no recuo ou no
 retorno do braço, o efeito é aceito e o fluxo normal continua sem tentar
-depositar o mesmo objeto outra vez. Resultado com efeito físico incerto continua
+depositar o mesmo objeto outra vez. O resultado registra `place_on_table_fallback`
+como ação efetiva. No empilhamento, o cubo colocado no fallback passa a ser o
+novo apoio do grupo. Sua pose de soltura confirmada é guardada para que o próximo
+cubo possa usar `missing_tag_offset_xyz` se a tag desse apoio não aparecer.
+Essa pose só é enviada quando a base está na mesma área e posição registradas;
+se houve deslocamento, o gerenciador pode retornar ao ponto memorizado antes
+de reutilizá-la. O fallback não confirma a ocupação do alojamento PP solicitado.
+Na organização PP reativa,
+uma referência ausente após a busca também provoca a retirada do cubo da carga
+e sua entrega no fallback, liberando capacidade para os demais objetivos.
+Esses objetivos de pilha/PP não cumpridos entram no resumo de falhas, enquanto a
+missão segue com as tarefas executáveis. Se o próprio fallback falhar, aplicam-se
+as tentativas e o tratamento de carga retida existentes.
+Resultado com efeito físico incerto continua
 interrompendo a missão por segurança.
 
 ## Execução
@@ -666,7 +725,8 @@ conhecido, com garra e slots vazios. Antes de cada action física, o gerenciador
 valida a precondição, preenche explicitamente o ID do objeto e somente depois
 do resultado confirmado faz o commit da transição. Timeout, perda de comunicação,
 cancelamento sem resultado ou efeito físico ambíguo tornam o estado desconhecido
-e bloqueiam novas operações automáticas.
+e bloqueiam novas operações automáticas na execução atual. Uma nova missão
+válida reinicializa esse estado e começa do zero.
 
 Para soltar o objeto que está na garra em um contêiner detectado na área atual,
 use um passo como este em um plano YAML:

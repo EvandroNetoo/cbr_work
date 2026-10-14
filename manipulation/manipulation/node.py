@@ -227,48 +227,48 @@ class ManipulationServer(Node):
         self._servers = [
             ActionServer(
                 self, PickObject, str(self.get_parameter('pick_action').value),
-                execute_callback=self._execute_pick, **common,
+                execute_callback=self._guard_execute(PickObject, self._execute_pick), **common,
             ),
             ActionServer(
                 self, StoreObject, str(self.get_parameter('store_action').value),
-                execute_callback=self._execute_store, **common,
+                execute_callback=self._guard_execute(StoreObject, self._execute_store), **common,
             ),
             ActionServer(
                 self, RetrieveObject, str(self.get_parameter('retrieve_action').value),
-                execute_callback=self._execute_retrieve, **common,
+                execute_callback=self._guard_execute(RetrieveObject, self._execute_retrieve), **common,
             ),
             ActionServer(
                 self, PlaceOnTable,
                 str(self.get_parameter('place_on_table_action').value),
-                execute_callback=self._execute_place_on_table, **common,
+                execute_callback=self._guard_execute(PlaceOnTable, self._execute_place_on_table), **common,
             ),
             ActionServer(
                 self, PlaceInContainer,
                 str(self.get_parameter('place_in_container_action').value),
-                execute_callback=self._execute_place_in_container, **common,
+                execute_callback=self._guard_execute(PlaceInContainer, self._execute_place_in_container), **common,
             ),
             ActionServer(
                 self, StackObject, str(self.get_parameter('stack_action').value),
-                execute_callback=self._execute_stack, **common,
+                execute_callback=self._guard_execute(StackObject, self._execute_stack), **common,
             ),
             ActionServer(
                 self, PlaceOnPrecisionTable,
                 str(self.get_parameter('place_on_precision_table_action').value),
-                execute_callback=self._execute_place_on_precision_table, **common,
+                execute_callback=self._guard_execute(PlaceOnPrecisionTable, self._execute_place_on_precision_table), **common,
             ),
             ActionServer(
                 self, PlaceOnShelf,
                 str(self.get_parameter('place_on_shelf_action').value),
-                execute_callback=self._execute_place_on_shelf, **common,
+                execute_callback=self._guard_execute(PlaceOnShelf, self._execute_place_on_shelf), **common,
             ),
             ActionServer(
                 self, PlaceAtPose,
                 str(self.get_parameter('place_at_pose_action').value),
-                execute_callback=self._execute_place_at_pose, **common,
+                execute_callback=self._guard_execute(PlaceAtPose, self._execute_place_at_pose), **common,
             ),
             ActionServer(
                 self, PrepareManipulator, str(self.get_parameter('prepare_action').value),
-                execute_callback=self._execute_prepare, **common,
+                execute_callback=self._guard_execute(PrepareManipulator, self._execute_prepare), **common,
             ),
         ]
         self.get_logger().info(
@@ -342,7 +342,10 @@ class ManipulationServer(Node):
         feedback.status.phase = phase
         feedback.status.progress = float(progress)
         feedback.status.description = description
-        goal_handle.publish_feedback(feedback)
+        try:
+            goal_handle.publish_feedback(feedback)
+        except Exception as error:
+            self.get_logger().warning(f'Falha ao publicar feedback da manipulação: {error}')
         self.get_logger().info(description)
 
     def _arm_state(self, state: str, description: str) -> None:
@@ -546,6 +549,8 @@ class ManipulationServer(Node):
             )
         )
         result.outcome.message = message
+        if placed_pose is None and getattr(self, '_effect_known', False):
+            placed_pose = getattr(self, '_effect_placed_pose', None)
         if placed_pose is not None and hasattr(result, 'placed_pose'):
             result.placed_pose = copy.deepcopy(placed_pose)
         if (
@@ -569,6 +574,40 @@ class ManipulationServer(Node):
             goal_handle.abort()
         return result
 
+    def _guard_execute(self, action_type, callback):
+        """Protect setup/result construction as well as the physical operation."""
+        def execute(goal_handle):
+            self._executing_guarded = True
+            self._effect_known = True
+            self._effect_placed_pose = None
+            self._effect_location = (
+                ManipulationResult.LOCATION_SOURCE if action_type is PickObject else
+                ManipulationResult.LOCATION_CARGO if action_type is RetrieveObject else
+                ManipulationResult.LOCATION_UNKNOWN if action_type is PrepareManipulator else
+                ManipulationResult.LOCATION_GRIPPER)
+            try:
+                return callback(goal_handle)
+            except Exception as error:
+                self.get_logger().error(f'Falha inesperada em callback de manipulação: {error}')
+                result = action_type.Result()
+                result.outcome.code = ManipulationResult.INTERNAL_ERROR
+                result.outcome.message = str(error)
+                result.outcome.effect_known = self._effect_known
+                result.outcome.final_object_location = self._effect_location
+                try:
+                    if getattr(goal_handle, 'is_active', True):
+                        goal_handle.abort()
+                except Exception as terminal_error:
+                    self.get_logger().error(f'Falha ao finalizar goal: {terminal_error}')
+                return result
+            finally:
+                self._cancel_event.clear()
+                with self._lock:
+                    self._executing_guarded = False
+                    self._busy = False
+                    self._active_operation = ''
+        return execute
+
     def _run(
         self,
         action_type: Any,
@@ -584,7 +623,13 @@ class ManipulationServer(Node):
         if operation_name != 'retrieve':
             self._prepared_cargo_retrieve = None
         self._effect_known = True
-        self._effect_location = ManipulationResult.LOCATION_UNKNOWN
+        self._effect_placed_pose = None
+        self._effect_location = (
+            ManipulationResult.LOCATION_SOURCE if operation_name == 'pick' else
+            ManipulationResult.LOCATION_CARGO if operation_name == 'retrieve' else
+            ManipulationResult.LOCATION_GRIPPER if operation_name == 'store'
+            or operation_name.startswith('place') or operation_name == 'stack' else
+            ManipulationResult.LOCATION_UNKNOWN)
         monitorando_estados = False
         try:
             if requires_moveit:
@@ -631,11 +676,16 @@ class ManipulationServer(Node):
             )
         finally:
             self._cancel_event.clear()
-            if monitorando_estados:
-                self._motion.parar_monitoramento_dos_estados()
-            with self._lock:
-                self._busy = False
-                self._active_operation = ''
+            try:
+                if monitorando_estados:
+                    self._motion.parar_monitoramento_dos_estados()
+            except Exception as error:
+                self.get_logger().error(f'Falha ao encerrar monitoramento: {error}')
+            finally:
+                with self._lock:
+                    if not getattr(self, '_executing_guarded', False):
+                        self._busy = False
+                        self._active_operation = ''
 
     def _execute_pick(self, goal_handle: Any) -> PickObject.Result:
         tag_id = int(goal_handle.request.tag_id)
@@ -1481,6 +1531,8 @@ class ManipulationServer(Node):
         if action_type is PlaceOnPrecisionTable and profile.base_wiggle.enabled:
             self._wiggle_before_precision_release(goal_handle, action_type, profile)
         self._open_for_placement(goal_handle, action_type, destination)
+        # Keep the confirmed release pose even if retreat/return fails later.
+        self._effect_placed_pose = copy.deepcopy(release_pose)
         if profile.retreat_height_m > 0.0:
             retreat_pose = copy.deepcopy(release_pose)
             retreat_pose.pose.position.z += profile.retreat_height_m
@@ -1965,6 +2017,8 @@ def _spin_executor(executor: Any, node: Node) -> None:
     while rclpy.ok():
         try:
             executor.spin_once()
+        except ExternalShutdownException:
+            raise
         except InvalidHandle as error:
             if not rclpy.ok():
                 break
@@ -1972,6 +2026,11 @@ def _spin_executor(executor: Any, node: Node) -> None:
                 'Entidade ROS removida durante a atualização do executor: '
                 f'{error}'
             )
+        except Exception as error:
+            if not rclpy.ok():
+                break
+            node.get_logger().error(f'Falha em callback ROS; executor continua ativo: {error}')
+            threading.Event().wait(0.05)
 
 
 def main(args=None) -> int:

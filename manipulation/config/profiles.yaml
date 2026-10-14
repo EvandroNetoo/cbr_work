@@ -112,7 +112,7 @@ placements:
     # Tolerância de inclinação na soltura, em graus, independente da coleta
     # e dos outros depósitos. Ex.: 5.0. null mantém o padrão (~11.46 graus).
     # A aproximação e a retirada mantêm a tolerância de 35 graus.
-    tilt_tolerance_deg: 30
+    tilt_tolerance_deg: 22.13
 
   precision_table:
     strategy: tag_relative

@@ -4,7 +4,7 @@
 # Antes da prova, ajuste os IDs solicitados e seus destinos.
 # O formato atual do plano não recebe a solicitação nem impõe o prazo.
 schema_version: 2
-plan_id: basic_manipulation_test
+plan_id: 1_basic_manipulation_test
 finish: true
 visits:
   - target: WS_1

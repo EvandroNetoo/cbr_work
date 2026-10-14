@@ -28,3 +28,5 @@ mission_manager:
     server_timeout_s: 10.0
     navigation_timeout_s: 120.0
     manipulation_timeout_s: 120.0
+    # Total attempts per operation, including the first attempt.
+    operation_max_attempts: 2

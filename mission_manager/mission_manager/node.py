@@ -43,7 +43,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_srvs.srv import SetBool
 
-from .errors import ConfigurationError, MissionCanceled, StateConflict, StepFailed, TaskNotFound, PrecisionSlotOccupied
+from .errors import ActionUncertain, ConfigurationError, DestinationUnavailable, MissionCanceled, StateConflict, StepFailed, TaskNotFound, PrecisionSlotOccupied
 from .loaders import load_arena, load_plan, PLAN_ID_PATTERN, validate_plan
 from .models import (
     Arena,
@@ -116,6 +116,7 @@ class MissionManager(PrecisionRuntime, Node):
             'server_timeout_s': 10.0,
             'navigation_timeout_s': 120.0,
             'manipulation_timeout_s': 120.0,
+            'operation_max_attempts': 2,
             'camera_capture_service': '/camera/set_capture',
             'vision_led_hold_off_service': '/vision/hold_led_off',
             'vision_led_service': '/base_hardware/set_vision_led',
@@ -123,6 +124,10 @@ class MissionManager(PrecisionRuntime, Node):
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
+
+        self._operation_max_attempts = self._nonnegative_integer_parameter('operation_max_attempts')
+        if self._operation_max_attempts < 1:
+            raise ConfigurationError('operation_max_attempts deve ser pelo menos 1.')
 
         self._wall_max_alignment_error_mm = (
             self._nonnegative_integer_parameter(
@@ -266,7 +271,10 @@ class MissionManager(PrecisionRuntime, Node):
         return message
 
     def _publish_world_state(self) -> None:
-        self._state_publisher.publish(self._state_message())
+        try:
+            self._state_publisher.publish(self._state_message())
+        except Exception as error:
+            self.get_logger().error(f'Falha ao publicar estado da carga: {error}')
 
     def _goal_callback(self, goal_request: ExecuteMission.Goal) -> GoalResponse:
         # ROS goal rejection has no message field. Return validation errors in
@@ -284,7 +292,10 @@ class MissionManager(PrecisionRuntime, Node):
         with self._lock:
             children = tuple(self._active_children.values())
         for child in children:
-            child.cancel_goal_async()
+            try:
+                child.cancel_goal_async()
+            except Exception as error:
+                self.get_logger().error(f'Falha ao cancelar action filha: {error}')
 
     def _check_canceled(self) -> None:
         if self._cancel_event.is_set():
@@ -345,6 +356,7 @@ class MissionManager(PrecisionRuntime, Node):
         allow_unsuccessful_status: bool = False,
         accept_unsuccessful_result: Callable[[Any], bool] | None = None,
         on_goal_accepted: Callable[[], None] | None = None,
+        on_goal_dispatched: Callable[[], None] | None = None,
         feedback_callback: Callable[[Any], None] | None = None,
     ) -> Any:
         self._check_canceled()
@@ -361,10 +373,14 @@ class MissionManager(PrecisionRuntime, Node):
                 client.send_goal_async(goal, feedback_callback=feedback_callback)
                 if feedback_callback is not None else client.send_goal_async(goal)
             )
+            if on_goal_dispatched is not None:
+                on_goal_dispatched()
             child = self._wait_future(
                 send_future, self._server_timeout(), check_cancel=False
             )
-            if child is None or not child.accepted:
+            if child is None:
+                raise ActionUncertain(f'Sem confirmação de aceitação: {description}.')
+            if not child.accepted:
                 raise StepFailed(f'Goal rejeitado: {description}.')
             with self._lock:
                 self._active_children[id(child)] = child
@@ -381,21 +397,32 @@ class MissionManager(PrecisionRuntime, Node):
         except StepFailed:
             raise
         except TimeoutError as error:
-            raise StepFailed(f'Timeout durante {description}.') from error
+            raise ActionUncertain(
+                f'Timeout durante {description}; término da ação não confirmado.') from error
         except Exception as error:
-            raise StepFailed(f'Falha de comunicação em {description}: {error}') from error
+            error_type = ActionUncertain if send_future is not None else StepFailed
+            raise error_type(f'Falha de comunicação em {description}: {error}') from error
         finally:
             # Cancel even if acceptance arrives after the communication timeout.
             if child is None and send_future is not None:
                 def cancel_late_goal(future):
-                    if future.exception() is None:
-                        late_child = future.result()
-                        if late_child is not None and late_child.accepted:
-                            late_child.cancel_goal_async()
-                send_future.add_done_callback(cancel_late_goal)
+                    try:
+                        if future.exception() is None:
+                            late_child = future.result()
+                            if late_child is not None and late_child.accepted:
+                                late_child.cancel_goal_async()
+                    except Exception as error:
+                        self.get_logger().error(f'Falha ao cancelar goal tardio: {error}')
+                try:
+                    send_future.add_done_callback(cancel_late_goal)
+                except Exception as error:
+                    self.get_logger().error(f'Falha ao registrar cancelamento tardio: {error}')
             if child is not None and child.accepted:
                 if not result_received:
-                    child.cancel_goal_async()
+                    try:
+                        child.cancel_goal_async()
+                    except Exception as error:
+                        self.get_logger().error(f'Falha ao solicitar cancelamento de {description}: {error}')
                 with self._lock:
                     self._active_children.pop(id(child), None)
         if result_wrapper is None:
@@ -524,10 +551,15 @@ class MissionManager(PrecisionRuntime, Node):
     ) -> Any:
         """Call a physical action and conservatively own its logical transition."""
         goal_accepted = False
+        goal_dispatched = False
 
         def note_acceptance() -> None:
             nonlocal goal_accepted
             goal_accepted = True
+
+        def note_dispatch() -> None:
+            nonlocal goal_dispatched
+            goal_dispatched = True
 
         try:
             result = self._call_action(
@@ -537,13 +569,15 @@ class MissionManager(PrecisionRuntime, Node):
                 timeout_s,
                 allow_unsuccessful_status=True,
                 on_goal_accepted=note_acceptance,
+                on_goal_dispatched=note_dispatch,
                 **({'feedback_callback': feedback_callback}
                    if feedback_callback is not None else {}),
             )
-        except (MissionCanceled, StepFailed):
+        except Exception as error:
             # Without a result, the manager cannot know whether the gripper crossed
             # the irreversible point of the requested operation.
-            if goal_accepted:
+            rejected = isinstance(error, StepFailed) and not isinstance(error, (ActionUncertain, MissionCanceled))
+            if goal_accepted or (goal_dispatched and not rejected):
                 self._mark_world_unknown()
             raise
         self._reconcile_manipulation_result(
@@ -1368,7 +1402,14 @@ class MissionManager(PrecisionRuntime, Node):
             yield
         finally:
             try:
-                self._restore_search_led()
+                for attempt in range(getattr(self, '_operation_max_attempts', 2)):
+                    try:
+                        self._restore_search_led()
+                        break
+                    except Exception as error:
+                        self.get_logger().error(f'Falha ao restaurar LED da busca: {error}')
+                        if attempt + 1 == getattr(self, '_operation_max_attempts', 2):
+                            self._record_mission_failure(Step('search_led_cleanup', 'cleanup'), error)
             finally:
                 self._search_phase = 0
 
@@ -1522,13 +1563,14 @@ class MissionManager(PrecisionRuntime, Node):
     ) -> bool:
         """Move to the nearest untried table-search point for this step."""
         assert self._arena is not None
-        detector = 'containers' if step.action == 'place_in_container' else 'table'
+        detector = ('containers' if step.action == 'place_in_container' else
+                    'apriltags' if step.action in {'stack', 'place_on_precision_table'} else 'table')
         if getattr(self, '_search_phase', 0):
             return self._move_to_next_safety_position(detector)
         blocked = (
             getattr(self, '_blocked_search_positions', {}).get(
                 self._current_location, set())
-            if step.action == 'place_in_container' else set()
+            if step.action != 'place_on_table' else set()
         )
         candidates = [
             position for position in positions
@@ -1610,7 +1652,7 @@ class MissionManager(PrecisionRuntime, Node):
         ):
             try:
                 self._set_vision_resource(client, name, False)
-            except StepFailed as error:
+            except Exception as error:
                 failures.append(str(error))
         if failures:
             raise StepFailed('; '.join(failures))
@@ -1673,6 +1715,8 @@ class MissionManager(PrecisionRuntime, Node):
             self._navigation_timeout(),
             self._navigation_failure,
         )
+        # Nav2 arrival is a physical fact even if camera activation/alignment fails.
+        self._current_location = target
         self._current_wall_distance_mm = None
         self._current_lateral_position_mm = 0.0
         self._last_follow_wall_result = None
@@ -1938,7 +1982,19 @@ class MissionManager(PrecisionRuntime, Node):
 
     def _execute_place_with_recovery(self, step, client, goal, tag_id, height_cm, timeout) -> None:
         with self._search_session():
+            self._begin_destination_search('containers' if step.action == 'place_in_container' else 'table')
             self._execute_place_with_recovery_impl(step, client, goal, tag_id, height_cm, timeout)
+
+    def _begin_destination_search(self, detector: str) -> None:
+        """Each held cube gets a complete destination search, including safety views."""
+        history = getattr(self, '_safety_search_history', {})
+        for key in tuple(history):
+            if key[0] == self._current_location and key[-1] == detector:
+                del history[key]
+        attempted = getattr(self, '_safety_search_attempts', {})
+        for key in tuple(attempted):
+            if key[-1] == detector:
+                del attempted[key]
 
     def _execute_place_with_recovery_impl(
         self,
@@ -2035,6 +2091,15 @@ class MissionManager(PrecisionRuntime, Node):
                 continue
             break
 
+        self._execute_place_fallback(step, tag_id, height_cm, timeout)
+
+    def _execute_place_fallback(self, step: Step, tag_id: int, height_cm: float, timeout: float) -> None:
+        """Release at the calibrated fallback only with a confirmed held cube."""
+        known, gripper, _slots = self._world_state.snapshot()
+        if not known or gripper != tag_id:
+            raise StepFailed(
+                f"Fallback do passo '{step.step_id}' bloqueado: "
+                f'cubo {tag_id} não confirmado na garra.')
         self._last_delivery_action = 'place_on_table_fallback'
         fallback_goal = self._default_place_goal(height_cm)
         self.get_logger().warning(
@@ -2050,15 +2115,20 @@ class MissionManager(PrecisionRuntime, Node):
             tag_id,
         )
         failure = self._manipulation_failure(result)
-        if failure is None:
-            return
         known, gripper, _slots = self._world_state.snapshot()
         if known and gripper == EMPTY:
-            self.get_logger().warning(
-                f"Fallback do passo '{step.step_id}' confirmou o depósito "
-                f'antes de falhar durante a finalização: {failure}. O fluxo '
-                'da missão continuará.'
-            )
+            if step.action == 'stack':
+                # The new pile starts here, independently of the missing support.
+                self._remember_placed_tag_viewpoint(tag_id)
+                self._stack_alignment = None
+                self._remember_stack_alignment(tag_id, tag_id)
+                self._remember_stack_placement(tag_id, result)
+            if failure is not None:
+                self.get_logger().warning(
+                    f"Fallback do passo '{step.step_id}' confirmou o depósito "
+                    f'antes de falhar durante a finalização: {failure}. O fluxo '
+                    'da missão continuará.'
+                )
             return
         raise StepFailed(
             f"fallback do passo '{step.step_id}' (place_on_table) falhou: "
@@ -2105,8 +2175,13 @@ class MissionManager(PrecisionRuntime, Node):
             )
 
     def _execute_stack_with_search(self, step, goal, tag_id, timeout) -> None:
-        with self._search_session():
-            self._execute_stack_with_search_impl(step, goal, tag_id, timeout)
+        try:
+            with self._search_session():
+                self._begin_destination_search('apriltags')
+                self._execute_stack_with_search_impl(step, goal, tag_id, timeout)
+        except DestinationUnavailable:
+            self._execute_place_fallback(
+                step, tag_id, float(self._arena.service_areas[self._current_location].height_cm), timeout)
 
     def _execute_stack_with_search_impl(
         self, step: Step, goal: StackObject.Goal, tag_id: int, timeout: float,
@@ -2117,11 +2192,16 @@ class MissionManager(PrecisionRuntime, Node):
         )
 
     def _execute_precision_with_search(self, step, goal, tag_id, timeout):
-        with self._search_session():
-            self._execute_tag_placement_with_search(
-                step, goal, tag_id, timeout, self._place_precision_client,
-                PlaceOnPrecisionTable, int(goal.reference_tag_id), precision=True,
-            )
+        try:
+            with self._search_session():
+                self._begin_destination_search('apriltags')
+                self._execute_tag_placement_with_search(
+                    step, goal, tag_id, timeout, self._place_precision_client,
+                    PlaceOnPrecisionTable, int(goal.reference_tag_id), precision=True,
+                )
+        except DestinationUnavailable:
+            self._execute_place_fallback(
+                step, tag_id, float(self._arena.service_areas[self._current_location].height_cm), timeout)
 
     def _execute_tag_placement_with_search(
         self, step, goal, tag_id, timeout, client, action_type,
@@ -2137,6 +2217,7 @@ class MissionManager(PrecisionRuntime, Node):
                                if precision else self._arena.pickup_recovery.stack_preferred_tag_y_m),
         )
         original_observation = None
+        destination_visited: set[int] = set()
         alignment_completed = (self._pp_destination_is_aligned(reference_tag_id) if precision
                                else self._stack_is_aligned(reference_tag_id))
         if not precision and self._stack_previous_pose(reference_tag_id) is not None:
@@ -2174,15 +2255,19 @@ class MissionManager(PrecisionRuntime, Node):
                     'observações da posição atual; evitando nova detecção '
                     'no mesmo local.'
                 )
-                if not self._move_to_next_search_position(reference_tag_id):
-                    raise StepFailed(
+                self._mark_current_search_position(destination_visited, config.search_positions_mm)
+                if not self._move_to_next_place_search_position(step, destination_visited, config.search_positions_mm):
+                    raise DestinationUnavailable(
                         f"passo '{step.step_id}' ({step.action}) falhou: AprilTag "
                         f'{reference_tag_id} não apareceu nas observações e '
                         'todas as posições de busca já foram examinadas '
                         'ou bloqueadas por proteção.'
                     )
         original_fallback_pending = original_observation is not None
-        pp_search_attempts = set()
+        # Cargo access may have moved the base; returning to the recorded
+        # fallback viewpoint makes its confirmed release pose usable again.
+        if not precision and self._stack_previous_pose(reference_tag_id) is not None:
+            alignment_completed = True
         pp_retry_count = 0
         while True:
             goal.require_alignment = not alignment_completed
@@ -2250,13 +2335,9 @@ class MissionManager(PrecisionRuntime, Node):
                     f'PP: repetindo depósito com cubo confirmado na garra '
                     f'(tentativa de recuperação {pp_retry_count}/2): {failure}')
                 continue
-            if (
-                config.enabled
-                and result.outcome.code == ManipulationResult.OBJECT_NOT_FOUND
-            ):
+            if result.outcome.code in {ManipulationResult.OBJECT_NOT_FOUND, ManipulationResult.NO_FREE_SPACE}:
                 self._mark_current_search_position(
-                    self._visited_search_positions.setdefault(
-                        self._current_location, set()),
+                    destination_visited,
                     config.search_positions_mm,
                 )
                 if original_fallback_pending:
@@ -2267,12 +2348,13 @@ class MissionManager(PrecisionRuntime, Node):
                     ):
                         alignment_completed = False
                         continue
-                searching = (self._pp_move_to_next_search_point(reference_tag_id, reference=True,
-                                                               attempted=pp_search_attempts)
-                             if precision else self._move_to_next_search_position(reference_tag_id))
+                searching = self._move_to_next_place_search_position(
+                    step, destination_visited, config.search_positions_mm)
                 if searching:
                     alignment_completed = False
                     continue
+                raise DestinationUnavailable(
+                    f"Destino do passo '{step.step_id}' ausente após busca completa: {failure}")
             raise StepFailed(
                 f"passo '{step.step_id}' ({step.action}) falhou: {failure}"
             )
@@ -2731,6 +2813,8 @@ class MissionManager(PrecisionRuntime, Node):
                        replace(step, step_id=task_id), description)
 
     def _run_plan(self, goal_handle, plan: Plan) -> None:
+        self._mission_failures = []
+        self._task_attempts = {}
         scheduler = Scheduler(plan, tuple(self._world_state.snapshot()[2]), self._check_canceled)
         self._required_color_tags = {tag for visit in plan.visits for task in visit.tasks
                                      for tag in task.possible_tag_ids}
@@ -2742,17 +2826,43 @@ class MissionManager(PrecisionRuntime, Node):
             nav = Step(visit.visit_id, 'navigate', target=visit.target)
             self._report_scheduled_operation(goal_handle, plan, nav, visit.visit_id,
                                              f'Navegando para {visit.target}')
-            self._execute_step(nav)
+            error = self._retry_operation(lambda: self._execute_step(nav), nav.step_id)
+            if error is not None:
+                self._record_mission_failure(nav, error)
+                state = self._skip_visit_work(scheduler, state, error)
+                state = replace(state, visit=state.visit + 1)
+                continue
             self._completed_steps += 1
             if visit.pp_final_state is not None and visit.pp_start_state is None:
-                with self._search_session():
-                    self._run_precision_organization(goal_handle, plan, visit)
+                failures_before_pp = len(self._mission_failures)
+                try:
+                    with self._search_session():
+                        self._run_precision_organization(goal_handle, plan, visit)
+                except (MissionCanceled, ActionUncertain):
+                    raise
+                except Exception as error:
+                    if not self._world_state.snapshot()[0]:
+                        raise StepFailed('PP: estado físico incerto; movimentos suspensos.') from error
+                    self._record_mission_failure(Step(visit.visit_id, 'organize_precision'), error)
+                    self._retain_failed_held_object(goal_handle, plan, visit)
+                    scheduler.recovering = True
+                if len(self._mission_failures) > failures_before_pp:
+                    scheduler.recovering = True
+                    for tag in getattr(self, '_pp_failed_tags', set()):
+                        state, removed = scheduler.abandon(state, tag, visit.target)
+                        if removed:
+                            self._record_mission_failure(
+                                Step(visit.visit_id, 'organize_precision', tag_id=tag),
+                                'Dependências de objeto abandonado na PP.', removed)
                 known, held, cargo = self._world_state.snapshot()
-                if not known or held != EMPTY:
+                if not known:
                     raise StepFailed('PP: estado da carga não confirmado ao encerrar a visita.')
-                state = replace(state, visit=state.visit + 1,
-                                slots=tuple(cargo[slot] for slot in scheduler.slot_ids))
-                if not scheduler.feasible(state):
+                held_source, slot_sources = self._world_state.inventory_sources()
+                state = replace(state, visit=state.visit + 1, gripper=held,
+                                gripper_source=held_source,
+                                slots=tuple(cargo[slot] for slot in scheduler.slot_ids),
+                                slot_sources=tuple(slot_sources[slot] for slot in scheduler.slot_ids))
+                if not scheduler.recovering and not scheduler.feasible(state):
                     raise StepFailed('Carga restante após PP impede as próximas tarefas.')
                 continue
             # PP role classification is independent of container detection.
@@ -2773,14 +2883,23 @@ class MissionManager(PrecisionRuntime, Node):
                     scheduler.set_tag_colors(self._world_state.object_colors())
                     viable = scheduler.viable_choices(state)
                     if not viable:
-                        raise StepFailed(f'Visita {visit.visit_id} bloqueada pela carga ou suportes.')
+                        state = self._skip_visit_work(scheduler, state, StepFailed(
+                            f'Visita {visit.visit_id} bloqueada pela carga ou suportes.'))
+                        # With failed cargo retained, a visit may contain no executable task.
+                        state = replace(state, visit=state.visit + 1)
+                        break
                     choice = scheduler.select(state, self._scheduler_observations(),
                                               self._current_lateral_position_mm)
                     if choice is None:
                         if gripper != EMPTY:
                             raise StepFailed(f'Visita {visit.visit_id}: garra bloqueada.')
                         if not self._current_scene_observed(visit_detectors):
-                            self._observe_visit(requested_detectors=visit_detectors)
+                            error = self._retry_operation(
+                                lambda: self._observe_visit(requested_detectors=visit_detectors),
+                                f'Percepção em {visit.visit_id}')
+                            if error is not None:
+                                state = self._skip_visit_work(scheduler, state, error)
+                                continue
                             continue
                         self._failed_step_id = min((c.task_id for c in viable if c.task_id),
                                                    default=visit.visit_id)
@@ -2791,22 +2910,33 @@ class MissionManager(PrecisionRuntime, Node):
                             scheduler, state, self._scheduler_observations())
                         if choice is None:
                             search_tag = self._scheduler_search_tag(scheduler, state)
-                            if (search_tag is not None and self._arena.pickup_recovery.enabled
-                                    and self._move_to_next_search_position(search_tag)):
-                                self._observe_visit(requested_detectors=visit_detectors)
-                                continue
+                            if search_tag is not None and self._arena.pickup_recovery.enabled:
+                                moved = []
+                                error = self._retry_operation(lambda: moved.append(
+                                    self._move_to_next_search_position(search_tag)),
+                                    f'Busca da tag {search_tag}')
+                                if error is not None:
+                                    state = self._abandon_scheduled_object(scheduler, state,
+                                        Step(self._failed_step_id, 'pick', tag_id=search_tag), error)
+                                    continue
+                                if moved[-1]:
+                                    # The next iteration observes the new position with bounded retries.
+                                    continue
                             # Other delivery actions retain their existing recovery
                             # after the relevant tag search has been exhausted.
                             choice = scheduler.select(state, self._scheduler_observations(),
                                                       self._current_lateral_position_mm,
                                                       allow_unobserved=True)
                             if choice is None:
-                                raise StepFailed(f'Visita {visit.visit_id}: objetos pendentes não encontrados após busca.')
+                                state = self._skip_visit_work(scheduler, state, StepFailed(
+                                    f'Visita {visit.visit_id}: objetos pendentes não encontrados após busca.'))
+                                continue
                     if choice.step.action == 'skip':
                         state = choice.next_state
                         continue
                     if choice.step.action == 'depart':
-                        if pp_slots is not None and pp_slots != dict(visit.pp_final_state):
+                        if (pp_slots is not None and pp_slots != dict(visit.pp_final_state)
+                                and not scheduler.recovering):
                             raise StepFailed(f'Visita {visit.visit_id}: organização PP não alcançou final_state.')
                         state = choice.next_state
                         break
@@ -2818,26 +2948,35 @@ class MissionManager(PrecisionRuntime, Node):
                     self._flexible_pick = choice.step.action == 'pick'
                     try:
                         step = replace(choice.step, step_id=task_id)
-                        if pp_slots is not None:
-                            if step.action == 'pick' and pp_slots.get(step.reference_tag_id) != step.tag_id:
-                                raise StepFailed(f'Organização PP: cubo {step.tag_id} não está no alojamento esperado.')
-                            if step.action == 'place_on_precision_table' and (
-                                step.reference_tag_id not in pp_slots or pp_slots[step.reference_tag_id] is not None
-                            ):
-                                raise StepFailed(f'Organização PP: alojamento {step.reference_tag_id} não está vazio.')
-                        if step.action == 'store':
-                            following = scheduler.select(
-                                choice.next_state, self._scheduler_observations(),
-                                self._current_lateral_position_mm, allow_unobserved=True)
-                            if (following is not None and following.step.action == 'retrieve'
-                                    and following.step.slot_id == step.slot_id):
-                                step = replace(step, prepare_retrieve=True)
-                        movement = (self._next_slot_movement(scheduler, choice, plan)
-                                    if step.action in {'store', 'retrieve'} else None)
-                        if movement is None:
-                            self._execute_step(step)
-                        else:
-                            self._execute_step(step, slot_movement=movement)
+                        def execute():
+                            executable = step
+                            if pp_slots is not None:
+                                if step.action == 'pick' and pp_slots.get(step.reference_tag_id) != step.tag_id:
+                                    raise StepFailed(f'Organização PP: cubo {step.tag_id} não está no alojamento esperado.')
+                                if step.action == 'place_on_precision_table' and (
+                                    step.reference_tag_id not in pp_slots or pp_slots[step.reference_tag_id] is not None
+                                ):
+                                    raise StepFailed(f'Organização PP: alojamento {step.reference_tag_id} não está vazio.')
+                            if step.action == 'store':
+                                following = scheduler.select(
+                                    choice.next_state, self._scheduler_observations(),
+                                    self._current_lateral_position_mm, allow_unobserved=True)
+                                if (following is not None and following.step.action == 'retrieve'
+                                        and following.step.slot_id == step.slot_id):
+                                    executable = replace(step, prepare_retrieve=True)
+                            movement = (self._next_slot_movement(scheduler, choice, plan)
+                                        if step.action in {'store', 'retrieve'} else None)
+                            if movement is None:
+                                self._execute_step(executable)
+                            else:
+                                self._execute_step(executable, slot_movement=movement)
+                        error = self._retry_operation(
+                            execute, description, expected=choice.next_state,
+                            key=(state.visit, choice.task_index, step.action, step.tag_id, step.slot_id),
+                            yield_missing=True, before_retry=lambda: self._refresh_failed_step(step))
+                        if error is not None:
+                            state = self._abandon_scheduled_object(scheduler, state, step, error)
+                            continue
                     except TaskNotFound:
                         continue
                     finally:
@@ -2847,16 +2986,23 @@ class MissionManager(PrecisionRuntime, Node):
                     if (not known or gripper != expected.gripper
                             or tuple(slots[slot] for slot in scheduler.slot_ids) != expected.slots):
                         raise StepFailed(f'Tarefa {task_id}: efeito físico esperado não confirmado.')
+                    actual_action = getattr(self, '_last_delivery_action', None) or choice.step.action
+                    semantic_fallback = (actual_action == 'place_on_table_fallback'
+                                         and choice.step.action in {'stack', 'place_on_precision_table'})
+                    if semantic_fallback:
+                        choice = scheduler.accept_fallback(state, choice)
+                        self._record_mission_failure(
+                            replace(choice.step, step_id=task_id),
+                            'Destino ausente após busca completa; cubo depositado no fallback.')
                     if pp_slots is not None:
                         # Update slot occupancy only after confirming the physical transfer.
                         if choice.step.action == 'pick':
                             pp_slots[choice.step.reference_tag_id] = None
-                        elif choice.step.action == 'place_on_precision_table':
+                        elif choice.step.action == 'place_on_precision_table' and not semantic_fallback:
                             pp_slots[choice.step.reference_tag_id] = choice.step.tag_id
                     if choice.task_index is not None:
                         self._completed_steps += 1
                         if choice.step.action != 'pick':
-                            actual_action = getattr(self, '_last_delivery_action', choice.step.action)
                             self._delivery_outcomes.append(DeliveryOutcome(
                                 task_id, choice.step.tag_id, visit.target, choice.step.action,
                                 actual_action,
@@ -2870,8 +3016,11 @@ class MissionManager(PrecisionRuntime, Node):
         if plan.finish:
             step = Step('finish', 'finish')
             self._report_scheduled_operation(goal_handle, plan, step, 'finish', 'Navegando para finish')
-            self._execute_step(step)
-            self._completed_steps += 1
+            error = self._retry_operation(lambda: self._execute_step(step), 'finish')
+            if error is None:
+                self._completed_steps += 1
+            else:
+                self._record_mission_failure(step, error)
 
     def _load_goal_files(self, plan_id: str) -> tuple[Arena, Plan]:
         if not PLAN_ID_PATTERN.fullmatch(plan_id):
@@ -2908,7 +3057,10 @@ class MissionManager(PrecisionRuntime, Node):
         feedback.step_id = step.step_id
         feedback.operation = step.action
         feedback.description = description
-        goal_handle.publish_feedback(feedback)
+        try:
+            goal_handle.publish_feedback(feedback)
+        except Exception as error:
+            self.get_logger().warning(f'Falha ao publicar feedback da missão: {error}')
 
     @staticmethod
     def _result(
@@ -2946,10 +3098,6 @@ class MissionManager(PrecisionRuntime, Node):
             self._mission_goal_handle = goal_handle
             self._cancel_event.clear()
         try:
-            if getattr(self, '_pp_inventory_pending', False):
-                known, held, cargo = self._world_state.snapshot()
-                if not known or held != EMPTY or any(tag != EMPTY for tag in cargo.values()):
-                    raise StepFailed('Carga remanescente da organização PP: recupere a carga antes de iniciar outra missão.')
             arena, plan = self._load_goal_files(plan_id)
             self._check_canceled()
             return self._execute_validated_mission(goal_handle, arena, plan)
@@ -2986,9 +3134,22 @@ class MissionManager(PrecisionRuntime, Node):
         self._pp_aligned_reference = None
         self._pp_reference_views = {}
         self._pp_direct_pick_tag = None
+        self._pp_skip_correct_pick_tag = None
+        self._pp_organizing = False
+        self._pp_final_state = {}
+        self._pp_verified = set()
+        self._pp_owned_slots = set()
+        self._pp_selection_views = set()
+        self._pp_expected_occupancy = {}
+        self._pp_failed_tags = set()
+        self._pp_abandoned_references = set()
+        self._pp_inventory_pending = False
+        self._inventory_recovery_pending = False
+        self._unconfirmed_action_pending = False
         self._placed_tag_viewpoints.clear()
         self._container_observations.clear()
         self._safety_search_history = {}
+        self._safety_search_attempts = {}
         self._search_phase = 0
         self._search_led_off = False
         self._container_search_positions.clear()
@@ -3000,20 +3161,38 @@ class MissionManager(PrecisionRuntime, Node):
         self._direct_pick_observation = None
         completed = 0
         self._completed_steps = 0
+        self._current_step_index = 0
         self._failed_step_id = ''
         self._delivery_outcomes = []
+        self._last_delivery_action = None
+        self._mission_failures = []
+        self._task_attempts = {}
         self._flexible_pick = False
+        self._active_world_operation = ''
+        self._required_color_tags = set()
+        with self._lock:
+            self._active_children = {}
         try:
-            self._pp_inventory_pending = False
             self._arena = arena
             self._current_location = plan.initial_location
-            if self._current_location in arena.service_areas:
-                self._activate_service_area_vision()
+            # Every validated mission starts from an empty logical inventory,
+            # regardless of the previous execution's outcome.
             self._world_state.reset()
             self._publish_world_state()
+            if self._current_location in arena.service_areas:
+                self._activate_service_area_vision()
             self._run_plan(goal_handle, plan)
             completed = self._completed_steps
-            self._deactivate_service_area_vision()
+            error = self._retry_operation(self._deactivate_service_area_vision, 'Desligar visão')
+            if error is not None:
+                self._record_mission_failure(Step('vision_cleanup', 'cleanup'), error)
+            failures = getattr(self, '_mission_failures', [])
+            if failures:
+                self._status = 'completed_with_failures'
+                return self._result(
+                    goal_handle, ExecuteMission.Result.STEP_FAILED, completed, failures[0][0],
+                    f"Plano '{plan.plan_id}' encerrado com {len(failures)} falha(s); "
+                    'tarefas independentes foram executadas. ' + ' | '.join(msg for _, msg in failures))
             self._status = 'succeeded'
             return self._result(
                 goal_handle,
@@ -3062,12 +3241,18 @@ class MissionManager(PrecisionRuntime, Node):
         finally:
             try:
                 self._deactivate_service_area_vision()
-            except StepFailed as error:
+            except Exception as error:
                 self.get_logger().error(f'Falha ao desligar visão após missão: {error}')
+            known, held, cargo = self._world_state.snapshot()
+            self._inventory_recovery_pending = (
+                not known or held != EMPTY or any(tag != EMPTY for tag in cargo.values()))
             self._cancel_event.clear()
             self._arena = None
             self._active_world_operation = ''
-            self._publish_world_state()
+            try:
+                self._publish_world_state()
+            except Exception as error:
+                self.get_logger().error(f'Falha ao publicar estado final: {error}')
             with self._lock:
                 self._active_children = {}
 
@@ -3078,6 +3263,20 @@ class MissionManager(PrecisionRuntime, Node):
         return super().destroy_node()
 
 
+def _spin_executor(executor, node) -> None:
+    """Isolate callback exceptions so an operational failure does not exit ROS."""
+    while rclpy.ok():
+        try:
+            executor.spin_once()
+        except ExternalShutdownException:
+            raise
+        except Exception as error:
+            if not rclpy.ok():
+                break
+            node.get_logger().error(f'Falha em callback ROS; executor continua ativo: {error}')
+            threading.Event().wait(0.05)
+
+
 def main(args=None) -> int:
     rclpy.init(args=args)
     node = None
@@ -3086,7 +3285,7 @@ def main(args=None) -> int:
     try:
         node = MissionManager()
         executor.add_node(node)
-        executor.spin()
+        _spin_executor(executor, node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     except Exception as error:

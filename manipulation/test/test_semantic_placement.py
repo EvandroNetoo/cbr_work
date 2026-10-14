@@ -1,4 +1,5 @@
 import math
+import threading
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -1254,3 +1255,37 @@ def test_stack_missing_tag_uses_only_supplied_previous_pose(has_previous, visibl
         expected = (0.03, -0.24, 0.17) if visible else (0.01, -0.02, 0.142)
         assert (pos.x, pos.y, pos.z) == pytest.approx(expected)
         assert goal.previous_placed_pose.pose.position.z == 0.10
+
+
+@pytest.mark.parametrize('retreat_failed', [False, True])
+def test_confirmed_fallback_pose_is_returned_for_next_stack_even_after_retreat_failure(retreat_failed):
+    server = ManipulationServer.__new__(ManipulationServer)
+    server._lock = threading.RLock()
+    server._cancel_event = threading.Event()
+    server._set_active = lambda _: None
+    server._feedback = lambda *_: None
+    server._gripper = lambda *_: None
+    server.get_logger = lambda: SimpleNamespace(error=lambda *_: None)
+    server._motion = SimpleNamespace(executar_objetivo=lambda *_: None)
+    def finish():
+        if retreat_failed:
+            raise RuntimeError('return failed after release')
+    server._return_after_placement = finish
+    target = _pose()
+    target.pose.position.y = -.20
+    profile = replace(_cartesian_profile(), approach_height_m=0., retreat_height_m=0.)
+    handle = SimpleNamespace(succeed=lambda: None, abort=lambda: None)
+    result = server._run(
+        PlaceOnTable, handle, 'place_on_table',
+        lambda: server._release_at_pose(handle, PlaceOnTable, target, profile, 'fallback'),
+        requires_moveit=False)
+    assert result.outcome.effect_known
+    assert result.outcome.final_object_location == ManipulationResult.LOCATION_DESTINATION
+    assert result.placed_pose == target
+    assert (result.outcome.code == ManipulationResult.SUCCESS) is (not retreat_failed)
+    # A following operation that never releases must not inherit the old pose.
+    def fail_before_release():
+        raise RuntimeError('planning failed')
+    next_result = server._run(PlaceOnTable, handle, 'place_on_table', fail_before_release,
+                              requires_moveit=False)
+    assert next_result.placed_pose.header.frame_id == ''
