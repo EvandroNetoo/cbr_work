@@ -15,6 +15,7 @@ from .errors import ConfigurationError
 from .loaders import load_arena, load_plan, validate_plan
 from .nav2_distances import Nav2Distances
 from .plan_optimizer import import_commander, optimize
+from .planner_process import MissionPlannerProcess
 
 
 def default_file(package, relative):
@@ -30,7 +31,13 @@ def parser():
     result.add_argument('--task', type=Path, required=True, help='YAML *_equipe.yaml do Commander')
     result.add_argument('--arena', type=Path, default=default_file('mission_manager', 'config/arena.yaml'))
     result.add_argument('--map', type=Path, default=default_file('bringup', 'maps/arena.yaml'),
-                        help='Mapa YAML já carregado pelo Nav2 (padrão: bringup/maps/arena.yaml)')
+                        help='Mapa YAML local (padrão: bringup/maps/arena.yaml)')
+    result.add_argument('--keepout-mask', type=Path,
+                        help='Máscara local; padrão: <nome_do_mapa>_keepout.yaml na mesma pasta')
+    result.add_argument('--planner-params', type=Path,
+                        default=default_file('mission_manager', 'config/mission_planner.yaml'))
+    result.add_argument('--external-planner', action='store_true',
+                        help='Usa somente um planner já iniciado, sem subir o launch automaticamente')
     result.add_argument('--output', type=Path, required=True, help='YAML de saída; não sobrescreve sem --force')
     result.add_argument('--plan-id', help='Padrão: nome do arquivo de saída sem extensão')
     result.add_argument('--objective', choices=['visits', 'distance', 'visits_then_distance'],
@@ -42,11 +49,13 @@ def parser():
     result.add_argument('--pp-reference', action='append', default=[], metavar='TAG=REFERENCE',
                         help='Sobrescreve a referência PP de um cubo (padrão: mesmo ID)')
     result.add_argument('--planner-id', default='', help='Plugin Nav2; vazio usa o único plugin disponível')
-    result.add_argument('--path-action', default='/compute_path_to_pose')
-    result.add_argument('--map-server', default='/map_server')
-    result.add_argument('--planner-server', default='/planner_server')
-    result.add_argument('--costmap-node', default='/global_costmap/global_costmap')
-    result.add_argument('--costmap-service', default='/global_costmap/get_costmap')
+    result.add_argument('--path-action', default='/mission_planning/compute_path_to_pose')
+    result.add_argument('--map-server', default='/mission_planning/map_server')
+    result.add_argument('--planner-server', default='/mission_planning/planner_server')
+    result.add_argument('--costmap-node', default='/mission_planning/global_costmap/global_costmap')
+    result.add_argument('--costmap-service', default='/mission_planning/global_costmap/get_costmap')
+    result.add_argument('--keepout-server', default='/mission_planning/keepout_filter_mask_server')
+    result.add_argument('--filter-info-server', default='/mission_planning/keepout_costmap_filter_info_server')
     result.add_argument('--timeout', type=float, default=30.0, help='Timeout por chamada ROS, em segundos')
     result.add_argument('--time-limit', type=float, default=60.0, help='Limite da busca, após calcular distâncias')
     result.add_argument('--max-states', type=int, default=500000)
@@ -119,12 +128,15 @@ def write_validated(document, output, arena, cargo_slots, *, force=False, source
 def main(argv=None):
     import rclpy
     from rclpy.utilities import remove_ros_args
+    from rclpy.executors import ExternalShutdownException
+    from rclpy.signals import SignalHandlerOptions
 
     cli = parser()
     command_args = sys.argv if argv is None else ['generate_plan', *argv]
     args = cli.parse_args(remove_ros_args(args=command_args)[1:])
     node = None
     initialized = False
+    planner_process = None
     try:
         if args.output.exists() and not args.force:
             raise ConfigurationError(f'Saída já existe: {args.output}. Use --force para sobrescrever.')
@@ -148,14 +160,18 @@ def main(argv=None):
         mission = import_commander(source_task, arena, references(args.pp_reference))
         if mission.organization and len(args.cargo_slots) < 2:
             raise ConfigurationError('AMT com ocupação descoberta exige pelo menos dois compartimentos.')
-        rclpy.init(args=command_args)
+        # Keep Python's Ctrl+C exception active during the CPU-only optimizer too.
+        rclpy.init(args=command_args, signal_handler_options=SignalHandlerOptions.NO)
         initialized = True
         node = rclpy.create_node('mission_plan_generator')
+        planner_process = MissionPlannerProcess(node, args)
+        planner_process.start()
         distances = Nav2Distances(
             node, arena, args.map, args.cache, planner_id=args.planner_id,
             action_name=args.path_action, map_server=args.map_server,
             planner_server=args.planner_server, costmap_node=args.costmap_node,
-            costmap_service=args.costmap_service, timeout=args.timeout)
+            costmap_service=args.costmap_service, keepout_server=args.keepout_server,
+            filter_info_server=args.filter_info_server, timeout=args.timeout)
         # Calculate each directed pair once, outside the search time budget.
         pairs = [('start', target) for target in mission.targets]
         pairs += [(a, b) for a in mission.targets for b in mission.targets if a != b]
@@ -165,6 +181,8 @@ def main(argv=None):
         result = optimize(mission, lambda a, b: matrix[a, b], plan_id=plan_id,
                           objective=args.objective, cargo_capacity=len(args.cargo_slots),
                           time_limit=args.time_limit, max_states=args.max_states)
+        if not node.context.ok():
+            raise KeyboardInterrupt
         plan = write_validated(result.document, args.output, arena, args.cargo_slots,
                                force=args.force, source_task=source_task)
         print(f'Plano: {args.output}\nVisitas: {len(plan.visits)} + finish\n'
@@ -174,16 +192,21 @@ def main(argv=None):
               f'Cache: {distances.cache.hits} reutilizadas, {distances.cache.misses} calculadas')
         return 0
     except (ConfigurationError, OSError, ValueError, RuntimeError, yaml.YAMLError) as exc:
+        if initialized and not rclpy.ok():
+            print('Geração cancelada.', file=sys.stderr)
+            return 130
         print(f'Erro: {exc}', file=sys.stderr)
         return 2
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         print('Geração cancelada.', file=sys.stderr)
         return 130
     finally:
+        if planner_process is not None:
+            planner_process.close()
         if node is not None:
             node.destroy_node()
         if initialized:
-            rclpy.shutdown()
+            rclpy.try_shutdown()
 
 
 if __name__ == '__main__':

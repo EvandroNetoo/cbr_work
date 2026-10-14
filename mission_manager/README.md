@@ -502,8 +502,27 @@ colcon build --packages-select mission_manager --symlink-install
 source install/setup.bash
 ```
 
-Com localização, map server e Nav2 ativos, gere a missão a partir do arquivo
-`*_equipe.yaml` exportado pelo `~/projects/atwork_commander`:
+O `generate_plan` inicia automaticamente `mission_planner.launch.py`, espera o
+planner ficar ativo, gera o YAML e encerra os processos que iniciou, inclusive
+em caso de erro ou Ctrl+C. Não é necessário abrir dois terminais. Se já houver
+um planner de missão ativo, ele será reutilizado e permanecerá ativo ao final.
+Invocações locais simultâneas são serializadas para evitar encerrar um planner
+enquanto outro gerador o utiliza. Logs do launch ficam em `/tmp/mission_planner_*.log`;
+erros de inicialização informam o caminho do log.
+
+O planner carrega o mapa local e a máscara keepout em `/mission_planning`, com
+`StaticLayer`, `InflationLayer` e `KeepoutFilter`. Não assina lidar nem depende
+de localização ou do Nav2 do Raspberry. Seu TF usa tópicos próprios e uma pose
+fixa em `start`, necessária apenas para iniciar o costmap. Não inicia controller,
+BT navigator nem publica comandos de movimento. A navegação real do robô mantém
+seus próprios nós, TF, sensores, costmaps e parâmetros, sem alterações.
+Dimensões da base, padding, inflação e parâmetros do plugin usados nessa
+estimativa ficam em `config/mission_planner.yaml`; ajustes nesse arquivo afetam
+somente a geração de missões. Mantenha-os compatíveis com o robô ao recalibrar
+essas dimensões.
+
+Gere a missão a partir do arquivo `*_equipe.yaml` exportado
+pelo `~/projects/atwork_commander`:
 
 ```bash
 ros2 run mission_manager generate_plan \
@@ -513,24 +532,33 @@ ros2 run mission_manager generate_plan \
 ```
 
 `--arena` usa o `config/arena.yaml` instalado do `mission_manager`. `--map`
-usa o `maps/arena.yaml` instalado do `bringup`. Para outra configuração:
+usa o `maps/arena.yaml` instalado do `bringup`. O launch automático usa a máscara
+`<nome_do_mapa>_keepout.yaml` da mesma pasta por padrão; uma máscara ausente
+causa erro. `--keepout-mask` e `--planner-params` permitem escolher a máscara e
+o YAML de parâmetros. Esses arquivos, o mapa e a arena são passados ao launch.
+Para outro mapa:
 
 ```bash
 ros2 run mission_manager generate_plan \
   --task ~/Downloads/FINAL_seed42_equipe.yaml \
   --arena src/cbr_work/mission_manager/config/arena.yaml \
   --map src/cbr_work/bringup/maps/arena2.yaml \
+  --keepout-mask src/cbr_work/bringup/maps/arena2_keepout.yaml \
   --objective distance \
   --output /tmp/final_otimizado.yaml
 ```
 
+Para gerenciar o launch manualmente ou usar um planner remoto, inicie
+`ros2 launch mission_manager mission_planner.launch.py` separadamente e passe
+`--external-planner` ao CLI. Essa opção nunca inicia nem encerra o planner.
+
 O mapa informado precisa ser o mesmo já carregado no map server. O CLI compara
 o mapa local (geometria e células da imagem) com a resposta ROS de
-`/map_server/map` (`nav_msgs/srv/GetMap`); não carrega nem troca o mapa do Nav2.
-O CLI pode rodar no PC com o Nav2 no Raspberry: apenas o YAML e a imagem locais
-precisam existir no PC, sem acesso ao caminho de arquivos do Raspberry. As duas
-máquinas precisam compartilhar o grafo ROS 2, com descoberta DDS e serviços/actions
-acessíveis pela rede. O cache e o plano de saída ficam no PC. A geração
+`/mission_planning/map_server/map` (`nav_msgs/srv/GetMap`). A geração pode rodar
+inteiramente no PC, inclusive sem o robô conectado. Também é possível iniciar
+esse planner separado em outra máquina, desde que os endpoints de
+`/mission_planning` estejam acessíveis no grafo ROS 2. Os caminhos de arquivos
+não precisam coincidir entre máquinas. O cache e o plano ficam no PC. A geração
 solicita apenas planejamento (`ComputePathToPose`, com `use_start: true`), sem
 enviar comandos de navegação ou manipulação ao robô.
 
@@ -551,8 +579,10 @@ Todos os planos começam em `start` e têm `finish: true`. O trajeto de `start`
 à primeira área e da última área a `finish` participa do custo. O resumo
 separa visitas de trabalho e a navegação final. A distância soma os segmentos
 XY dos caminhos retornados pelo Nav2; não inclui busca lateral, recuo,
-alinhamento ou movimentos do braço. Ela depende do planner e do costmap atuais,
-e não garante que a distância real durante a execução será igual.
+alinhamento ou movimentos do braço. Ela depende do mapa, inflação e keepout do
+planner separado; obstáculos vistos pelo lidar durante a execução podem exigir
+outros caminhos. O resultado não garante que a distância real durante a execução
+será igual.
 
 A busca considera garra, compartimentos, coleta antes da entrega, dependências
 da pilha e o ciclo store/retrieve obrigatório para PP. O padrão é
@@ -567,12 +597,20 @@ As distâncias são calculadas por par **direcionado**, incluindo as orientaçõ
 das poses, e persistidas após cada cálculo bem-sucedido em
 `~/.cache/mission_manager/nav2_distances.json` (respeita `XDG_CACHE_HOME`).
 Use `--cache /outro/caminho.json` para escolher outro arquivo. O cache identifica
-o mapa e sua imagem, frame, costmap, parâmetros do planner/costmap e plugin
-selecionado. Alterar esses dados ou uma pose exige novo cálculo. O Nav2 precisa
-estar ativo mesmo quando os pares estão no cache, para conferir esse contexto.
-O costmap deve permanecer estável durante a geração; se mudar, repita o comando.
+o mapa e sua imagem, frame, máscara keepout, configuração do filtro e parâmetros
+do planner/costmap estáticos. Alterar esses dados ou uma pose exige novo cálculo.
+O planner separado precisa estar ativo mesmo quando os pares estão no cache,
+para conferir esse contexto. O buffer interno mutável do NavFn não identifica
+o cache: limpar a célula inicial durante o cálculo não invalida as distâncias.
+Uma alteração real no mapa, máscara ou parâmetros durante a geração causa erro.
 Pares inacessíveis são excluídos da busca e não são gravados no cache; falhas de
 comunicação e timeouts encerram a geração.
+
+A validação dos extremos lê a tolerância do plugin NavFn selecionado: o destino
+aceita o limite por eixo X/Y usado pelo planner, incluindo o canto diagonal de
+seu quadrado de busca. O início aceita a quantização da grade (diagonal de uma
+célula). Desvios acima desses limites continuam causando erro, com o par de
+áreas, o desvio medido em centímetros e os limites utilizados.
 
 Conversão das provas:
 
@@ -590,8 +628,10 @@ Conversão das provas:
   Não é criado um ID de suporte externo que não conste da missão.
 
 `--planner-id`, `--path-action`, `--map-server`, `--planner-server`,
-`--costmap-node`, `--costmap-service` e `--timeout` permitem usar outro grafo
-Nav2. Veja todas as opções com `ros2 run mission_manager generate_plan --help`.
+`--costmap-node`, `--costmap-service`, `--keepout-server`, `--filter-info-server`
+e `--timeout` permitem usar outro namespace do planner separado. Os endpoints
+precisam compartilhar um namespace não vazio, e costmaps com camadas de lidar
+são rejeitados. Veja as opções com `ros2 run mission_manager generate_plan --help`.
 
 Para executar, coloque o arquivo no `plans_directory` usado pelo nó, recompile
 se necessário para instalar o novo YAML, e envie seu `plan_id` à action.

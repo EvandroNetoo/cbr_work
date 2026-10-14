@@ -1,0 +1,43 @@
+# Used only by mission_planner.launch.py, never by robot navigation.
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 1.0
+    costmap_update_timeout: 1.0
+    planner_plugins: [GridBased]
+    GridBased:
+      plugin: nav2_navfn_planner::NavfnPlanner
+      tolerance: 0.10
+      use_astar: true
+      allow_unknown: false
+      use_final_approach_orientation: false
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: mission_planning_base
+      rolling_window: false
+      track_unknown_space: true
+      resolution: 0.05
+      transform_tolerance: 0.2
+      footprint: "[[0.119, 0.155], [0.119, -0.155], [-0.119, -0.155], [-0.119, 0.155]]"
+      footprint_padding: 0.02
+      plugins: [static_layer, inflation_layer]
+      filters: [keepout_filter]
+      static_layer:
+        plugin: nav2_costmap_2d::StaticLayer
+        map_topic: map
+        map_subscribe_transient_local: true
+        subscribe_to_updates: false
+        footprint_clearing_enabled: false
+      inflation_layer:
+        plugin: nav2_costmap_2d::InflationLayer
+        cost_scaling_factor: 6.0
+        inflation_radius: 0.25
+      keepout_filter:
+        plugin: nav2_costmap_2d::KeepoutFilter
+        enabled: true
+        filter_info_topic: keepout_costmap_filter_info
+      always_send_full_costmap: true

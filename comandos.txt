@@ -2,7 +2,7 @@ ros2 launch bringup workstation.launch.py enable_xbox_teleop:=true
 ros2 launch nav2_bringup localization_launch.py   map:=/home/evandro/ros2_ws/src/cbr_work/bringup/maps/arena.yaml   params_file:=/home/evandro/ros2_ws/tools/amcl_localization.yaml autostart:=true
 ros2 launch bringup navigation.launch.py
 ros2 launch mission_manager mission_manager.launch.py
-ros2 action send_goal /mission/execute   interfaces/action/ExecuteMission   "{plan_id: 7_final_test}"   --feedback
+ros2 action send_goal /mission/execute   interfaces/action/ExecuteMission   "{plan_id: final_otimizado}"   --feedback
 
 
 ros2 service call /so101_hardware_node/set_torque std_srvs/srv/SetBool "{data: false}"
@@ -22,6 +22,11 @@ ros2 launch bringup processing.launch.py components:=mission,manipulation
 # Raspberry: inicia explicitamente todos os componentes possiveis
 ros2 launch bringup processing.launch.py components:=rsp,ekf,camera,vision,localization,navigation,moveit,manipulation,mission
 
+ros2 run mission_manager generate_plan \
+  --task ~/Downloads/FINAL_seed694796_equipe.yaml \
+  --objective visits_then_distance \
+  --output src/cbr_work/mission_manager/config/plans/final_otimizado.yaml
+  
 ros2 action send_goal /vl53/follow_wall interfaces/action/FollowWall \
   "{wall_distance_mm: 40, travel_distance_mm: 500, wall_tolerance_mm: 10, \
   travel_tolerance_mm: 10, max_alignment_error_mm: 100, \

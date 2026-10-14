@@ -1,4 +1,4 @@
-"""Persistent directed Nav2 distances, keyed by map, costmap and planner state."""
+"""Directed distances from a dedicated static Nav2 planner, cached by its inputs."""
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -141,7 +141,7 @@ class DistanceCache:
         return value
 
 
-def path_length(path, start, goal, frame_id, tolerance=0.10):
+def path_length(path, start, goal, frame_id, tolerance=0.10, *, start_tolerance=None):
     """Reject empty/truncated paths rather than storing zero or a partial distance."""
     if path.header.frame_id != frame_id or not path.poses:
         raise ConfigurationError('Nav2 retornou caminho vazio ou em outro frame.')
@@ -149,43 +149,69 @@ def path_length(path, start, goal, frame_id, tolerance=0.10):
     if any(not math.isfinite(v) for p in positions for v in (p.x, p.y)):
         raise ConfigurationError('Nav2 retornou coordenadas não finitas.')
     first, last = positions[0], positions[-1]
-    if (math.hypot(first.x - start.x_m, first.y - start.y_m) > tolerance
-            or math.hypot(last.x - goal.x_m, last.y - goal.y_m) > tolerance):
-        raise ConfigurationError('Caminho Nav2 não alcançou as poses solicitadas (tolerância 10 cm).')
+    start_error = math.hypot(first.x - start.x_m, first.y - start.y_m)
+    goal_dx, goal_dy = abs(last.x - goal.x_m), abs(last.y - goal.y_m)
+    start_limit = tolerance if start_tolerance is None else start_tolerance
+    # NavFn samples a square +/- tolerance in X and Y, not a circular radius.
+    if start_error > start_limit + 1e-6 or max(goal_dx, goal_dy) > tolerance + 1e-6:
+        raise ConfigurationError(
+            f'Caminho Nav2 fora dos limites: desvio inicial={start_error * 100:.2f} cm '
+            f'(máximo {start_limit * 100:.2f} cm); desvio final X={goal_dx * 100:.2f} cm, '
+            f'Y={goal_dy * 100:.2f} cm (máximo por eixo {tolerance * 100:.2f} cm).')
     return sum(math.hypot(b.x - a.x, b.y - a.y) for a, b in zip(positions, positions[1:]))
 
 
 class Nav2Distances:
     def __init__(self, node, arena, map_path, cache_path, *, planner_id='',
-                 action_name='/compute_path_to_pose', map_server='/map_server',
-                 planner_server='/planner_server', costmap_node='/global_costmap/global_costmap',
-                 costmap_service='/global_costmap/get_costmap', timeout=30.0):
+                 action_name='/mission_planning/compute_path_to_pose',
+                 map_server='/mission_planning/map_server',
+                 planner_server='/mission_planning/planner_server',
+                 costmap_node='/mission_planning/global_costmap/global_costmap',
+                 costmap_service='/mission_planning/global_costmap/get_costmap',
+                 keepout_server='/mission_planning/keepout_filter_mask_server',
+                 filter_info_server='/mission_planning/keepout_costmap_filter_info_server', timeout=30.0):
         from nav2_msgs.action import ComputePathToPose
         from nav2_msgs.srv import GetCostmap
         from nav_msgs.srv import GetMap
         from rclpy.action import ActionClient
 
         self.node, self.arena, self.timeout = node, arena, timeout
+        prefix = planner_server.rsplit('/', 1)[0]
+        if not prefix or any(not name.startswith(prefix + '/') for name in (
+                action_name, map_server, costmap_node, costmap_service, keepout_server, filter_info_server)):
+            raise ConfigurationError('Todos os endpoints de planejamento devem estar em um namespace '
+                                     'separado, como /mission_planning.')
         self.planner_id = planner_id
+        self.map_server, self.keepout_server = map_server, keepout_server
+        self.planner_server, self.costmap_node = planner_server, costmap_node
+        self.filter_info_server = filter_info_server
         self.action = ActionClient(node, ComputePathToPose, action_name)
         if not self.action.wait_for_server(timeout_sec=timeout):
-            raise ConfigurationError(f'Nav2 indisponível em {action_name}; inicie a navegação.')
+            raise ConfigurationError(f'Planner indisponível em {action_name}; execute '
+                                     'ros2 launch mission_manager mission_planner.launch.py no PC.')
         expected = map_fingerprint(map_path)
         published = self._service(map_server.rstrip('/') + '/map', GetMap, GetMap.Request()).map
         verify_map(map_path, published, arena.frame_id)
         self.costmap_client = node.create_client(GetCostmap, costmap_service)
         if not self.costmap_client.wait_for_service(timeout_sec=timeout):
             raise ConfigurationError(f'Serviço indisponível: {costmap_service}.')
-        self.costmap = self._costmap_digest()
-        from rclpy.serialization import serialize_message
-        configurations = {}
-        for name in (planner_server, costmap_node):
-            parameters = self._all_parameters(name)
-            configurations[name] = [serialize_message(p).hex() for p in parameters]
+        self.static_context = self._static_context()
+        planner_parameters = self._all_parameters(planner_server)
+        plugins = planner_parameters['planner_plugins'].string_array_value
+        selected = planner_id or (plugins[0] if len(plugins) == 1 else '')
+        if not selected or selected not in plugins:
+            raise ConfigurationError('Selecione um --planner-id válido para o planner de missão.')
+        if planner_parameters[selected + '.plugin'].string_value != 'nav2_navfn_planner::NavfnPlanner':
+            raise ConfigurationError('A validação de tolerância do planner de missão exige NavfnPlanner.')
+        self.goal_tolerance = planner_parameters[selected + '.tolerance'].double_value
+        self.start_tolerance = math.sqrt(2) * published.info.resolution
+        if not math.isfinite(self.goal_tolerance) or self.goal_tolerance < 0:
+            raise ConfigurationError('Tolerância inválida no planner de missão.')
+        self._costmap_digest()  # Confirm that the dedicated costmap is available.
         self.cache = DistanceCache(cache_path, {
-            'map': expected, 'costmap': self.costmap, 'parameters': configurations,
+            'map': expected, 'static_context': self.static_context,
             'planner_id': planner_id, 'action': action_name, 'frame': arena.frame_id,
-            'metric': 'nav2_path_xy_v1',
+            'metric': 'nav2_static_path_xy_v2',
         })
 
     def _await(self, future):
@@ -216,7 +242,34 @@ class Nav2Distances:
         from rcl_interfaces.srv import ListParameters
         response = self._service(name.rstrip('/') + '/list_parameters', ListParameters,
                                  ListParameters.Request(depth=0))
-        return self._parameters(name, sorted(response.result.names))
+        names = sorted(response.result.names)
+        return dict(zip(names, self._parameters(name, names)))
+
+    def _static_context(self):
+        from nav_msgs.srv import GetMap
+        from rclpy.serialization import serialize_message
+        grids = {}
+        for name in (self.map_server, self.keepout_server):
+            grid = self._service(name.rstrip('/') + '/map', GetMap, GetMap.Request()).map
+            if grid.header.frame_id != self.arena.frame_id or not grid.data:
+                raise ConfigurationError(f'Mapa estático vazio ou em outro frame: {name}.')
+            grid.header.stamp.sec = grid.header.stamp.nanosec = 0
+            grid.info.map_load_time.sec = grid.info.map_load_time.nanosec = 0
+            grids[name] = hashlib.sha256(serialize_message(grid)).hexdigest()
+        parameters = {name: self._all_parameters(name) for name in (
+            self.planner_server, self.costmap_node, self.filter_info_server)}
+        costmap = parameters[self.costmap_node]
+        layers = costmap.get('plugins')
+        filters = costmap.get('filters')
+        allowed = {'nav2_costmap_2d::StaticLayer', 'nav2_costmap_2d::InflationLayer'}
+        kinds = {costmap[name + '.plugin'].string_value for name in layers.string_array_value} if layers else set()
+        filter_kinds = {costmap[name + '.plugin'].string_value for name in filters.string_array_value} if filters else set()
+        if kinds != allowed or filter_kinds != {'nav2_costmap_2d::KeepoutFilter'}:
+            raise ConfigurationError('Use o costmap separado de missão, somente com StaticLayer, '
+                                     'InflationLayer e KeepoutFilter; camadas de lidar não são aceitas.')
+        configurations = {name: {key: serialize_message(value).hex() for key, value in values.items()}
+                          for name, values in parameters.items()}
+        return digest({'maps': grids, 'parameters': configurations})
 
     def _costmap_digest(self):
         from nav2_msgs.srv import GetCostmap
@@ -242,8 +295,11 @@ class Nav2Distances:
         return result
 
     def verify_costmap(self):
-        if self._costmap_digest() != self.costmap:
-            raise ConfigurationError('Costmap mudou durante o cálculo. Repita com a arena estável.')
+        # NavFn itself clears its start cell. Validate immutable map/filter inputs,
+        # not that mutable working buffer, which is not the cache's identity.
+        if self._static_context() != self.static_context:
+            raise ConfigurationError('Mapa, keepout ou parâmetros do planner de missão mudaram '
+                                     'durante o cálculo. Repita após concluir a atualização.')
 
     def distance(self, start_name, goal_name):
         start, goal = self.arena.pose_for(start_name), self.arena.pose_for(goal_name)
@@ -270,7 +326,11 @@ class Nav2Distances:
                 kind = UnreachablePath if error in {203, 204, 205, 206, 208} else ConfigurationError
                 raise kind(f'Nav2 falhou em {start_name} → {goal_name}: '
                            f'{error} {response.result.error_msg}')
-            value = path_length(response.result.path, start, goal, self.arena.frame_id)
+            try:
+                value = path_length(response.result.path, start, goal, self.arena.frame_id,
+                                    self.goal_tolerance, start_tolerance=self.start_tolerance)
+            except ConfigurationError as exc:
+                raise ConfigurationError(f'{start_name} → {goal_name}: {exc}') from exc
             self.verify_costmap()
             return value
 

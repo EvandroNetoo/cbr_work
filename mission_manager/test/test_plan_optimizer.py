@@ -237,6 +237,7 @@ def test_nav2_adapter_uses_explicit_start_real_messages_and_disk_cache(tmp_path,
     from nav2_msgs.action import ComputePathToPose
     from nav2_msgs.msg import Costmap
     from nav_msgs.msg import OccupancyGrid
+    from rclpy.parameter import Parameter
     from mission_manager.nav2_distances import Nav2Distances
 
     map_path = tmp_path / 'map.yaml'
@@ -257,6 +258,25 @@ def test_nav2_adapter_uses_explicit_start_real_messages_and_disk_cache(tmp_path,
     published.info.width = published.info.height = 1
     published.info.origin.orientation.w = 1.0
     published.data = [100]
+    import copy
+    mask = copy.deepcopy(published)
+    mask.data = [0]
+    config = yaml.safe_load((PACKAGE / 'config/mission_planner.yaml').read_text())
+    source_parameters = {
+        '/mission_planning/planner_server': config['planner_server']['ros__parameters'],
+        '/mission_planning/global_costmap/global_costmap': config['global_costmap']['global_costmap']['ros__parameters'],
+        '/mission_planning/keepout_costmap_filter_info_server': {'type': 0, 'base': 0.0, 'multiplier': 1.0},
+    }
+    def flatten(raw, prefix=''):
+        result = {}
+        for key, value in raw.items():
+            name = prefix + key
+            if isinstance(value, dict):
+                result.update(flatten(value, name + '.'))
+            else:
+                result[name] = Parameter(name, value=value).get_parameter_value()
+        return result
+    parameters = {name: flatten(raw) for name, raw in source_parameters.items()}
 
     def future(value):
         return SimpleNamespace(result=lambda: value)
@@ -285,12 +305,13 @@ def test_nav2_adapter_uses_explicit_start_real_messages_and_disk_cache(tmp_path,
     monkeypatch.setattr('rclpy.action.ActionClient', FakeAction)
     monkeypatch.setattr(Nav2Distances, '_await', lambda self, f: f.result())
     def service(self, name, kind, request):
-        assert name == '/map_server/map'
-        return SimpleNamespace(map=published)
+        assert name in {'/mission_planning/map_server/map',
+                        '/mission_planning/keepout_filter_mask_server/map'}
+        return SimpleNamespace(map=mask if 'keepout' in name else published)
     monkeypatch.setattr(Nav2Distances, '_service', service)
     monkeypatch.setattr(Nav2Distances, '_parameters',
                         lambda *args: pytest.fail('Remote yaml_filename must never be read'))
-    monkeypatch.setattr(Nav2Distances, '_all_parameters', lambda *args: [])
+    monkeypatch.setattr(Nav2Distances, '_all_parameters', lambda self, name: parameters[name])
     node = SimpleNamespace(
         create_client=lambda *args: SimpleNamespace(wait_for_service=lambda **kwargs: True,
                             call_async=lambda req: future(SimpleNamespace(map=grid))),
@@ -316,12 +337,43 @@ def test_nav2_adapter_uses_explicit_start_real_messages_and_disk_cache(tmp_path,
     assert distances.distance('WS_1', 'WS_2') > 0
     assert len(calls) == 3
     grid.data = [255]
-    with pytest.raises(ConfigurationError, match='Costmap mudou'):
+    distances.verify_costmap()  # NavFn's working buffer is not cache identity.
+    mask.data = [100]
+    with pytest.raises(ConfigurationError, match='keepout'):
         distances.verify_costmap()
+    changed = Nav2Distances(node, arena, map_path, cache, planner_id='GridBased')
+    changed.distance('start', 'WS_1')
+    assert len(calls) == 4  # A changed keepout mask cannot reuse the old cache.
+    parameters['/mission_planning/global_costmap/global_costmap']['plugins'] = Parameter(
+        'plugins', value=['static_layer', 'inflation_layer', 'obstacle_layer']).get_parameter_value()
+    parameters['/mission_planning/global_costmap/global_costmap']['obstacle_layer.plugin'] = Parameter(
+        'obstacle_layer.plugin', value='nav2_costmap_2d::ObstacleLayer').get_parameter_value()
+    with pytest.raises(ConfigurationError, match='lidar'):
+        Nav2Distances(node, arena, map_path, cache)
     other = tmp_path / 'other.yaml'
     other.write_text(yaml.safe_dump(dict(metadata, resolution=0.1)))
     with pytest.raises(ConfigurationError, match='difere do mapa'):
         Nav2Distances(node, arena, other, cache)
+
+
+def test_navfn_tolerance_accepts_diagonal_but_reports_real_endpoint_failures():
+    from nav_msgs.msg import Path as RosPath
+    from geometry_msgs.msg import PoseStamped
+    start, goal = MapPose(0, 0, 0), MapPose(3, 4, 0)
+    path = RosPath()
+    path.header.frame_id = 'map'
+    for x, y in [(0.05, 0.05), (3.10, 4.10)]:
+        pose = PoseStamped()
+        pose.pose.position.x, pose.pose.position.y = x, y
+        path.poses.append(pose)
+    assert path_length(path, start, goal, 'map', 0.1, start_tolerance=2**0.5 * 0.05) > 0
+    path.poses[-1].pose.position.x = 3.11
+    with pytest.raises(ConfigurationError, match='X=11.00 cm'):
+        path_length(path, start, goal, 'map', 0.1, start_tolerance=2**0.5 * 0.05)
+    path.poses[-1].pose.position.x = 3.0
+    path.poses[0].pose.position.x = 0.2
+    with pytest.raises(ConfigurationError, match='desvio inicial='):
+        path_length(path, start, goal, 'map', 0.1, start_tolerance=2**0.5 * 0.05)
 
 
 @pytest.mark.parametrize('mismatch', [None, 'cell', 'origin', 'resolution', 'frame'])

@@ -50,7 +50,7 @@ placements:
     strategy: perception
     # Altura de soltura após o alinhamento externo.
     enabled: true
-    tcp_release_offset_cm: -7.5
+    tcp_release_offset_cm: -8.0
     # Região segura e alcançável para buscar espaço livre. Calibrar os vazios.
     # Meias dimensões da área ocupada pela garra/TCP com yaw 0°.
     # Ao testar o yaw alternativo, os eixos são girados junto com a garra.
@@ -90,7 +90,7 @@ placements:
     # Verificar a queda na abertura no robô.
     enabled: true
     calibrated_reference: true
-    reference_offset_xyz: [0.0, 0.0, 0.10]
+    reference_offset_xyz: [0.0, 0.0, 0.095]
     # Durante a soltura, esta junta não pode superar o limite configurado.
     link3_to_link4_max_deg: 0.0
     # Partial image-edge contours may be targets when the fit is plausible.
@@ -107,7 +107,7 @@ placements:
     # 0 pula a elevação após soltar e retorna diretamente a detect_apriltags.
     retreat_height_m: 0.0
     calibrated_reference: true
-    reference_offset_xyz: [0.0, 0.0, 0.02]
+    reference_offset_xyz: [0.0, 0.0, 0.015]
     yaw_offset_deg: 0.0
     # Tolerância de inclinação na soltura, em graus, independente da coleta
     # e dos outros depósitos. Ex.: 5.0. null mantém o padrão (~11.46 graus).
@@ -120,7 +120,7 @@ placements:
     # Calibrar a pose de soltura do TCP em relação à tag da mesa PP.
     # Somar XYZ em arm_base_link, em metros (não nos eixos locais da tag).
     calibrated_reference: true
-    reference_offset_xyz: [0.0, 0.063, -0.015]
+    reference_offset_xyz: [0.0, 0.06, -0.0125]
     yaw_offset_deg: 0.0
     approach_height_m: 0.015
     retreat_height_m: 0.0
@@ -142,8 +142,6 @@ placements:
 
   shelf:
     strategy: named_state
-    # Pose alta FICTÍCIA: substituir as juntas de place_on_shelf_high no SRDF
-    # após calibrar o depósito na SH, antes de executar no robô.
     enabled: true
     named_state: "place_on_shelf_high"
     approach_height_m: 0.08
