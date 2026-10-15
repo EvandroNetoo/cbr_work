@@ -1730,6 +1730,15 @@ class MissionManager(PrecisionRuntime, Node):
         self._last_follow_wall_result = None
         self._last_lateral_travel_direction = 0
         if target in self._arena.service_areas:
+            # Every arrival starts fresh regular and safety searches for this area.
+            getattr(self, '_visited_search_positions', {}).pop(target, None)
+            getattr(self, '_container_search_positions', {}).pop(target, None)
+            history = getattr(self, '_safety_search_history', {})
+            for key in tuple(history):
+                if key[0] == target:
+                    del history[key]
+            self._safety_search_attempts = {}
+            self._search_phase = 0
             self._activate_service_area_vision()
             alignment = self._arena.service_areas[target].alignment
             result = self._run_area_motion(
@@ -3105,10 +3114,14 @@ class MissionManager(PrecisionRuntime, Node):
             self._busy = True
             self._mission_goal_handle = goal_handle
             self._cancel_event.clear()
+        started_at = time.monotonic()
         try:
             arena, plan = self._load_goal_files(plan_id)
             self._check_canceled()
-            return self._execute_validated_mission(goal_handle, arena, plan)
+            result = self._execute_validated_mission(goal_handle, arena, plan)
+            elapsed_s = time.monotonic() - started_at
+            result.message += f' Tempo total de execução: {elapsed_s:.2f} s.'
+            return result
         except (ConfigurationError, StepFailed, MissionCanceled) as error:
             code = (ExecuteMission.Result.CONFIGURATION_ERROR if isinstance(error, ConfigurationError)
                     else ExecuteMission.Result.CANCELED if isinstance(error, MissionCanceled)

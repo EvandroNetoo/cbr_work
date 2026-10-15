@@ -219,6 +219,7 @@ def test_busy_goal_returns_explanation_without_changing_active_mission():
 
 
 def test_valid_goal_reserves_executor_and_runs_validated_files():
+    from interfaces.action import ExecuteMission
     manager = color_manager()
     manager._lock = threading.RLock()
     manager._busy = False
@@ -227,10 +228,12 @@ def test_valid_goal_reserves_executor_and_runs_validated_files():
     def execute(handle, arena, plan):
         assert manager._busy
         assert (arena, plan) == ('arena', 'plan')
-        return 'executed'
+        return ExecuteMission.Result(message='executed')
     manager._execute_validated_mission = execute
     handle = SimpleNamespace(request=SimpleNamespace(plan_id='valid'))
-    assert manager._execute_callback(handle) == 'executed'
+    result = manager._execute_callback(handle)
+    assert result.message.startswith('executed Tempo total de execução: ')
+    assert result.message.endswith(' s.')
     assert not manager._busy
 
 

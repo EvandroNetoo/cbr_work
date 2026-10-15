@@ -131,6 +131,8 @@ def _bare_server(pair):
     server._footprint_half_length_m = 0.119
     server._footprint_half_width_m = 0.155
     server._lateral_longitudinal_margin_m = 0.0
+    server._lateral_min_x_m = -0.119
+    server._lateral_max_x_m = -0.020
     server._lateral_minimum_points = 2
     server._follow_wall_controller = FakeFollowWallController()
     server._owns_sensor_pair = False
@@ -163,6 +165,40 @@ def _bare_server(pair):
     server._publish_twist = lambda *_args: None
     server.get_logger = lambda: FakeLogger()
     return server
+
+
+@pytest.mark.parametrize('maximum, detects_front', [
+    (-0.020, False),
+    (0.119, True),
+])
+def test_scan_callback_applies_configured_longitudinal_band(
+    maximum, detects_front,
+):
+    server = _bare_server(None)
+    server._lateral_max_x_m = maximum
+    server._command_frame = 'base_footprint'
+    server._tf_buffer = SimpleNamespace(
+        lookup_transform=lambda *_args: SimpleNamespace(
+            transform=SimpleNamespace(
+                translation=SimpleNamespace(x=0.0, y=0.0),
+                rotation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+            ),
+        ),
+    )
+    scan = SimpleNamespace(
+        header=SimpleNamespace(frame_id='lidar_front_link'),
+        ranges=[0.20] * 3,
+        angle_min=math.radians(60),
+        angle_increment=math.radians(1),
+        range_min=0.10,
+        range_max=3.0,
+    )
+
+    server._scan_callback(scan)
+
+    assert (server._latest_lateral_clearances.left_mm is not None) == detects_front
+    assert server._latest_lateral_clearances.right_mm is None
+    assert math.isfinite(server._lateral_scan_updated)
 
 
 def test_goal_resources_are_active_only_during_execution():

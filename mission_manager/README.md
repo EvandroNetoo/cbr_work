@@ -959,6 +959,10 @@ O servidor aceita a solicitação no protocolo ROS 2 e valida o plano antes de
 iniciar a missão. Se houver erro, encerra a action com status `ABORTED`,
 `completed_steps: 0`, código `CONFIGURATION_ERROR` e o motivo em `message`.
 Solicitações durante outra missão retornam `BUSY`, sem alterar a missão atual.
+Ao encerrar uma missão validada, `message` também informa o tempo total de
+execução em segundos, por exemplo: `Tempo total de execução: 123.45 s.`.
+A medição inclui a validação, a execução e a limpeza final, usando um relógio
+monotônico; também aparece se a execução falhar ou for cancelada.
 A validação informa tags coletadas sem entrega e suas visitas/tarefas; para
 outros bloqueios, informa uma configuração alcançável, tarefas pendentes,
 localização dos objetos, garra e ocupação dos slots. O mesmo erro é registrado

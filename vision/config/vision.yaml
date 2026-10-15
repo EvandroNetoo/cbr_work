@@ -81,7 +81,7 @@ scene_analyzer:
     hsv_container_min_area_gt_12_5cm_px: 9000
     hsv_container_min_partial_area_le_5cm_px: 1800
     hsv_container_min_partial_area_le_10cm_px: 2500
-    hsv_container_min_partial_area_gt_10cm_px: 3500
+    hsv_container_min_partial_area_gt_10cm_px: 5000
     hsv_container_min_confirmed_frames: 3
     hsv_container_center_tolerance_px: 12.0
 

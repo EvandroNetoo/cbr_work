@@ -66,6 +66,23 @@ que concluiu a aproximacao frontal e interrompeu o percurso lateral. Com a
 protecao habilitada, um `/scan_front` ausente ou obsoleto ainda causa parada
 total e aborto imediato.
 
+A selecao lateral transforma os pontos de `/scan_front` para `base_footprint`
+e usa uma faixa longitudinal configuravel no YAML. Os parametros
+`lateral_safety.longitudinal_min_x_m` e
+`lateral_safety.longitudinal_max_x_m` sao limites inclusivos em metros,
+com X positivo para frente e negativo para tras. A faixa e recortada pelo
+corredor de +/- (`footprint_half_length_m` + `longitudinal_margin_m`);
+limites nao finitos, invertidos ou sem uma intersecao de largura positiva
+impedem a inicializacao do no.
+
+O YAML usa `min=-0.119` e `max=-0.020`: somente pontos de 119 mm atras
+a 20 mm atras do centro da base participam da deteccao. Esse recorte reduz
+a classificacao da parede frontal inclinada como obstaculo lateral, mas
+reduz a cobertura de obstaculos curtos junto as quinas dianteiras. Nao ha
+uma verificacao de colisao dianteira adicional nesta protecao.
+Para restaurar a selecao completa de +/-119 mm, use `min=-0.119` e
+`max=0.119`. Reinicie o no depois de alterar esses parametros.
+
 `max_alignment_error_mm` limita a diferença absoluta entre as distâncias dos
 dois sensores. Se uma leitura válida ultrapassar esse valor, a action publica
 parada e aborta o goal imediatamente. O valor `0` desativa essa proteção e é o

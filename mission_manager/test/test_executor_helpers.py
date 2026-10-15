@@ -2430,6 +2430,71 @@ def _safety_manager():
     return manager
 
 
+@pytest.mark.parametrize('failure_stage', [None, 'navigation', 'vision'])
+def test_navigation_arrival_reopens_regular_and_safety_positions(failure_stage):
+    manager = _safety_manager()
+    positions = set(manager._arena.pickup_recovery.safety_search_positions_mm)
+    regular_positions = set(manager._arena.pickup_recovery.search_positions_mm)
+    for history in (manager._visited_search_positions, manager._container_search_positions):
+        history.update({area: set(regular_positions) for area in ('WS_1', 'WS_2')})
+    manager._safety_search_history = {
+        (area, 60, dark, detector): set(positions)
+        for area in ('WS_1', 'WS_2')
+        for dark in (False, True)
+        for detector in ('apriltags', 'containers', 'table')
+    }
+    manager._safety_search_attempts = {(1, 'apriltags'): set(positions)}
+    manager._search_phase = 0
+    manager._navigate_client = object()
+    manager._prepare_for_navigation = lambda: None
+    manager._navigation_timeout = lambda: 120.0
+    manager.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(to_msg=lambda: Time()))
+    manager._control_wall = lambda distance, *_args, **_kwargs: FollowWall.Result(
+        final_average_distance_mm=float(distance))
+
+    def fail_at(stage):
+        if failure_stage == stage:
+            raise StepFailed(stage)
+
+    manager._call_action = lambda *_args, **_kwargs: fail_at('navigation')
+    manager._activate_service_area_vision = lambda: fail_at('vision')
+
+    if failure_stage:
+        with pytest.raises(StepFailed, match=failure_stage):
+            manager._navigate('WS_1')
+    else:
+        manager._navigate('WS_1')
+
+    for history in (manager._visited_search_positions, manager._container_search_positions):
+        assert history.get('WS_1', set()) == (
+            regular_positions if failure_stage == 'navigation' else set())
+        assert history['WS_2'] == regular_positions
+
+    if failure_stage is None:
+        assert not manager._current_search_position_visited()
+        assert not manager._current_search_position_visited(manager._container_search_positions)
+        assert manager._move_to_next_search_position(3)
+        assert manager._current_wall_distance_mm == 200.0
+        assert manager._current_lateral_position_mm == 0.0
+        assert manager._search_phase == 0
+
+    for dark in (False, True):
+        manager._search_phase = 2 if dark else 1
+        for detector in ('apriltags', 'containers', 'table'):
+            assert manager._safety_visited(detector) == (
+                positions if failure_stage == 'navigation' else set())
+            assert manager._safety_search_history[
+                ('WS_2', 60, dark, detector)] == positions
+
+    if failure_stage != 'navigation':
+        manager._search_phase = 0
+        assert manager._move_to_next_safety_position('apriltags')
+        assert manager._current_wall_distance_mm == 60.0
+        assert manager._current_lateral_position_mm == 0.0
+        assert manager._search_phase == 1
+
+
 @pytest.mark.parametrize('finish', ['missing', 'success', 'cancel'])
 def test_safety_pick_scans_seven_lit_then_seven_dark_and_restores_led(finish):
     manager = _safety_manager()

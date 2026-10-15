@@ -83,6 +83,29 @@ def _minimum_cluster(
     return best
 
 
+def longitudinal_corridor_bounds(
+    footprint_half_length_m: float,
+    longitudinal_margin_m: float,
+    longitudinal_min_x_m: float | None,
+    longitudinal_max_x_m: float | None,
+) -> tuple[float, float]:
+    """Recorta os limites de X pelo corredor longitudinal do footprint."""
+    corridor_x = footprint_half_length_m + longitudinal_margin_m
+    min_x = -corridor_x
+    max_x = corridor_x
+    if longitudinal_min_x_m is not None:
+        if not math.isfinite(longitudinal_min_x_m):
+            raise ValueError('Limite longitudinal minimo deve ser finito.')
+        min_x = max(min_x, longitudinal_min_x_m)
+    if longitudinal_max_x_m is not None:
+        if not math.isfinite(longitudinal_max_x_m):
+            raise ValueError('Limite longitudinal maximo deve ser finito.')
+        max_x = min(max_x, longitudinal_max_x_m)
+    if min_x >= max_x:
+        raise ValueError('Faixa longitudinal lateral deve ter largura positiva.')
+    return min_x, max_x
+
+
 def lateral_clearances_from_scan(
     ranges_m: Iterable[float],
     *,
@@ -95,11 +118,14 @@ def lateral_clearances_from_scan(
     footprint_half_width_m: float,
     longitudinal_margin_m: float,
     minimum_consecutive_points: int,
+    longitudinal_min_x_m: float | None = None,
+    longitudinal_max_x_m: float | None = None,
 ) -> LateralClearances:
     """Extrai os obstaculos nos corredores esquerdo e direito da base.
 
     Pontos fora da faixa longitudinal do footprint nao pertencem ao corredor
-    lateral. Leituras isoladas sao descartadas para que um unico raio espurio
+    lateral. Os limites opcionais de X recortam essa faixa no frame da base.
+    Leituras isoladas sao descartadas para que um unico raio espurio
     nao interrompa a action.
     """
     numeric = (
@@ -124,7 +150,12 @@ def lateral_clearances_from_scan(
     if minimum_consecutive_points <= 0:
         raise ValueError('Quantidade minima de pontos deve ser positiva.')
 
-    corridor_x = footprint_half_length_m + longitudinal_margin_m
+    min_x, max_x = longitudinal_corridor_bounds(
+        footprint_half_length_m,
+        longitudinal_margin_m,
+        longitudinal_min_x_m,
+        longitudinal_max_x_m,
+    )
     left_samples: list[float] = []
     right_samples: list[float] = []
     for index, raw_range in enumerate(ranges_m):
@@ -136,7 +167,7 @@ def lateral_clearances_from_scan(
             scan_x = distance * math.cos(angle)
             scan_y = distance * math.sin(angle)
             base_x, base_y = transform.apply(scan_x, scan_y)
-            if -corridor_x <= base_x <= corridor_x:
+            if min_x <= base_x <= max_x:
                 # Um retorno que ja entrou no footprint continua sendo uma
                 # colisao (folga zero), em vez de desaparecer da selecao.
                 if base_y > 0.0:

@@ -28,10 +28,10 @@ ros2 run mission_manager generate_plan \
   --output src/cbr_work/mission_manager/config/plans/final_otimizado.yaml
   
 ros2 action send_goal /vl53/follow_wall interfaces/action/FollowWall \
-  "{wall_distance_mm: 40, travel_distance_mm: 500, wall_tolerance_mm: 10, \
-  travel_tolerance_mm: 10, max_alignment_error_mm: 100, \
+  "{wall_distance_mm: 40, travel_distance_mm: 0, wall_tolerance_mm: 5, \
+  travel_tolerance_mm: 5, max_alignment_error_mm: 100, \
   alignment_error_ignore_duration: {sec: 0, nanosec: 0}, \
-  alignment_recovery_distance_mm: 100, \
+  alignment_recovery_distance_mm: 0, \
   minimum_lateral_clearance_mm: 100, \
   timeout: {sec: 20, nanosec: 0}}" --feedback
 

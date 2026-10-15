@@ -31,6 +31,7 @@ from .control import (
 from .lateral_safety import (
     lateral_clearances_from_scan,
     LateralClearances,
+    longitudinal_corridor_bounds,
     PlanarTransform,
 )
 from .pid import PIDConfig, PIDController
@@ -123,6 +124,10 @@ class VL53DistanceAction(Node):
             'lateral_safety.footprint_half_width_m')
         self._lateral_longitudinal_margin_m = float(self.get_parameter(
             'lateral_safety.longitudinal_margin_m').value)
+        self._lateral_min_x_m = float(self.get_parameter(
+            'lateral_safety.longitudinal_min_x_m').value)
+        self._lateral_max_x_m = float(self.get_parameter(
+            'lateral_safety.longitudinal_max_x_m').value)
         self._lateral_minimum_points = int(self.get_parameter(
             'lateral_safety.minimum_consecutive_points').value)
         if (
@@ -140,6 +145,14 @@ class VL53DistanceAction(Node):
         if self._lateral_minimum_points <= 0:
             raise ValueError(
                 'lateral_safety.minimum_consecutive_points deve ser positivo.')
+        # Valida os limites e sua intersecao com o corredor do footprint
+        # antes de aceitar goals, inclusive sem receber um LaserScan.
+        longitudinal_corridor_bounds(
+            self._footprint_half_length_m,
+            self._lateral_longitudinal_margin_m,
+            self._lateral_min_x_m,
+            self._lateral_max_x_m,
+        )
         self._failure_limit = int(
             self.get_parameter('max_consecutive_read_failures').value)
         if self._failure_limit <= 0:
@@ -243,6 +256,8 @@ class VL53DistanceAction(Node):
             # Movimento lateral puro varre somente o comprimento do footprint;
             # margem aqui poderia classificar a parede frontal como lateral.
             'lateral_safety.longitudinal_margin_m': 0.0,
+            'lateral_safety.longitudinal_min_x_m': -0.119,
+            'lateral_safety.longitudinal_max_x_m': -0.020,
             'lateral_safety.minimum_consecutive_points': 2,
             'linear_pid.kp': 0.8,
             'linear_pid.ki': 0.0,
@@ -362,6 +377,8 @@ class VL53DistanceAction(Node):
                 footprint_half_width_m=self._footprint_half_width_m,
                 longitudinal_margin_m=self._lateral_longitudinal_margin_m,
                 minimum_consecutive_points=self._lateral_minimum_points,
+                longitudinal_min_x_m=self._lateral_min_x_m,
+                longitudinal_max_x_m=self._lateral_max_x_m,
             )
         except (TransformException, ValueError) as error:
             self.get_logger().warning(

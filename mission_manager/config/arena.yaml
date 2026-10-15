@@ -42,7 +42,7 @@ departure_defaults:
 # longo da parede; o eixo y corrige a distância perpendicular à parede.
 pickup_recovery:
   enabled: true
-  minimum_wall_distance_mm: 25
+  minimum_wall_distance_mm: 40
   maximum_wall_distance_mm: 250
   # Limites laterais absolutos relativos ao alinhamento inicial (posição 0).
   minimum_lateral_position_mm: -900

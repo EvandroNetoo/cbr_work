@@ -37,6 +37,12 @@ vl53_distance_action:
     lateral_safety.footprint_half_width_m: 0.155
     # Zero evita que a parede frontal proxima entre no corredor lateral.
     lateral_safety.longitudinal_margin_m: 0.0
+    # Recorte do corredor lateral em base_footprint: X positivo = frente.
+    # Detecta somente de 119 mm atras a 20 mm atras do centro da base.
+    # Para restaurar a faixa completa, use min=-0.119 e max=0.119.
+    # A faixa e limitada a +/- (footprint_half_length_m + longitudinal_margin_m).
+    lateral_safety.longitudinal_max_x_m: 0.050
+    lateral_safety.longitudinal_min_x_m: -0.119
     lateral_safety.minimum_consecutive_points: 2
 
     linear_pid.kp: 2.0
