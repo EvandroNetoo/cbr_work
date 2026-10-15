@@ -496,9 +496,12 @@ parede também corresponde à distância de observação da área.
 Os mesmos snapshots guardam containers por área e cor, assumindo nesta primeira
 versão no máximo um container de cada cor por área. A memória preserva a
 melhor observação completa e estável recebida durante a missão. Antes de um
-`place_in_container`, ela serve apenas para retornar a base ao ponto onde o
-container foi visto; a action sempre executa uma nova detecção antes de mover o
-braço. Trocar de área não apaga observações das áreas anteriores.
+`place_in_container`, ela alinha lateralmente a base ao centro detectado do
+container, somando à posição de observação o deslocamento calculado pela visão
+e respeitando os limites laterais da área. A distância de observação da parede
+é mantida. O movimento antecipado durante o acesso ao slot usa o mesmo destino;
+a action sempre executa uma nova detecção antes de mover o braço. Trocar de
+área não apaga observações das áreas anteriores.
 
 ## Recuperação de depósito
 

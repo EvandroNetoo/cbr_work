@@ -877,7 +877,13 @@ def test_pick_skips_position_observed_before_intermediate_place():
     assert positions == [250.0]
 
 
-def test_container_memory_only_repositions_and_still_calls_semantic_action():
+@pytest.mark.parametrize('detected_x,expected_lateral', [
+    (0.08, -130.0), (-0.12, 70.0), (0.0, -50.0),
+    (0.5, -275.0), (-0.5, 275.0),
+])
+def test_container_memory_centers_base_and_still_calls_semantic_action(
+    detected_x, expected_lateral,
+):
     manager = MissionManager.__new__(MissionManager)
     _attach_world_state(manager)
     manager._world_state.commit_pick(5)
@@ -886,10 +892,13 @@ def test_container_memory_only_repositions_and_still_calls_semantic_action():
     manager._service_area_vision_active = False
     manager._current_wall_distance_mm = 200.0
     manager._current_lateral_position_mm = 100.0
+    detection = _container_detection(PlaceInContainer.Goal.BLUE)
+    detection.pose.position.x = detected_x
     manager._container_observations = {
         ('WS_1', PlaceInContainer.Goal.BLUE): SimpleNamespace(
             wall_distance_mm=200.0,
             lateral_position_mm=-50.0,
+            detection=detection,
         )
     }
     manager.get_logger = lambda: SimpleNamespace(
@@ -917,7 +926,7 @@ def test_container_memory_only_repositions_and_still_calls_semantic_action():
         client, goal, 5, 12.5, 30.0,
     )
 
-    assert moves[0][0:2] == (200, -50.0)
+    assert moves[0][0:2] == (200, expected_lateral)
     assert calls == [(client, goal)]
 
 

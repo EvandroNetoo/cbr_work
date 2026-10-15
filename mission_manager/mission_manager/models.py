@@ -74,7 +74,7 @@ class TagObservation:
 
 @dataclass(frozen=True)
 class ContainerObservation:
-    """Best known observation point for one container color in one area."""
+    """Best detection and its observation point for one container color in one area."""
 
     area_id: str
     color: int

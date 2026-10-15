@@ -2,33 +2,38 @@ schema_version: 2
 plan_id: cubos_1_2_3
 finish: false
 visits:
-  - target: WS_1
+  - target: WS_4
     tasks:
     - {action: pick, tag_ids: [1, 2, 3]}
-  - target: WS_2
+  - target: WS_5
     tasks:
-    - {action: place_on_table, tag_ids: [1, 2, 3]}
-  - target: WS_1
+    - {action: place_in_container, possible_tag_ids: [1, 2, 3], tag_color: blue, container_color: blue}
+    - {action: place_in_container, possible_tag_ids: [1, 2, 3], tag_color: red, container_color: red}
+  - target: WS_4
     tasks:
     - {action: pick, tag_ids: [4, 5, 6]}
-  - target: WS_2
+  - target: WS_5
     tasks:
-    - {action: place_on_table, tag_ids: [4, 5, 6]}
-  - target: WS_1
+    - {action: place_in_container, possible_tag_ids: [4, 5, 6], tag_color: blue, container_color: blue}
+    - {action: place_in_container, possible_tag_ids: [4, 5, 6], tag_color: red, container_color: red}
+  - target: WS_4
     tasks:
     - {action: pick, tag_ids: [8, 9, 10]}
-  - target: WS_2
+  - target: WS_5
     tasks:
-    - {action: place_on_table, tag_ids: [8, 9, 10]}
-  - target: WS_1
+    - {action: place_in_container, possible_tag_ids: [8, 9, 10], tag_color: blue, container_color: blue}
+    - {action: place_in_container, possible_tag_ids: [8, 9, 10], tag_color: red, container_color: red}
+  - target: WS_4
     tasks:
     - {action: pick, tag_ids: [11, 12, 13]}
-  - target: WS_2
+  - target: WS_5
     tasks:
-    - {action: place_on_table, tag_ids: [11, 12, 13]}
-  - target: WS_1
+    - {action: place_in_container, possible_tag_ids: [11, 12, 13], tag_color: blue, container_color: blue}
+    - {action: place_in_container, possible_tag_ids: [11, 12, 13], tag_color: red, container_color: red}
+  - target: WS_4
     tasks:
     - {action: pick, tag_ids: [14, 15]}
-  - target: WS_2
+  - target: WS_5
     tasks:
-    - {action: place_on_table, tag_ids: [14, 15]}
+    - {action: place_in_container, possible_tag_ids: [14, 15], tag_color: blue, container_color: blue}
+    - {action: place_in_container, possible_tag_ids: [14, 15], tag_color: red, container_color: red}

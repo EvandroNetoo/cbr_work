@@ -5,13 +5,13 @@ from types import SimpleNamespace
 
 from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Time
-from interfaces.action import FollowWall, StoreObject, RetrieveObject
-from interfaces.msg import ManipulationFeedback, ManipulationResult
+from interfaces.action import FollowWall, StoreObject, RetrieveObject, PlaceInContainer
+from interfaces.msg import ContainerStampedDetection, ManipulationFeedback, ManipulationResult
 import pytest
 
 from mission_manager.errors import MissionCanceled, StepFailed
 from mission_manager.node import MissionManager
-from mission_manager.models import Plan, SlotMovement, Step, TagObservation, Visit
+from mission_manager.models import ContainerObservation, Plan, SlotMovement, Step, TagObservation, Visit
 from mission_manager.scheduler import Scheduler
 from mission_manager.world_state import EMPTY
 from test_executor_helpers import _arena
@@ -274,6 +274,23 @@ def test_retrieve_lookahead_uses_delivery_support_memory():
     scheduler = SimpleNamespace(select=lambda *_args: SimpleNamespace(step=step))
     assert manager._next_slot_movement(scheduler, SimpleNamespace(
         next_state=state, step=Step('retrieve', 'retrieve')), None) == SlotMovement(150, -120)
+
+
+@pytest.mark.parametrize('detected_x,expected_lateral', [
+    (0.08, -130.0), (-0.12, 70.0), (0.5, -275.0), (-0.5, 275.0),
+])
+def test_retrieve_lookahead_centers_on_container(detected_x, expected_lateral):
+    manager = planning_manager()
+    detection = ContainerStampedDetection()
+    detection.color = PlaceInContainer.Goal.BLUE
+    detection.pose.position.x = detected_x
+    manager._container_observations[('WS_1', detection.color)] = ContainerObservation(
+        'WS_1', detection.color, 200.0, -50.0, detection)
+    step = Step('place', 'place_in_container', tag_id=7, container_color='blue')
+    scheduler = SimpleNamespace(select=lambda *_args: SimpleNamespace(step=step))
+    assert manager._next_slot_movement(scheduler, SimpleNamespace(
+        next_state=object(), step=Step('retrieve', 'retrieve')), None
+    ) == SlotMovement(200, expected_lateral)
 
 
 @pytest.mark.parametrize('finish,next_target,expected', [

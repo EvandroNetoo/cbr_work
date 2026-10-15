@@ -1354,6 +1354,13 @@ class MissionManager(PrecisionRuntime, Node):
         # A observação feita antes da soltura não localiza o cubo na mesa.
         self._tag_observations.pop((self._current_location, tag_id), None)
 
+    def _container_memory_destination(self, observation: ContainerObservation) -> tuple[int, float]:
+        # The pose is relative to the base at observation time. FollowWall
+        # positive travel goes right, opposite to positive detection X.
+        lateral = (observation.lateral_position_mm
+                   - 1000.0 * float(observation.detection.pose.position.x))
+        return round(observation.wall_distance_mm), self._clamp_lateral_position(lateral)
+
     def _position_from_container_memory(self, color: int) -> bool:
         memory = getattr(self, '_container_observations', {})
         observation = memory.get((self._current_location, int(color)))
@@ -1363,17 +1370,18 @@ class MissionManager(PrecisionRuntime, Node):
             PlaceInContainer.Goal.RED: 'vermelho',
             PlaceInContainer.Goal.BLUE: 'azul',
         }.get(int(color), str(color))
+        wall, lateral = self._container_memory_destination(observation)
         self.get_logger().info(
             f'Contêiner {color_name} já observado em '
-            f'{self._current_location}; retornando ao ponto de observação '
-            f'parede={observation.wall_distance_mm:.0f} mm, '
-            f'lateral={observation.lateral_position_mm:.0f} mm. Uma nova '
+            f'{self._current_location}; alinhando ao centro detectado '
+            f'parede={wall} mm, '
+            f'lateral={lateral:.0f} mm. Uma nova '
             'detecção será feita antes do depósito.'
         )
         self._move_to_table_position(
-            round(observation.wall_distance_mm),
-            observation.lateral_position_mm,
-            f'retorno ao contêiner {color_name} observado',
+            wall,
+            lateral,
+            f'alinhamento ao centro do contêiner {color_name} observado',
         )
         return True
 
@@ -2485,7 +2493,7 @@ class MissionManager(PrecisionRuntime, Node):
             color = (PlaceInContainer.Goal.RED if step.container_color == 'red'
                      else PlaceInContainer.Goal.BLUE)
             memory = self._container_observations.get((self._current_location, color))
-            return (SlotMovement(round(memory.wall_distance_mm), memory.lateral_position_mm)
+            return (SlotMovement(*self._container_memory_destination(memory))
                     if memory is not None else None)
         if step.action not in {'pick', 'stack', 'place_on_precision_table'}:
             return None
