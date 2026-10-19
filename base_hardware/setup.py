@@ -16,7 +16,7 @@ setup(
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'luma.oled'],
     zip_safe=True,
     maintainer='author',
     maintainer_email='todo@todo.com',
@@ -24,5 +24,6 @@ setup(
     license='GPL-3.0-only',
     entry_points={'console_scripts': [
         'base_hardware_node = base_hardware.hardware_node:main',
+        'mission_face_node = base_hardware.mission_face_node:main',
     ]},
 )

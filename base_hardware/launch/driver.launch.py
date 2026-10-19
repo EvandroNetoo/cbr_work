@@ -5,6 +5,7 @@ import sys
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -40,10 +41,18 @@ def generate_launch_description():
         ],
     )
     return LaunchDescription([
+        DeclareLaunchArgument('enable_face', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument(
             'deduplicate_commands', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('command_heartbeat_hz', default_value='5.0'),
         driver,
+        Node(
+            package='base_hardware', executable='mission_face_node', output='screen',
+            prefix=_python_executable(),
+            condition=IfCondition(LaunchConfiguration('enable_face')),
+            parameters=[PathJoinSubstitution([
+                FindPackageShare('base_hardware'), 'config', 'face.yaml'])],
+        ),
         RegisterEventHandler(OnProcessExit(
             target_action=driver,
             on_exit=[EmitEvent(event=Shutdown(

@@ -40,3 +40,99 @@ o primeiro teste físico com o
 robô suspenso. Quando uma virtualenv está ativa, o launch executa o driver com
 `$VIRTUAL_ENV/bin/python`, permitindo usar as bibliotecas instaladas nela sem
 configuração adicional.
+
+## Rosto animado no OLED
+
+O `driver.launch.py` também inicia `mission_face_node`, em processo separado do
+controle dos motores. Os perfis `bringup hardware.launch.py`,
+`bringup robot.launch.py` e `base_bringup real.launch.py` incluem esse launch,
+portanto a tela inicia junto da base. As animações de `MariolaZero/libs/main.py`
+estão embarcadas em `base_hardware/face_animation.py`; o deploy precisa somente
+do pacote ROS, sem acesso à pasta `MariolaZero`.
+
+Na Banana Pi, instale a biblioteca do display no Python usado pelo launch:
+
+```bash
+sudo apt-get install python3-luma.oled python3-pil
+```
+
+Para uma virtualenv sem acesso aos pacotes do sistema, instale `luma.oled`
+nessa virtualenv com `python -m pip install luma.oled`.
+
+O nó assina `/mission/state` (`interfaces/msg/ManipulationState`) com QoS
+reliable/transient_local e profundidade 1, igual ao publicador da missão.
+Assim, uma tela ligada depois do início da missão recebe o snapshot atual.
+A animação roda a até 20 FPS, com transições suaves, mesmo quando nenhuma
+nova mensagem é publicada.
+
+| `active_operation` | Expressão |
+| --- | --- |
+| `navigate`, `finish`, `follow_wall` | `correndo`, com vento frontal |
+| `pick`, `retrieve`, `stack`, `place_on_precision_table`, `organize_precision` | `bravo`, concentrado |
+| `store` | `piscando` |
+| `place_on_table`, `place_in_container`, `place_on_shelf` | `feliz` |
+| `analyze_scene` | `surpreso` |
+| vazio ou operação desconhecida | `neutro` |
+| `state_known: false`, em qualquer operação | `triste` |
+
+O rosto acompanha a operação informada pelo gerenciador, inclusive enquanto
+aguarda a conclusão dessa operação. O tópico atual contém estado da carga e
+operação ativa; não informa a velocidade real da base nem distingue sucesso
+de cancelamento quando a operação fica vazia ao encerrar. Nessas condições o
+rosto volta a `neutro`. Perder o publicador também volta a `neutro`; o simples
+silêncio durante uma operação longa mantém a expressão.
+
+Barramento, endereço, FPS, tópico e intervalo de reconexão ficam em
+`config/face.yaml` (padrão: I2C 0, endereço `0x3C`). Se a tela estiver ausente
+ou falhar, somente o nó do OLED tenta reconectar a cada 5 segundos.
+
+As expressões também são configuradas no mesmo YAML. Basta trocar o valor
+ao lado da operação; os comentários explicam cada situação:
+
+```yaml
+    expressions:
+      idle: dormindo
+      disconnected: neutro
+      unknown_state: triste
+      unknown_operation: neutro
+      operations:
+        navigate: correndo
+        pick: bravo
+        store: piscando
+        place_on_table: feliz
+```
+
+Valores disponíveis: `neutro`, `feliz`, `triste`, `bravo`, `surpreso`,
+`dormindo`, `piscando`, `correndo`. Um nome inválido gera uma mensagem com a
+chave incorreta e as opções aceitas. Operações omitidas mantêm os padrões.
+`unknown_state` tem prioridade sobre os demais rostos.
+
+Após editar o arquivo, reinicie o launch para aplicar. Com `--symlink-install`,
+o arquivo instalado aponta para o YAML de origem; em uma instalação sem
+symlinks, recompile o pacote antes de reiniciar. A tabela acima mostra os
+valores padrão; suas escolhas no YAML substituem esses valores.
+
+Para testar apenas a tela, sem iniciar os motores:
+
+```bash
+colcon build --packages-select base_hardware --symlink-install
+source install/setup.bash
+ros2 run base_hardware mission_face_node --ros-args \
+  --params-file "$(ros2 pkg prefix --share base_hardware)/config/face.yaml"
+```
+
+Em outro terminal com o mesmo ambiente ROS, simule uma operação:
+
+```bash
+ros2 topic pub --rate 1 --qos-durability transient_local \
+  /mission/state interfaces/msg/ManipulationState \
+  '{state_known: true, active_operation: navigate}'
+```
+
+Use esse publicador de teste com o gerenciador de missão desligado, para
+manter uma única origem do estado. A saída do nó limpa o display.
+Para iniciar somente o driver, sem o rosto:
+
+```bash
+ros2 launch base_hardware driver.launch.py enable_face:=false
+```

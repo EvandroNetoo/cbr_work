@@ -11,8 +11,8 @@ so101_hardware_node:
     # PID interno dos servos, aplicado a todas as juntas ao conectar/reconectar.
     # Inteiros de 0 a 255. Reinicie o driver após editar; não muda em execução.
     # Para comparar a firmeza, teste primeiro P=24 e depois P=32, mantendo I/D.
-    position_p_coefficient: 32 # padrao 16
-    position_i_coefficient: 4 # padrao 0
+    position_p_coefficient: 20 # padrao 16
+    position_i_coefficient: 2 # padrao 0
     position_d_coefficient: 32 # padrao 32
     # O controller_manager produz setpoints a 30 Hz. O escritor amostra o
     # último alvo a 60 Hz para não depender da fase relativa dos dois timers;

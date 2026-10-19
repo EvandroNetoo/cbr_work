@@ -1,45 +1,46 @@
 # Objetos por área — estados declarados no arquivo de equipe do Commander.
-# SH_1: inicial=[10, 3]; final=[15, 12]
-# WS_1: inicial=[6, 14]; final=[]
-# PP: inicial=[]; final=[10, 14]
-# WS_2: inicial=[1, 12]; final=[]
-# WS_3: inicial=[8]; final=[2, 9]; contêineres iniciais=['RED']; contêineres finais=['RED']
-# ST: inicial=[]; final=[3, 8]
-# WS_5: inicial=[9, 2]; final=[]
-# WS_4: inicial=[15]; final=[1, 6]; contêineres iniciais=['BLUE']; contêineres finais=['BLUE']
+# SH_1: inicial=[14, 15]; final=[15, 11]
+# WS_1: inicial=[13]; final=[12, 14]; contêineres iniciais=['BLUE']; contêineres finais=['BLUE']
+# PP: inicial=[]; final=[9, 10]
+# WS_2: inicial=[1]; final=[2, 3]; contêineres iniciais=['RED']; contêineres finais=['RED']
+# WS_3: inicial=[3, 9]; final=[]
+# ST: inicial=[]; final=[1, 13]
+# WS_5: inicial=[2, 10]; final=[]
+# WS_4: inicial=[11, 12]; final=[]
 
 schema_version: 2
 plan_id: final_otimizado
 initial_location: start
 finish: true
 visits:
-  - target: WS_1
-    tasks:
-      - {action: pick, tag_ids: [6, 14]}
-  - target: PP
-    tasks:
-      - {action: place_on_precision_table, tag_ids: [14], reference_tag_id: 4}
-  - target: WS_2
-    tasks:
-      - {action: pick, tag_ids: [12, 1]}
   - target: WS_4
     tasks:
-      - {action: place_in_container, tag_ids: [1, 6], container_color: blue}
-      - {action: pick, tag_ids: [15]}
+      - {action: pick, tag_ids: [12, 11]}
   - target: SH_1
     tasks:
-      - {action: place_on_shelf, tag_ids: [15, 12]}
-      - {action: pick, tag_ids: [3, 10]}
-  - target: PP
+      - {action: place_on_shelf, tag_ids: [11, 15]}
+      - {action: pick, tag_ids: [15, 14]}
+  - target: WS_1
     tasks:
-      - {action: place_on_precision_table, tag_ids: [10], reference_tag_id: 5}
-  - target: WS_5
-    tasks:
-      - {action: pick, tag_ids: [2, 9]}
+      - {action: place_in_container, tag_ids: [14, 12], container_color: blue}
+      - {action: pick, tag_ids: [13]}
   - target: WS_3
     tasks:
-      - {action: place_in_container, tag_ids: [9, 2], container_color: red}
-      - {action: pick, tag_ids: [8]}
+      - {action: pick, tag_ids: [9, 3]}
+  - target: WS_2
+    tasks:
+      - {action: place_in_container, tag_ids: [3], container_color: red}
+      - {action: pick, tag_ids: [1]}
   - target: ST
     tasks:
-      - {action: stack, tag_ids: [8, 3], support_tag_id: 41}
+      - {action: stack, tag_ids: [1, 13], support_tag_id: 41}
+  - target: WS_5
+    tasks:
+      - {action: pick, tag_ids: [10, 2]}
+  - target: WS_2
+    tasks:
+      - {action: place_in_container, tag_ids: [2], container_color: red}
+  - target: PP
+    tasks:
+      - {action: place_on_precision_table, tag_ids: [9], reference_tag_id: 7}
+      - {action: place_on_precision_table, tag_ids: [10], reference_tag_id: 1}

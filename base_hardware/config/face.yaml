@@ -1,0 +1,31 @@
+mission_face_node:
+  ros__parameters:
+    mission_state_topic: /mission/state
+    i2c_bus: 0
+    i2c_address: 0x3C
+    fps: 20.0
+    retry_interval_sec: 5.0
+
+    # Edite os rostos abaixo e reinicie o launch da base para aplicar.
+    # Opções: neutro, feliz, triste, bravo, surpreso, dormindo, piscando, correndo.
+    expressions:
+      idle: neutro               # Aguardando missão ou missão encerrada.
+      disconnected: neutro       # Publicador da missão desconectado.
+      unknown_state: triste      # Estado da carga incerto (tem prioridade).
+      unknown_operation: neutro  # Operação sem mapeamento abaixo.
+
+      # Nome da operação publicada em /mission/state: rosto desejado.
+      operations:
+        navigate: correndo                 # Navegando entre estações.
+        finish: correndo                   # Indo até a posição final.
+        follow_wall: correndo              # Deslocando junto à parede.
+        analyze_scene: surpreso            # Analisando a cena.
+        pick: bravo                        # Coletando objeto.
+        store: piscando                    # Guardando na base.
+        retrieve: bravo                    # Recuperando objeto da base.
+        place_on_table: feliz              # Entregando na mesa.
+        place_in_container: feliz          # Entregando no recipiente.
+        place_on_shelf: feliz              # Entregando na prateleira.
+        place_on_precision_table: bravo    # Posicionando com precisão.
+        stack: bravo                       # Empilhando.
+        organize_precision: bravo          # Organizando a mesa de precisão.
