@@ -1780,6 +1780,67 @@ def test_service_area_vision_is_enabled_after_navigation_and_before_alignment(ar
     assert sorted(events[2:]) == ['align', 'observe']
 
 
+@pytest.mark.parametrize('area_type', ['PP', 'WS'])
+@pytest.mark.parametrize('failure_stage', [None, 'navigation', 'vision'])
+def test_pp_arrival_clears_table_memory_before_vision(area_type, failure_stage):
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._arena.service_areas['WS_1'] = replace(
+        manager._arena.service_areas['WS_1'], area_type=area_type)
+    manager._current_location = 'start'
+    _attach_world_state(manager)
+    manager._world_state.commit_pick(7)
+    manager._world_state.commit_store(7, 'left')
+    cargo_before = manager._world_state.snapshot()
+    manager._navigate_client = object()
+    manager._prepare_for_navigation = lambda: None
+    manager._prepare_for_pick_observation = lambda: None
+    manager._navigation_timeout = lambda: 120.0
+    manager.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(to_msg=lambda: Time()))
+    manager._control_wall = lambda *_args, **_kwargs: FollowWall.Result()
+    observations = (
+        '_tag_observations', '_pp_reference_observations', '_pp_reference_views',
+        '_placed_tag_viewpoints', '_container_observations', '_scene_observations',
+    )
+
+    def fail_at(stage):
+        if failure_stage == stage:
+            raise StepFailed(stage)
+
+    manager._call_action = lambda *_args, **_kwargs: fail_at('navigation')
+
+    def activate():
+        for attribute in observations:
+            assert (('WS_1', 1) in getattr(manager, attribute)) == (area_type != 'PP')
+        fail_at('vision')
+
+    manager._activate_service_area_vision = activate
+    # Repeat the arrival to prove that observations from each visit are discarded.
+    for _ in range(2):
+        for attribute in observations:
+            setattr(manager, attribute, {('WS_1', 1): object(), ('WS_2', 1): object()})
+        manager._blocked_search_positions = {'WS_1': {0}, 'WS_2': {250}}
+        manager._last_pp_scene = object()
+        manager._pp_aligned_reference = object()
+        manager._pp_expected_occupancy = {1: 2}
+        if failure_stage:
+            with pytest.raises(StepFailed, match=failure_stage):
+                manager._navigate('WS_1')
+        else:
+            manager._navigate('WS_1')
+        cleared = area_type == 'PP' and failure_stage != 'navigation'
+        for attribute in observations:
+            assert (('WS_1', 1) in getattr(manager, attribute)) == (not cleared)
+            assert ('WS_2', 1) in getattr(manager, attribute)
+        assert ('WS_1' in manager._blocked_search_positions) == (not cleared)
+        assert manager._blocked_search_positions['WS_2'] == {250}
+        assert (manager._last_pp_scene is None) == cleared
+        assert (manager._pp_aligned_reference is None) == cleared
+        assert manager._pp_expected_occupancy == ({} if cleared else {1: 2})
+        assert manager._world_state.snapshot() == cargo_before
+
+
 @pytest.mark.parametrize('area_type', ['WS', 'SH', 'PP', 'ST'])
 def test_service_area_vision_is_disabled_before_departure_alignment(area_type):
     manager = MissionManager.__new__(MissionManager)

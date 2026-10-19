@@ -1690,6 +1690,40 @@ class MissionManager(PrecisionRuntime, Node):
             )
             self._departure_completed_for = self._current_location if reached else None
 
+    def _clear_precision_table_memory(self, area_id: str) -> None:
+        """Discard the previous PP visit's observations and search decisions."""
+        for attribute in (
+            '_tag_observations', '_pp_reference_observations',
+            '_pp_reference_views', '_placed_tag_viewpoints',
+            '_container_observations', '_scene_observations',
+            '_safety_search_history',
+        ):
+            memory = getattr(self, attribute, {})
+            for key in tuple(memory):
+                if key[0] == area_id:
+                    del memory[key]
+        for attribute in (
+            '_visited_search_positions', '_container_search_positions',
+            '_blocked_search_positions',
+        ):
+            getattr(self, attribute, {}).pop(area_id, None)
+        self._last_table_observation = None
+        self._direct_pick_observation = None
+        self._stack_alignment = None
+        self._last_stack_placement = None
+        self._last_pp_scene = None
+        self._pp_aligned_reference = None
+        self._pp_direct_pick_tag = None
+        self._pp_skip_correct_pick_tag = None
+        self._pp_organizing = False
+        self._pp_final_state = {}
+        self._pp_verified = set()
+        self._pp_owned_slots = set()
+        self._pp_selection_views = set()
+        self._pp_expected_occupancy = {}
+        self._pp_failed_tags = set()
+        self._pp_abandoned_references = set()
+
     def _navigate(self, target: str) -> None:
         self._direct_pick_observation = None
         self._stack_alignment = None
@@ -1730,6 +1764,8 @@ class MissionManager(PrecisionRuntime, Node):
         self._last_follow_wall_result = None
         self._last_lateral_travel_direction = 0
         if target in self._arena.service_areas:
+            if self._arena.service_areas[target].area_type == 'PP':
+                self._clear_precision_table_memory(target)
             # Every arrival starts fresh regular and safety searches for this area.
             getattr(self, '_visited_search_positions', {}).pop(target, None)
             getattr(self, '_container_search_positions', {}).pop(target, None)
