@@ -3081,3 +3081,93 @@ def test_stack_passes_previous_pose_only_for_confirmed_top_at_same_base_position
     assert manager._stack_previous_pose(11).pose.position.z == pytest.approx(0.162)
     manager._current_lateral_position_mm += 10
     assert manager._stack_previous_pose(11) is None
+
+
+@pytest.mark.parametrize('direction', [-1, 1])
+@pytest.mark.parametrize('message,traveled', [
+    ('Desalinhamento de 101 mm excede o limite de 100 mm.', 60),
+    ('Recuperação concluída após retorno lateral de 100 mm.', -20),
+    ('Obstaculo no lado direito a 8 mm do footprint; minimo solicitado: 10 mm.', 0),
+    ('Obstaculo no lado direito a 8 mm do footprint; minimo solicitado: 10 mm.', 100),
+])
+@pytest.mark.parametrize('detector', ['pick', 'place_in_container', 'place_on_table', 'safety', 'pp'])
+def test_consecutive_searches_skip_protected_direction(direction, message, traveled, detector):
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    positions = (0, direction * 100, direction * 200, direction * 250, -direction * 100)
+    manager._arena = replace(manager._arena, pickup_recovery=replace(
+        manager._arena.pickup_recovery, search_positions_mm=positions,
+        safety_search_positions_mm=positions, safety_search_distance_mm=200))
+    manager._current_location = 'WS_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._visited_search_positions = {'WS_1': {0}}
+    manager._prepare_for_pick_observation = lambda: None
+    manager.get_logger = lambda: SimpleNamespace(info=lambda *_: None, warning=lambda *_: None)
+
+    def protected_motion(distance, *_args, **_kwargs):
+        result = FollowWall.Result()
+        result.has_valid_reading = result.has_valid_odometry = True
+        result.final_average_distance_mm = float(distance)
+        result.final_average_distance_mm += 20.0
+        result.traveled_distance_mm = float(direction * traveled)
+        result.message = message
+        assert manager._accept_wall_control_abort(result)
+        return result
+
+    manager._control_wall = protected_motion
+    manager._move_to_table_position(200, direction * 100, 'primeira busca')
+    manager._visited_search_positions['WS_1'].add(direction * 100)
+    moves = []
+    manager._move_to_table_position = lambda wall, lateral, _: moves.append((wall, lateral))
+    if detector == 'pick':
+        assert manager._move_to_next_search_position(3)
+    elif detector == 'safety':
+        manager._search_phase = 1
+        manager._safety_search_history = {('WS_1', 200, False, 'apriltags'): {0, direction * 100}}
+        assert manager._move_to_next_safety_position('apriltags')
+    elif detector == 'pp':
+        manager._pp_search_points = lambda: [(200, p) for p in positions]
+        manager._check_canceled = lambda: None
+        assert manager._pp_move_to_next_search_point(3, reference=True,
+                                                   attempted={(200, 0), (200, direction * 100)})
+    else:
+        assert manager._move_to_next_place_search_position(
+            Step('place', detector), {0, direction * 100}, positions)
+    assert moves == [(200, -direction * 100)]
+    # A new frontal search distance can expose another portion of the table.
+    assert not manager._search_position_blocked(150, direction * 200)
+    manager._current_location = 'WS_2'
+    assert not manager._search_position_blocked(200, direction * 200)
+
+
+def test_successful_search_does_not_skip_further_points():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._arena = replace(manager._arena, pickup_recovery=replace(
+        manager._arena.pickup_recovery, search_positions_mm=(0, 100, 200, -100)))
+    manager._current_location = 'WS_1'
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    manager._visited_search_positions = {'WS_1': {0}}
+    manager._prepare_for_pick_observation = lambda: None
+    manager.get_logger = lambda: SimpleNamespace(info=lambda *_: None, warning=lambda *_: None)
+    moves = []
+
+    def motion(distance, *_args, **kwargs):
+        moves.append(kwargs['travel_distance_mm'])
+        result = FollowWall.Result()
+        result.has_valid_reading = result.has_valid_odometry = True
+        result.final_average_distance_mm = float(distance)
+        result.traveled_distance_mm = float(kwargs['travel_distance_mm'])
+        return result
+
+    manager._control_wall = motion
+    assert manager._move_to_next_search_position(3)
+    assert manager._move_to_next_search_position(3)
+    assert moves == [100, 100]
+    assert manager._current_lateral_position_mm == 200
+    # A new movement clears the previous direction limit.
+    manager._last_search_protection_limit = ('WS_1', 200, 200, 1)
+    manager._move_to_table_position(200, 100, 'volta para o outro lado')
+    assert not manager._search_position_blocked(200, 250)

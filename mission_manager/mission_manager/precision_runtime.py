@@ -10,6 +10,25 @@ from .resilience import MissionResilience
 
 
 class PrecisionRuntime(MissionResilience):
+    def _search_position_blocked(self, wall: float, lateral: float) -> bool:
+        """Skip consecutive searches beyond the last lateral protection stop."""
+        limit = getattr(self, '_last_search_protection_limit', None)
+        if limit is None or self._current_wall_distance_mm is None:
+            return False
+        area, stopped_wall, stopped_lateral, direction = limit
+        config = self._arena.pickup_recovery
+        if (area != self._current_location
+                or abs(self._current_lateral_position_mm - stopped_lateral) > config.travel_tolerance_mm
+                or abs(wall - stopped_wall) > config.wall_tolerance_mm):
+            return False
+        blocked = direction * (lateral - stopped_lateral) > config.travel_tolerance_mm
+        if blocked:
+            self.get_logger().info(
+                f'Busca lateral em {lateral:.0f} mm dispensada: a ultima '
+                f'movimentacao nesse sentido parou por protecao em '
+                f'{stopped_lateral:.1f} mm de {area}.')
+        return blocked
+
     def _pp_observe_retry(self):
         error = self._retry_operation(self._observe_visit, 'Percepção PP')
         if error is not None:
@@ -157,7 +176,8 @@ class PrecisionRuntime(MissionResilience):
         # Each recovery owns its attempts. Object-search history must not suppress
         # a fresh reference search, or searches after a cargo/base movement.
         for wall, lateral in self._pp_search_points():
-            if (wall, lateral) in attempted:
+            if ((wall, lateral) in attempted
+                    or self._search_position_blocked(wall, lateral)):
                 continue
             attempted.add((wall, lateral))
             self._check_canceled()
@@ -335,6 +355,8 @@ class PrecisionRuntime(MissionResilience):
             # reference is discovered. Perception waits for both actions to end.
             config = self._arena.pickup_recovery
             for wall, lateral in self._pp_search_points():
+                if self._search_position_blocked(wall, lateral):
+                    continue
                 if self._pp_reference_view_excludes(reference_tag_id, wall, lateral,
                                                     tolerance=min(config.wall_tolerance_mm,
                                                                   config.travel_tolerance_mm)):
@@ -481,6 +503,8 @@ class PrecisionRuntime(MissionResilience):
         area = self._arena.service_areas[self._current_location]
         if not candidates:
             for lateral in config.search_positions_mm:
+                if self._search_position_blocked(area.alignment.distance_mm, lateral):
+                    continue
                 self._move_to_table_position(area.alignment.distance_mm, lateral, 'busca dos 7 alojamentos PP')
                 self._pp_observe_retry()
             candidates = [tag for (area_id, tag) in refs if area_id == self._current_location and tag not in final

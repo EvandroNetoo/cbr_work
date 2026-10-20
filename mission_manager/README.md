@@ -504,7 +504,13 @@ impedir alcançar um destino lateral configurado, ele também é registrado como
 bloqueado para as buscas de AprilTag e contêiner na mesma área. Esse registro
 não afirma que o destino foi observado pela câmera: as observações de cada
 detector continuam separadas, e a posição física usa somente o deslocamento
-medido. Assim, a busca não volta a selecionar o extremo bloqueado.
+medido. Assim, a busca não volta a selecionar o extremo bloqueado. Nas buscas
+laterais consecutivas, parar por diferença entre sensores (borda da mesa),
+concluir o recuo de recuperação ou atingir a folga mínima da parede lateral
+também dispensa os próximos pontos no mesmo sentido. O sentido considerado é o
+solicitado antes da proteção, mesmo se a recuperação recuar o robô. A regra vale
+para buscas de coleta, depósito, segurança e PP; um novo movimento, outra área
+ou uma busca em outra distância frontal permite avaliar novamente esse lado.
 Em cada posição, todas as outras tags encontradas também atualizam a memória.
 Uma tag coletada é removida, sem apagar as demais observações. Se a próxima tag
 não apareceu na última análise e a base continua na mesma posição, essa análise

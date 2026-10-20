@@ -190,6 +190,7 @@ class MissionManager(PrecisionRuntime, Node):
         self._visited_search_positions: dict[str, set[int]] = {}
         self._blocked_search_positions: dict[str, set[int]] = {}
         self._last_wall_control_protection_stop = False
+        self._last_search_protection_limit = None
         self._last_table_observation: TableObservation | None = None
         self._scene_observations: dict[tuple[str, int, int, bool], TableObservation] = {}
         self._direct_pick_observation: TableObservation | None = None
@@ -734,6 +735,8 @@ class MissionManager(PrecisionRuntime, Node):
             f'timeout={timeout_s:.1f} s.'
         )
         self._last_wall_control_protection_stop = False
+        self._last_search_protection_limit = None
+        self._last_wall_control_target_mm = goal.wall_distance_mm
         result = self._call_action(
             self._wall_control_client,
             goal,
@@ -1211,6 +1214,8 @@ class MissionManager(PrecisionRuntime, Node):
             f'percurso lateral solicitado={travel} mm.'
         )
         self._last_wall_control_protection_stop = False
+        self._last_search_protection_limit = None
+        self._last_wall_control_target_mm = wall
         follow_result = self._run_area_motion(self._prepare_for_pick_observation, lambda: self._control_wall(
             wall,
             config.wall_tolerance_mm,
@@ -1233,6 +1238,12 @@ class MissionManager(PrecisionRuntime, Node):
     def _remember_blocked_search_destination(self, lateral: float, travel: int) -> None:
         """Do not retry a search point that a protected partial movement missed."""
         config = self._arena.pickup_recovery
+        if travel and getattr(self, '_last_wall_control_protection_stop', False):
+            # Use the requested direction: edge recovery can reverse actual travel.
+            self._last_search_protection_limit = (
+                self._current_location,
+                getattr(self, '_last_wall_control_target_mm', self._current_wall_distance_mm),
+                self._current_lateral_position_mm, 1 if travel > 0 else -1)
         destination_unreached = (
             travel > 0
             and self._current_lateral_position_mm
@@ -1464,7 +1475,8 @@ class MissionManager(PrecisionRuntime, Node):
             if not hasattr(self, '_safety_search_attempts'):
                 self._safety_search_attempts = {}
             attempted = self._safety_search_attempts.setdefault((phase, detector), set())
-            candidates = [p for p in config.safety_search_positions_mm if p not in visited and p not in attempted]
+            candidates = [p for p in config.safety_search_positions_mm if p not in visited and p not in attempted
+                          and not self._search_position_blocked(config.safety_search_distance_mm, p)]
             if candidates:
                 destination = min(candidates, key=lambda p: (abs(p - self._current_lateral_position_mm), config.safety_search_positions_mm.index(p)))
                 self._move_to_table_position(config.safety_search_distance_mm, destination,
@@ -1490,6 +1502,8 @@ class MissionManager(PrecisionRuntime, Node):
         candidates = [
             position for position in config.search_positions_mm
             if position not in visited and position not in blocked
+            and not self._search_position_blocked(
+                self._arena.service_areas[self._current_location].alignment.distance_mm, position)
         ]
         if not candidates:
             return self._move_to_next_safety_position('apriltags')
@@ -1591,6 +1605,8 @@ class MissionManager(PrecisionRuntime, Node):
         candidates = [
             position for position in positions
             if position not in visited and position not in blocked
+            and not self._search_position_blocked(
+                self._arena.service_areas[self._current_location].alignment.distance_mm, position)
         ]
         if not candidates:
             return self._move_to_next_safety_position(detector)
@@ -2522,7 +2538,9 @@ class MissionManager(PrecisionRuntime, Node):
             visited = self._visited_search_positions.get(self._current_location, set())
             blocked = self._blocked_search_positions.get(self._current_location, set())
             candidates = [p for p in config.search_positions_mm
-                          if p not in visited and p not in blocked]
+                          if p not in visited and p not in blocked
+                          and not self._search_position_blocked(
+                              self._arena.service_areas[self._current_location].alignment.distance_mm, p)]
             if not candidates:
                 return None
             lateral = min(candidates, key=lambda p: (
@@ -3271,6 +3289,7 @@ class MissionManager(PrecisionRuntime, Node):
         self._visited_search_positions.clear()
         self._blocked_search_positions.clear()
         self._last_wall_control_protection_stop = False
+        self._last_search_protection_limit = None
         self._last_table_observation = None
         self._scene_observations = {}
         self._direct_pick_observation = None
