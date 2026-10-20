@@ -17,6 +17,10 @@ class ActionUncertain(StepFailed):
     """A dispatched child action has no confirmed terminal result."""
 
 
+class RetrieveFailed(StepFailed):
+    """Cargo retrieval requires stopping the mission, never abandoning the cube."""
+
+
 class MissionCanceled(MissionError):
     """The parent ExecuteMission goal was canceled."""
 

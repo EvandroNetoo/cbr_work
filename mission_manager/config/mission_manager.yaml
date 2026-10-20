@@ -30,3 +30,6 @@ mission_manager:
     manipulation_timeout_s: 120.0
     # Total attempts per operation, including the first attempt.
     operation_max_attempts: 2
+    # Retrieval includes recovery of the empty arm before each retry.
+    # Exhaustion stops the mission with cargo preserved instead of skipping it.
+    retrieve_max_attempts: 4

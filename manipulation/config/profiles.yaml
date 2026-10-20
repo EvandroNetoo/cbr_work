@@ -12,7 +12,7 @@ pickup:
     reach_center_x_m: 0.0
     reach_center_y_m: 0.0
     reach_min_radius_m: 0.155
-    reach_max_radius_m: 0.28
+    reach_max_radius_m: 0.29
     # valor alto para não limitar a busca de espaço livre; calibrar se necessário.
     reach_x_min_m: -1
     reach_x_max_m: 1

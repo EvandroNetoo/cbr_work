@@ -2,14 +2,15 @@
 
 from types import SimpleNamespace
 
-from .errors import ActionUncertain, MissionCanceled, StepFailed, TaskNotFound
+from .errors import ActionUncertain, MissionCanceled, RetrieveFailed, StepFailed, TaskNotFound
 from .models import Step
 from .world_state import EMPTY
 
 
 class MissionResilience:
     def _retry_operation(self, operation, description, *, expected=None, key=None,
-                         yield_missing=False, before_retry=None, passthrough=()):
+                         yield_missing=False, before_retry=None, passthrough=(),
+                         max_attempts=None):
         """Return the final exception, or None after a confirmed success.
 
         A confirmed transfer wins over a failure retracting the arm. An
@@ -18,7 +19,8 @@ class MissionResilience:
         attempts = getattr(self, '_task_attempts', {})
         if key is None:
             key = object()
-        limit = getattr(self, '_operation_max_attempts', 2)
+        limit = (getattr(self, '_operation_max_attempts', 2)
+                 if max_attempts is None else max_attempts)
         while attempts.get(key, 0) < limit:
             self._check_canceled()
             retrying = attempts.get(key, 0) > 0
@@ -59,6 +61,25 @@ class MissionResilience:
                     raise
         return StepFailed(f'{description}: tentativas esgotadas.')
 
+    def _retry_retrieve(self, operation, step, *, expected, key=None):
+        """Recover known cargo transfers; never skip a cube still on board."""
+        def recover():
+            # Recovery may move/open the empty gripper only while the cube is
+            # still confirmed in its compartment. Unknown effects stop earlier.
+            self._world_state.validate_retrieve(step.tag_id, step.slot_id)
+            self._refresh_failed_step(step)
+            self._prepare_for_navigation()
+
+        error = self._retry_operation(
+            operation, f'retrieve: tag {step.tag_id}, slot {step.slot_id}',
+            expected=expected, key=key, before_retry=recover,
+            max_attempts=getattr(self, '_retrieve_max_attempts', 4))
+        if error is not None:
+            raise RetrieveFailed(
+                f'Retirada da tag {step.tag_id} do slot {step.slot_id} não confirmada '
+                'após as tentativas de recuperação. Missão interrompida; carga '
+                f'preservada, sem novas coletas ou navegação. Causa: {error}') from error
+
     def _refresh_failed_step(self, step):
         self._direct_pick_observation = None
         self._last_table_observation = None
@@ -86,7 +107,11 @@ class MissionResilience:
         self.get_logger().error(message)
 
     def _abandon_scheduled_object(self, scheduler, state, step, error):
-        if step.action in {'store', 'retrieve'}:
+        if step.action == 'retrieve':
+            raise RetrieveFailed(
+                f'Retirada da tag {step.tag_id} do slot {step.slot_id} falhou; '
+                f'o objeto não pode ser abandonado na carga. {error}') from error
+        if step.action == 'store':
             scheduler.blocked_transfers.add((step.action, step.slot_id))
         source = (step.source_area or (self._current_location if step.action == 'pick'
                   else state.gripper_source if state.gripper == step.tag_id

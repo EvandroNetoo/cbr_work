@@ -23,7 +23,7 @@ ros2 launch bringup processing.launch.py components:=mission,manipulation
 ros2 launch bringup processing.launch.py components:=rsp,ekf,camera,vision,localization,navigation,moveit,manipulation,mission
 
 ros2 run mission_manager generate_plan \
-  --task ~/Downloads/FINAL_seed5_equipe.yaml \
+  --task ~/Downloads/FINAL_seed6_equipe.yaml \
   --objective visits_then_distance \
   --output src/cbr_work/mission_manager/config/plans/final_otimizado.yaml --force
   

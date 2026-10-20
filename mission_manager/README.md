@@ -7,11 +7,21 @@ diretamente: ele compõe Nav2, alinhamento VL53 e as actions semânticas do paco
 ## Falhas durante a missão
 
 `operation_max_attempts: 2` em `config/mission_manager.yaml` permite uma nova
-tentativa após falha de uma operação do executor. Vale para coleta, transferências
-da carga, depósitos, percepção, busca e navegação. As buscas geométricas e os
+tentativa após falha de uma operação do executor. Vale para coleta, armazenamento
+na carga, depósitos, percepção, busca e navegação. As buscas geométricas e os
 recuos internos das actions continuam existindo dentro de cada tentativa.
 Exceções inesperadas também entram neste tratamento; cancelamento do cliente
 continua interrompendo a missão imediatamente.
+
+Retiradas da carga usam `retrieve_max_attempts: 4` (total incluindo a primeira
+tentativa), tanto nas visitas comuns quanto na organização PP. Antes de repetir,
+o gerenciador confirma garra vazia e objeto no mesmo slot, prepara o braço na
+pose de navegação e repete a operação, incluindo os recuos exigidos pela área.
+Se a preparação falhar, essa tentativa é consumida sem executar a retirada.
+Esgotar as tentativas de retirada interrompe a missão com `STEP_FAILED`, sem
+abandonar o objeto, bloquear permanentemente seu slot, iniciar novas coletas ou
+navegar para a próxima visita. O estado da carga permanece disponível para
+recuperação; não há retomada automática após o encerramento da action.
 
 Esgotadas as tentativas, o escalonador ignora as próximas tarefas daquele objeto
 e as dependências de empilhamento. Por exemplo, falhar na coleta do cubo 1 remove
@@ -20,7 +30,7 @@ cubos. Grupos são filtrados por cubo; um membro ignorado não passa a ser o apo
 da pilha. Rotas por cor preservam outra cópia da mesma tag em uma origem diferente.
 O YAML original não é alterado: o descarte vale somente para a execução atual.
 
-O inventário físico é preservado. Um cubo cujo depósito ou retirada falhou pode
+O inventário físico é preservado. Um cubo cujo depósito falhou pode
 ficar na garra ou ocupar um compartimento; os próximos passos usam apenas a
 capacidade disponível. A organização PP também descarta os objetivos dependentes
 do cubo que falhou e pode usar alojamentos vazios como apoio temporário para os
@@ -34,8 +44,8 @@ mantém as visitas seguintes. Ao terminar, uma missão com descartes retorna
 `message`. `completed_steps` conta somente operações concluídas; os logs mostram
 as tentativas e objetos ignorados. O servidor continua disponível.
 
-Há duas situações em que os movimentos são suspensos com erro controlado: carga
-com efeito físico desconhecido e action enviada sem término confirmado. Não é
+Os movimentos também são suspensos com erro controlado em caso de carga
+com efeito físico desconhecido ou action enviada sem término confirmado. Não é
 seguro repetir uma coleta ou iniciar outro movimento nessas condições. O processo
 ROS permanece ativo. Ao iniciar uma nova missão válida, o gerenciador limpa todo
 o estado da execução anterior, inclusive carga retida/incerta, progresso,

@@ -294,10 +294,13 @@ class PrecisionRuntime(MissionResilience):
                 self._execute_step(step)
             else:
                 self._execute_step(step, slot_movement=movement)
-        error = self._retry_operation(
-            execute, step.step_id, expected=expected,
-            before_retry=lambda: self._refresh_failed_step(step),
-            passthrough=(PrecisionSlotOccupied, PrecisionObjectAlreadyCorrect))
+        if action == 'retrieve':
+            error = self._retry_retrieve(execute, step, expected=expected)
+        else:
+            error = self._retry_operation(
+                execute, step.step_id, expected=expected,
+                before_retry=lambda: self._refresh_failed_step(step),
+                passthrough=(PrecisionSlotOccupied, PrecisionObjectAlreadyCorrect))
         if error is not None:
             raise PrecisionTaskFailed(step, error)
         known, held, cargo = self._world_state.snapshot()

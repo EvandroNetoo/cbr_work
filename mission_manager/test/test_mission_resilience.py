@@ -5,7 +5,7 @@ import pytest
 
 from interfaces.action import PickObject, PlaceOnShelf, RetrieveObject
 from interfaces.msg import ManipulationResult
-from mission_manager.errors import MissionCanceled, StepFailed
+from mission_manager.errors import MissionCanceled, RetrieveFailed, StepFailed
 from mission_manager.models import Plan, Step, Visit
 from mission_manager.scheduler import Scheduler
 from mission_manager.world_state import EMPTY
@@ -74,7 +74,7 @@ def test_failed_shelf_delivery_retains_cube_and_delivers_other_cube():
     assert known and [held, *slots.values()].count(1) == 1
 
 
-def test_failed_retrieve_retains_slot_inventory_and_runs_other_object():
+def test_failed_retrieve_stops_route_and_preserves_cargo():
     plan = transport()
     manager, navs, _, _ = simulated_manager(plan)
     original = manager._retrieve_client.responder
@@ -87,11 +87,167 @@ def test_failed_retrieve_retains_slot_inventory_and_runs_other_object():
     # Ensure cube 1 enters cargo before its destination.
     manager._scheduler_observations = lambda: {('tag', 1): 0, ('tag', 2): 10}
     manager._retrieve_client.responder = retrieve
-    run(manager, plan)
-    assert len(attempts) == 2
-    assert navs[-1] == 'finish'
-    assert [d.tag_id for d in manager._delivery_outcomes] == [2]
+    with pytest.raises(RetrieveFailed, match='Missão interrompida'):
+        run(manager, plan)
+    assert len(attempts) == 4
+    assert navs == ['WS_1', 'SH_1']
     assert 1 in manager._world_state.snapshot()[2].values()
+    assert manager._world_state.snapshot()[:2] == (True, EMPTY)
+    assert not manager._mission_failures
+
+
+@pytest.mark.parametrize('failures', [1, 3])
+def test_retrieve_recovers_empty_arm_and_eventually_delivers(failures):
+    plan = transport()
+    manager, navs, _, _ = simulated_manager(plan)
+    original = manager._retrieve_client.responder
+    attempts = []
+    recoveries = []
+    prepare = manager._prepare_for_navigation
+
+    def recover():
+        assert manager._world_state.snapshot() == (True, EMPTY, {'left': 1, 'right': EMPTY})
+        recoveries.append(True)
+        prepare()
+
+    def retrieve(goal):
+        attempts.append(goal.slot_id)
+        if len(attempts) <= failures:
+            return failed(RetrieveObject, ManipulationResult.LOCATION_CARGO)
+        return original(goal)
+
+    manager._scheduler_observations = lambda: {('tag', 1): 0, ('tag', 2): 10}
+    manager._prepare_for_navigation = recover
+    manager._retrieve_client.responder = retrieve
+    run(manager, plan)
+    assert len(attempts) == failures + 1
+    assert len(recoveries) == failures
+    assert navs[-1] == 'finish'
+    assert {d.tag_id for d in manager._delivery_outcomes} == {1, 2}
+    assert not manager._mission_failures
+    assert manager._world_state.snapshot() == (True, EMPTY, {'left': EMPTY, 'right': EMPTY})
+
+
+def test_shelf_retreat_failure_never_abandons_11_or_starts_shelf_picks():
+    plan = Plan('shelf', (
+        Visit('ws4', 'WS_4', (Step('collect', 'pick', tag_ids=(12, 11)),)),
+        Visit('sh1', 'SH_1', (Step('deliver', 'place_on_shelf', tag_ids=(11, 15)),
+                              Step('pick_shelf', 'pick', tag_ids=(15, 14)))),
+        Visit('ws1', 'WS_1', (Step('place', 'place_in_container', tag_ids=(14, 12),
+                                   container_color='blue'),)),
+    ))
+    manager, navs, events, _ = simulated_manager(plan)
+    original = manager._pick_client.responder
+    manager._pick_client.responder = lambda goal: (
+        failed(PickObject, ManipulationResult.LOCATION_SOURCE) if goal.tag_id == 12 else original(goal))
+    manager._scheduler_observations = lambda: {('tag', 11): 0, ('tag', 12): 10, ('tag', 15): 0}
+    attempts = []
+
+    def retreat(_area):
+        attempts.append(True)
+        raise StepFailed('Recuo para retirada do slot na SH não confirmado.')
+
+    manager._retreat_before_shelf_retrieve = retreat
+    with pytest.raises(RetrieveFailed, match='Recuo para retirada'):
+        run(manager, plan)
+    assert len(attempts) == 4
+    assert navs == ['WS_4', 'SH_1']
+    assert ('pick', 15) not in events and ('pick', 14) not in events
+    assert not manager._retrieve_client.goals
+    assert manager._world_state.snapshot() == (True, EMPTY, {'left': 11, 'right': EMPTY})
+    assert len(manager._mission_failures) == 1  # Only the unreachable 12 was abandoned.
+
+
+def test_confirmed_retrieve_is_not_repeated_after_post_transfer_failure():
+    plan = transport()
+    manager, _, _, _ = simulated_manager(plan)
+    execute = manager._execute_step
+    attempts = []
+
+    def fail_after_transfer(step, **kwargs):
+        execute(step, **kwargs)
+        if step.action == 'retrieve':
+            attempts.append(step.tag_id)
+            raise StepFailed('preparação de observação falhou após retirada')
+
+    manager._execute_step = fail_after_transfer
+    run(manager, plan)
+    assert len(attempts) == 1
+    assert {d.tag_id for d in manager._delivery_outcomes} == {1, 2}
+    assert not manager._mission_failures
+
+
+def test_uncertain_retrieve_stops_without_recovery_or_new_pick():
+    plan = transport()
+    manager, navs, _, _ = simulated_manager(plan)
+
+    def uncertain(_goal):
+        result = failed(RetrieveObject, ManipulationResult.LOCATION_UNKNOWN)
+        result.outcome.effect_known = False
+        return result
+
+    manager._retrieve_client.responder = uncertain
+    manager._prepare_for_navigation = lambda: pytest.fail('Não recuperar com carga incerta')
+    with pytest.raises(StepFailed, match='estado físico não confirmado'):
+        run(manager, plan)
+    assert len(manager._retrieve_client.goals) == 1
+    assert navs == ['WS_1', 'SH_1']
+    assert not manager._world_state.snapshot()[0]
+
+
+def test_retrieve_cancellation_does_not_retry():
+    manager, _, _, _ = simulated_manager(transport())
+    manager._world_state.commit_pick(11, 'WS_4')
+    manager._world_state.commit_store(11, 'left')
+    attempts = []
+
+    def cancel():
+        attempts.append(True)
+        raise MissionCanceled('cancel requested')
+
+    with pytest.raises(MissionCanceled):
+        manager._retry_retrieve(cancel, Step('retrieve', 'retrieve', tag_id=11, slot_id='left'),
+                                expected=SimpleNamespace(gripper=11, slots=(EMPTY, EMPTY)))
+    assert len(attempts) == 1
+
+
+def test_retrieve_uses_its_own_attempt_limit():
+    manager, _, _, _ = simulated_manager(transport())
+    manager._operation_max_attempts = 1
+    manager._retrieve_max_attempts = 3
+    manager._world_state.commit_pick(11, 'WS_4')
+    manager._world_state.commit_store(11, 'left')
+    attempts = []
+
+    def fail():
+        attempts.append(True)
+        raise StepFailed('motion failed')
+
+    with pytest.raises(RetrieveFailed):
+        manager._retry_retrieve(fail, Step('retrieve', 'retrieve', tag_id=11, slot_id='left'),
+                                expected=SimpleNamespace(gripper=11, slots=(EMPTY, EMPTY)))
+    assert len(attempts) == 3
+
+
+def test_pp_retrieve_failure_propagates_without_abandoning_or_continuing_route():
+    visit = Visit('pp', 'PP', (), None, ((1, 1),))
+    plan = Plan('pp_retrieve', (visit,), finish=True)
+    manager, navs, _, _ = simulated_manager(plan)
+    manager._retrieve_client.responder = lambda _goal: failed(
+        RetrieveObject, ManipulationResult.LOCATION_CARGO)
+
+    def organize(goal, loaded_plan, loaded_visit):
+        manager._world_state.commit_pick(11, 'PP')
+        manager._world_state.commit_store(11, 'left')
+        manager._pp_run_operation(goal, loaded_plan, loaded_visit, 'retrieve', tag_id=11, slot_id='left')
+
+    manager._run_precision_organization = organize
+    with pytest.raises(RetrieveFailed):
+        run(manager, plan)
+    assert navs == ['PP']
+    assert len(manager._retrieve_client.goals) == 4
+    assert manager._world_state.snapshot() == (True, EMPTY, {'left': 11, 'right': EMPTY})
+    assert not manager._mission_failures
 
 
 @pytest.mark.parametrize('failed_action', ['navigate', 'observe'])

@@ -43,7 +43,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_srvs.srv import SetBool
 
-from .errors import ActionUncertain, ConfigurationError, DestinationUnavailable, MissionCanceled, StateConflict, StepFailed, TaskNotFound, PrecisionSlotOccupied
+from .errors import ActionUncertain, ConfigurationError, DestinationUnavailable, MissionCanceled, RetrieveFailed, StateConflict, StepFailed, TaskNotFound, PrecisionSlotOccupied
 from .loaders import load_arena, load_plan, PLAN_ID_PATTERN, validate_plan
 from .models import (
     Arena,
@@ -117,6 +117,7 @@ class MissionManager(PrecisionRuntime, Node):
             'navigation_timeout_s': 120.0,
             'manipulation_timeout_s': 120.0,
             'operation_max_attempts': 2,
+            'retrieve_max_attempts': 4,
             'camera_capture_service': '/camera/set_capture',
             'vision_led_hold_off_service': '/vision/hold_led_off',
             'vision_led_service': '/base_hardware/set_vision_led',
@@ -128,6 +129,9 @@ class MissionManager(PrecisionRuntime, Node):
         self._operation_max_attempts = self._nonnegative_integer_parameter('operation_max_attempts')
         if self._operation_max_attempts < 1:
             raise ConfigurationError('operation_max_attempts deve ser pelo menos 1.')
+        self._retrieve_max_attempts = self._nonnegative_integer_parameter('retrieve_max_attempts')
+        if self._retrieve_max_attempts < 1:
+            raise ConfigurationError('retrieve_max_attempts deve ser pelo menos 1.')
 
         self._wall_max_alignment_error_mm = (
             self._nonnegative_integer_parameter(
@@ -2891,7 +2895,7 @@ class MissionManager(PrecisionRuntime, Node):
                 try:
                     with self._search_session():
                         self._run_precision_organization(goal_handle, plan, visit)
-                except (MissionCanceled, ActionUncertain):
+                except (MissionCanceled, ActionUncertain, RetrieveFailed):
                     raise
                 except Exception as error:
                     if not self._world_state.snapshot()[0]:
@@ -3023,10 +3027,15 @@ class MissionManager(PrecisionRuntime, Node):
                                 self._execute_step(executable)
                             else:
                                 self._execute_step(executable, slot_movement=movement)
-                        error = self._retry_operation(
-                            execute, description, expected=choice.next_state,
-                            key=(state.visit, choice.task_index, step.action, step.tag_id, step.slot_id),
-                            yield_missing=True, before_retry=lambda: self._refresh_failed_step(step))
+                        retry_key = (state.visit, choice.task_index, step.action, step.tag_id, step.slot_id)
+                        if step.action == 'retrieve':
+                            error = self._retry_retrieve(
+                                execute, step, expected=choice.next_state, key=retry_key)
+                        else:
+                            error = self._retry_operation(
+                                execute, description, expected=choice.next_state,
+                                key=retry_key, yield_missing=True,
+                                before_retry=lambda: self._refresh_failed_step(step))
                         if error is not None:
                             state = self._abandon_scheduled_object(scheduler, state, step, error)
                             continue
