@@ -33,3 +33,5 @@ mission_manager:
     # Retrieval includes recovery of the empty arm before each retry.
     # Exhaustion stops the mission with cargo preserved instead of skipping it.
     retrieve_max_attempts: 4
+    # Additional rounds of pending visits before finish; unresolved failures block finish.
+    mission_recovery_rounds: 1

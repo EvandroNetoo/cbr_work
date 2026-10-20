@@ -139,7 +139,8 @@ def test_stack_fallback_becomes_new_support_with_confirmed_pose(retreat_failed):
     manager._stack_client.responder = stack
     manager._place_table_client.responder = fallback
     manager._run_plan(SimpleNamespace(publish_feedback=lambda _: None), plan)
-    assert navs[-1] == 'finish'
+    assert navs[-1] == 'ST'
+    assert 'finish' not in navs
     assert supports[-1] == (2, 1)
     assert previous_poses[0][0], previous_poses
     assert not previous_poses[0][1]

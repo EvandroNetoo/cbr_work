@@ -118,6 +118,7 @@ class MissionManager(PrecisionRuntime, Node):
             'manipulation_timeout_s': 120.0,
             'operation_max_attempts': 2,
             'retrieve_max_attempts': 4,
+            'mission_recovery_rounds': 1,
             'camera_capture_service': '/camera/set_capture',
             'vision_led_hold_off_service': '/vision/hold_led_off',
             'vision_led_service': '/base_hardware/set_vision_led',
@@ -132,6 +133,9 @@ class MissionManager(PrecisionRuntime, Node):
         self._retrieve_max_attempts = self._nonnegative_integer_parameter('retrieve_max_attempts')
         if self._retrieve_max_attempts < 1:
             raise ConfigurationError('retrieve_max_attempts deve ser pelo menos 1.')
+
+        self._mission_recovery_rounds = self._nonnegative_integer_parameter(
+            'mission_recovery_rounds')
 
         self._wall_max_alignment_error_mm = (
             self._nonnegative_integer_parameter(
@@ -2878,13 +2882,62 @@ class MissionManager(PrecisionRuntime, Node):
         state = scheduler.initial_state
         if not scheduler.feasible(state):
             raise ConfigurationError(scheduler.infeasibility_reason(state))
+        retry_visits = set()
+        pp_occupancy = {}
+        recovery_rounds = getattr(self, '_mission_recovery_rounds', 1)
+        fallback_failures = set()
+        for recovery_round in range(recovery_rounds + 1):
+            state, retry_visits = self._run_route(
+                goal_handle, plan, scheduler, state, retry_visits, pp_occupancy,
+                fallback_failures, recovery=bool(recovery_round))
+            if not self._mission_failures:
+                break
+            if not plan.finish or recovery_round >= recovery_rounds:
+                return
+            pending = scheduler.skipped_mask & ~scheduler.fallback_mask
+            if not pending and not retry_visits:
+                return
+            # Preserve failures with no executable recovery (e.g. a fallback
+            # deposit). Confirmed transfers and stack tops remain untouched.
+            task_ids = {task.step_id for index, (_vi, task, _group) in enumerate(scheduler.tasks)
+                        if pending & (1 << index)}
+            retry_ids = task_ids | {plan.visits[vi].visit_id for vi in retry_visits}
+            self._mission_failures = [failure for failure in self._mission_failures
+                                      if failure[0] not in retry_ids or failure in fallback_failures]
+            state = scheduler.retry_pending(state)
+            self._task_attempts.clear()
+            self._visited_search_positions.clear()
+            self._container_search_positions.clear()
+            self.get_logger().warning(
+                f'Retomando tarefas pendentes antes do finish '
+                f'(rodada {recovery_round + 1}/{recovery_rounds}).')
+        if self._mission_failures:
+            return
+        if plan.finish:
+            step = Step('finish', 'finish')
+            self._report_scheduled_operation(goal_handle, plan, step, 'finish', 'Navegando para finish')
+            error = self._retry_operation(lambda: self._execute_step(step), 'finish')
+            if error is None:
+                self._completed_steps += 1
+            else:
+                self._record_mission_failure(step, error)
+
+    def _run_route(self, goal_handle, plan, scheduler, state, retry_visits,
+                   pp_occupancy, fallback_failures, *, recovery=False):
+        """Run pending work using the current confirmed inventory and task effects."""
+        failed_visits = set()
         while not scheduler.complete(state):
             visit = plan.visits[state.visit]
+            if recovery and not (scheduler.masks[state.visit] & ~state.done
+                                 or state.visit in retry_visits):
+                state = replace(state, visit=state.visit + 1)
+                continue
             nav = Step(visit.visit_id, 'navigate', target=visit.target)
             self._report_scheduled_operation(goal_handle, plan, nav, visit.visit_id,
                                              f'Navegando para {visit.target}')
             error = self._retry_operation(lambda: self._execute_step(nav), nav.step_id)
             if error is not None:
+                failed_visits.add(state.visit)
                 self._record_mission_failure(nav, error)
                 state = self._skip_visit_work(scheduler, state, error)
                 state = replace(state, visit=state.visit + 1)
@@ -2904,6 +2957,7 @@ class MissionManager(PrecisionRuntime, Node):
                     self._retain_failed_held_object(goal_handle, plan, visit)
                     scheduler.recovering = True
                 if len(self._mission_failures) > failures_before_pp:
+                    failed_visits.add(state.visit)
                     scheduler.recovering = True
                     for tag in getattr(self, '_pp_failed_tags', set()):
                         state, removed = scheduler.abandon(state, tag, visit.target)
@@ -2929,7 +2983,8 @@ class MissionManager(PrecisionRuntime, Node):
             if (not self._is_precision_area()
                     or any(task.action == 'place_in_container' for task in visit.tasks)):
                 visit_detectors |= AnalyzeScene.Goal.CONTAINERS_HSV
-            pp_slots = dict(visit.pp_start_state) if visit.pp_start_state is not None else None
+            pp_slots = (pp_occupancy.setdefault(state.visit, dict(visit.pp_start_state))
+                        if visit.pp_start_state is not None else None)
             with self._search_session():
                 while state.visit < len(plan.visits) and plan.visits[state.visit] is visit:
                     self._check_canceled()
@@ -3056,6 +3111,7 @@ class MissionManager(PrecisionRuntime, Node):
                         self._record_mission_failure(
                             replace(choice.step, step_id=task_id),
                             'Destino ausente após busca completa; cubo depositado no fallback.')
+                        fallback_failures.add(self._mission_failures[-1])
                     if pp_slots is not None:
                         # Update slot occupancy only after confirming the physical transfer.
                         if choice.step.action == 'pick':
@@ -3075,14 +3131,7 @@ class MissionManager(PrecisionRuntime, Node):
                                            replace(choice.step, step_id=task_id),
                                            f'Entrega confirmada: tag {choice.step.tag_id}, {actual_action} em {visit.target}')
                     state = choice.next_state
-        if plan.finish:
-            step = Step('finish', 'finish')
-            self._report_scheduled_operation(goal_handle, plan, step, 'finish', 'Navegando para finish')
-            error = self._retry_operation(lambda: self._execute_step(step), 'finish')
-            if error is None:
-                self._completed_steps += 1
-            else:
-                self._record_mission_failure(step, error)
+        return state, failed_visits
 
     def _load_goal_files(self, plan_id: str) -> tuple[Arena, Plan]:
         if not PLAN_ID_PATTERN.fullmatch(plan_id):

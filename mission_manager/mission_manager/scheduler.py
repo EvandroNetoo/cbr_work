@@ -91,6 +91,7 @@ class Scheduler:
                                    slot_sources=(None,) * len(slot_ids))
         self._memo: dict[State, bool] = {}
         self.skipped_mask = 0
+        self.fallback_mask = 0
         self.blocked_transfers: set[tuple[str, str]] = set()
         self.recovering = False
 
@@ -108,8 +109,17 @@ class Scheduler:
             return choice
         if choice.task_index is not None:
             self.skipped_mask |= 1 << choice.task_index
+            self.fallback_mask |= 1 << choice.task_index
         self._memo.clear()
         return replace(choice, next_state=replace(choice.next_state, tops=state.tops))
+
+    def retry_pending(self, state: State) -> State:
+        """Reopen abandoned work without replaying confirmed physical transfers."""
+        pending = self.skipped_mask & ~self.fallback_mask
+        self.skipped_mask = self.fallback_mask
+        self.blocked_transfers.clear()
+        self._memo.clear()
+        return replace(state, visit=0, done=state.done & ~pending)
 
     def abandon(self, state: State, tag: int, source: str | None = None) -> tuple[State, tuple[Step, ...]]:
         """Disable a failed object's remaining work and unavailable stack supports.

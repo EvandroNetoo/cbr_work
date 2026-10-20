@@ -39,7 +39,16 @@ continua. Se a transferência já foi confirmada e o erro ocorreu no recolhiment
 do braço, ela é contabilizada e não é repetida.
 
 Falhar ao chegar ou alinhar em uma visita ignora suas tarefas e dependências, mas
-mantém as visitas seguintes. Ao terminar, uma missão com descartes retorna
+mantém as visitas seguintes. Antes de ir ao `finish`, o executor revisita somente
+as tarefas pendentes, na ordem original da rota. `mission_recovery_rounds: 1`
+configura uma rodada adicional completa (0 desativa a rodada, mas mantém o bloqueio
+do finish). Cada rodada renova as tentativas locais e as buscas; o inventário,
+as coletas, as entregas confirmadas e os apoios das pilhas são preservados.
+Falhas recuperadas deixam de contar como falhas da missão. Depósitos em fallback
+continuam sendo falhas de destino e bloqueiam o finish: exigem um novo plano de
+coleta para transportar o cubo ao destino correto.
+
+Se ainda houver pendências ao esgotar as rodadas, o robô não vai ao `finish` e retorna
 `STEP_FAILED`, com o primeiro passo que falhou e um resumo dos descartes em
 `message`. `completed_steps` conta somente operações concluídas; os logs mostram
 as tentativas e objetos ignorados. O servidor continua disponível.

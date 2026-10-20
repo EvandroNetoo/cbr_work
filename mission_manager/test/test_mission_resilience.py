@@ -48,8 +48,9 @@ def test_pick_retry_and_independent_deliveries(exception, persistent):
         return original(goal)
     manager._pick_client.responder = pick
     run(manager, plan)
-    assert len(attempts) == 2
-    assert navs == ['WS_1', 'SH_1', 'finish']
+    assert len(attempts) == (4 if persistent else 2)
+    assert navs == (['WS_1', 'SH_1', 'WS_1'] if persistent
+                    else ['WS_1', 'SH_1', 'finish'])
     assert {delivery.tag_id for delivery in manager._delivery_outcomes} == ({2} if persistent else {1, 2})
     assert bool(manager._mission_failures) is persistent
     assert manager._world_state.snapshot() == (True, EMPTY, {'left': EMPTY, 'right': EMPTY})
@@ -67,8 +68,9 @@ def test_failed_shelf_delivery_retains_cube_and_delivers_other_cube():
         return original(goal)
     manager._place_shelf_client.responder = place
     run(manager, plan)
-    assert len(attempts) == 2
-    assert navs[-1] == 'finish'
+    assert len(attempts) == 4
+    assert navs == ['WS_1', 'SH_1', 'SH_1']
+    assert 'finish' not in navs
     assert [d.tag_id for d in manager._delivery_outcomes] == [2]
     known, held, slots = manager._world_state.snapshot()
     assert known and [held, *slots.values()].count(1) == 1
@@ -267,8 +269,9 @@ def test_failed_visit_keeps_remaining_route(failed_action):
     else:
         manager._observe_visit = fail
     run(manager, plan)
-    assert len(calls) == 2
-    assert navs[-2:] == ['SH_1', 'finish']
+    assert len(calls) == 4
+    assert 'SH_1' in navs
+    assert 'finish' not in navs
     assert not manager._delivery_outcomes
     assert manager._mission_failures
 
@@ -393,7 +396,7 @@ def test_recovery_of_duplicate_tag_keeps_other_source_copy():
     assert [d.tag_id for d in manager._delivery_outcomes] == [3]
 
 
-def test_partial_mission_returns_failure_summary_after_finishing_route():
+def test_partial_mission_returns_failure_summary_without_going_to_finish():
     plan = transport()
     manager, navs, _, _ = simulated_manager(plan)
     arena = manager._arena
@@ -405,7 +408,8 @@ def test_partial_mission_returns_failure_summary_after_finishing_route():
     from interfaces.action import ExecuteMission
     assert result.code == ExecuteMission.Result.STEP_FAILED
     assert result.failed_step_id == 'p1'
-    assert navs[-1] == 'finish'
+    assert navs == ['WS_1', 'SH_1', 'WS_1']
+    assert 'finish' not in navs
     assert 'tarefas independentes foram executadas' in result.message
     assert result.completed_steps == manager._completed_steps
 
@@ -516,3 +520,118 @@ def test_new_mission_clears_previous_execution_even_after_cancellation(previous_
     assert result.code == ExecuteMission.Result.SUCCESS
     assert result.completed_steps == plan.total_steps
     assert navs == ['WS_1', 'finish']
+
+
+@pytest.mark.parametrize('failed_action', ['pick', 'place', 'navigate', 'observe'])
+def test_pending_work_recovers_before_finish_without_repeating_deliveries(failed_action):
+    plan = transport()
+    manager, navs, _, _ = simulated_manager(plan)
+    attempts = []
+    if failed_action in {'pick', 'place'}:
+        client = manager._pick_client if failed_action == 'pick' else manager._place_shelf_client
+        original = client.responder
+        def operation(goal):
+            tag = goal.tag_id if failed_action == 'pick' else manager._world_state.snapshot()[1]
+            if tag == 1:
+                attempts.append(tag)
+                if len(attempts) <= 2:
+                    return failed(PickObject if failed_action == 'pick' else PlaceOnShelf,
+                                  ManipulationResult.LOCATION_SOURCE if failed_action == 'pick'
+                                  else ManipulationResult.LOCATION_GRIPPER)
+            return original(goal)
+        client.responder = operation
+    else:
+        original = manager._navigate if failed_action == 'navigate' else manager._observe_visit
+        def operation(*args, **kwargs):
+            at_source = (args and args[0] == 'WS_1') if failed_action == 'navigate' else (
+                manager._current_location == 'WS_1')
+            if at_source:
+                attempts.append(True)
+                if len(attempts) <= 2:
+                    raise RuntimeError('temporary visit failure')
+            return original(*args, **kwargs)
+        if failed_action == 'navigate':
+            manager._navigate = operation
+        else:
+            manager._observe_visit = operation
+    from interfaces.action import ExecuteMission
+    handle = SimpleNamespace(publish_feedback=lambda _: None, abort=lambda: None, succeed=lambda: None)
+    result = manager._execute_validated_mission(handle, manager._arena, plan)
+    assert result.code == ExecuteMission.Result.SUCCESS
+    assert len(attempts) == 3
+    assert navs[-1] == 'finish'
+    assert navs.count('finish') == 1
+    assert sorted(delivery.tag_id for delivery in manager._delivery_outcomes) == [1, 2]
+    assert not manager._mission_failures
+    assert manager._world_state.snapshot() == (True, EMPTY, {'left': EMPTY, 'right': EMPTY})
+    assert sorted(goal.tag_id for goal in manager._pick_client.goals).count(2) == 1
+    if failed_action == 'place':
+        assert navs == ['WS_1', 'SH_1', 'SH_1', 'finish']
+        assert sorted(goal.tag_id for goal in manager._pick_client.goals) == [1, 2]
+
+
+@pytest.mark.parametrize('rounds', [0, 2])
+def test_recovery_round_limit_blocks_finish_with_pending_work(rounds):
+    plan = transport()
+    manager, navs, _, _ = simulated_manager(plan)
+    manager._mission_recovery_rounds = rounds
+    original = manager._pick_client.responder
+    manager._pick_client.responder = lambda goal: (
+        failed(PickObject, ManipulationResult.LOCATION_SOURCE) if goal.tag_id == 1 else original(goal))
+    run(manager, plan)
+    assert sum(goal.tag_id == 1 for goal in manager._pick_client.goals) == 2 * (rounds + 1)
+    assert [delivery.tag_id for delivery in manager._delivery_outcomes] == [2]
+    assert 'finish' not in navs
+    assert manager._mission_failures
+
+
+def test_canceling_recovery_prevents_finish_and_new_pick():
+    plan = transport()
+    manager, navs, _, _ = simulated_manager(plan)
+    original_pick = manager._pick_client.responder
+    manager._pick_client.responder = lambda goal: (
+        failed(PickObject, ManipulationResult.LOCATION_SOURCE) if goal.tag_id == 1
+        else original_pick(goal))
+    original_nav = manager._navigate
+    def navigate(target):
+        if target == 'WS_1' and 'SH_1' in navs:
+            raise MissionCanceled('cancel recovery')
+        return original_nav(target)
+    manager._navigate = navigate
+    with pytest.raises(MissionCanceled):
+        run(manager, plan)
+    assert sum(goal.tag_id == 1 for goal in manager._pick_client.goals) == 2
+    assert 'finish' not in navs
+
+
+def test_failed_transit_visit_is_revisited_even_without_tasks():
+    plan = Plan('transit', (Visit('waypoint', 'WS_1', ()),), finish=True)
+    manager, navs, _, _ = simulated_manager(plan)
+    original = manager._navigate
+    attempts = []
+    def navigate(target):
+        if target == 'WS_1':
+            attempts.append(target)
+            if len(attempts) <= 2:
+                raise RuntimeError('waypoint unavailable')
+        return original(target)
+    manager._navigate = navigate
+    run(manager, plan)
+    assert len(attempts) == 3
+    assert navs == ['WS_1', 'finish']
+    assert not manager._mission_failures
+
+
+def test_failed_dynamic_pp_visit_is_retried_before_finish():
+    plan = Plan('pp', (Visit('organize', 'PP', (), pp_final_state=((1, None),)),), finish=True)
+    manager, navs, _, _ = simulated_manager(plan)
+    attempts = []
+    def organize(*_args):
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise StepFailed('temporary PP perception failure')
+    manager._run_precision_organization = organize
+    run(manager, plan)
+    assert len(attempts) == 2
+    assert navs == ['PP', 'PP', 'finish']
+    assert not manager._mission_failures
