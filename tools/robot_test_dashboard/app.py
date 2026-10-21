@@ -8,7 +8,7 @@ import streamlit as st
 
 from analytics import groups, summarize
 from domain import (INCIDENTS, TZ, add_incident, canonical, import_scenario,
-                    new_record, restart, score, upgrade_rules)
+                    new_record, restart, score, upgrade_rules, enable_perfect_selection, perfect_run)
 from storage import Store
 
 
@@ -234,6 +234,7 @@ def render_editor(store):
     st.header(f"Ficha · {payload['scenario']['mission']} / seed {payload['seed']}")
     st.caption('Rascunho com salvamento automático a cada alteração. Não participa das estatísticas até ser revisado e finalizado.')
     prefix = f"{payload['id']}:{st.session_state['editor_epoch']}:{len(payload['attempts'])}"
+    enable_perfect_selection(payload)
     if not payload['rules'].get('automatic_percentages', False):
         st.info('Ficha antiga: seu cálculo original foi preservado. Atualize para calcular navegação e fita automaticamente, mantendo a revisão anterior no histórico.')
         if st.button('Atualizar ficha para cálculo automático'):
@@ -268,10 +269,26 @@ def render_editor(store):
     task_editor(store, payload, attempt, prefix)
     incident_editor(store, payload, attempt, prefix)
     all_tasks = all(attempt['arrivals'].values()) and all(o[k] for o in attempt['objects'] for k in ('identified', 'captured', 'delivered'))
-    if fatal or not all_tasks:
-        attempt['completed'] = False
-        st.session_state[prefix + ':completed'] = False
-    attempt['completed'] = st.checkbox('Missão concluída (todas as tarefas)', value=attempt['completed'], disabled=fatal or not all_tasks, key=prefix + ':completed')
+    attempt['completed'] = all_tasks and not fatal
+    perfect_key = prefix + ':perfect'
+    st.session_state[perfect_key] = perfect_run(payload)
+
+    def select_perfect():
+        attempt['perfect_override'] = st.session_state[perfect_key]
+
+    st.checkbox('Perfect Run', key=perfect_key, on_change=select_perfect)
+    if attempt.get('perfect_override') is not None:
+        st.caption('Perfect Run definido manualmente.')
+        if st.button('Voltar ao automático', key=prefix + ':perfect_auto'):
+            attempt.pop('perfect_override', None)
+            persist(store, payload)
+            st.rerun()
+    else:
+        st.caption('Automático: todas as tarefas dentro do tempo e nenhum incidente. Você pode marcar ou desmarcar manualmente.')
+    perfect = perfect_run(payload)
+    bonus = len(attempt['objects']) * payload['rules']['perfect_per_object'] if perfect else 0
+    st.caption(f'Bônus Perfect Run: +{bonus:g} pontos.')
+    st.caption('O tempo restante só acrescenta pontos com Perfect Run marcado.')
     payload['notes'] = st.text_area('Observações do teste', value=payload['notes'], key=prefix + ':notes')
     try:
         calculated = score(payload)
@@ -299,6 +316,7 @@ def render_editor(store):
         confirm = st.checkbox('Confirmo o reinício da rodada', key=prefix + ':confirm_restart')
         if st.button('Reiniciar rodada', disabled=not confirm, key=prefix + ':restart'):
             try:
+                attempt['completed'] = False
                 restart(payload)
                 persist(store, payload)
                 st.session_state['editor_epoch'] += 1
@@ -396,10 +414,9 @@ def statistics_page(store):
     for col, title, value in [(a, 'Média', data['mean']), (b, 'Mediana', data['median']),
                                (c, 'Melhor resultado', data['best']), (d, 'Desvio padrão', data['stddev'])]:
         col.metric(title, f'{value:.1f}')
-    a, b, c = st.columns(3)
-    a.metric('Taxa de conclusão', f"{data['completion_rate']:.0%}")
-    b.metric('Rodadas perfeitas', f"{data['perfect_rate']:.0%}")
-    c.metric('Tempo médio das conclusões', '—' if data['mean_completed_s'] is None else f"{data['mean_completed_s']/60:.2f} min")
+    a, b = st.columns(2)
+    a.metric('Testes com Perfect Run', f"{data['perfect_rate']:.0%}")
+    b.metric('Tempo médio com todas as tarefas realizadas', '—' if data['mean_completed_s'] is None else f"{data['mean_completed_s']/60:.2f} min")
     timeline = pd.DataFrame(data['timeline'])
     timeline['data'] = pd.to_datetime(timeline['data'], utc=True).dt.tz_convert('America/Sao_Paulo')
     st.subheader('Evolução da pontuação')

@@ -48,8 +48,14 @@ e PyArrow foram fixadas para funcionar com o NumPy 1.x do workspace ROS.
 5. Marque **Usou seguidor de linha** somente se o robô seguiu linha. Sem seguir
    linha, o painel acrescenta 20% automaticamente. Cada incidente de fita aplica
    automaticamente a faixa correspondente, sem pedir pontos ou justificativa.
-   Se todas as tarefas tiverem sido realizadas, marque **Missão concluída**.
-   A conclusão além do limite não recebe bônus de tempo ou perfeição.
+   **Perfect Run** é marcado automaticamente quando todas as tarefas estão
+   realizadas dentro do tempo e não há nenhum incidente na tentativa avaliada.
+   Qualquer incidente retira automaticamente esse bônus. Você também pode marcar
+   ou desmarcar **Perfect Run** manualmente; essa escolha fica salva até clicar
+   em **Voltar ao automático**. A escolha manual altera somente o bônus de
+   Perfect Run e habilita o bônus de tempo restante. Sem Perfect Run, o tempo
+   continua registrado, mas não acrescenta pontos. Os descontos dos incidentes
+   continuam sendo aplicados.
 6. Confira a memória de cálculo, marque a revisão e finalize. Qualquer edição
    posterior ao aceite da revisão exige revisar novamente. É possível finalizar
    com decisões pendentes; esses registros continuam provisórios e fora das
@@ -63,7 +69,7 @@ o rascunho na tela **Histórico**.
 
 ## Pontuação e interpretações
 
-A versão atual é `CBR-2026-local-v2`, baseada no PDF
+A versão atual é `CBR-2026-local-v4`, baseada no PDF
 `CBR_RoboCup_Work_Rulebook_2026.pdf`, seções 5.5 e 6. O painel é um registro de
 treinos com as interpretações abaixo preservadas em cada teste:
 
@@ -73,8 +79,8 @@ treinos com as interpretações abaixo preservadas em cada teste:
 | Identificação por objeto | 50 |
 | Captura por objeto | 100 |
 | Entrega correta por objeto | 100 |
-| Perfeição, se todas as tarefas forem concluídas dentro do limite | 30 por objeto |
-| Tempo restante, se concluída dentro do limite | 1 por segundo |
+| Perfect Run: tarefas dentro do limite e nenhum incidente, ou seleção manual | 30 por objeto |
+| Tempo restante, somente com Perfect Run ativo | 1 por segundo |
 | Queda / intervenção humana | −100 por ocorrência |
 | Manipulação incorreta / colisão leve | −50 por ocorrência |
 | Manipulação deduzida | −50 por processo afetado |
@@ -110,6 +116,11 @@ valores não entram na pontuação da segunda tentativa. A regra de colisão gra
 aplica 50% ao subtotal após navegação e fita e sem bônus de conclusão. Cada ficha permite
 consultar todas essas regras e interpretações; ela não depende de mudanças futuras
 nos arquivos originais nem nas constantes do programa.
+
+Na versão v3, incidentes impedem o Perfect Run automático e a marcação manual
+tem prioridade até voltar ao automático. A escolha é preservada nas revisões e
+exportações. Fichas antigas adotam essa regra ao serem abertas para edição;
+resultados e revisões anteriores mantêm o cálculo original.
 
 O exemplo `tests/fixtures/FINAL_seed8_equipe.yaml` tem dez objetos e oito áreas:
 **3.300 pontos de tarefas + 300 de perfeição**, antes do bônus de tempo e ajustes.

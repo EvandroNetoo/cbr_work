@@ -79,3 +79,61 @@ def test_upgrade_preserves_old_revision_and_removes_automatic_manual_adjustments
     restored = Store(tmp_path / 'restored.sqlite3')
     assert restored.restore(store.export_json()) == 2
     assert restored.history(record['id']) == store.history(record['id'])
+
+
+def test_manual_perfect_persisted_exported_and_restored(tmp_path, scenario):
+    p = new_record(scenario, '8')
+    attempt = p['attempts'][0]
+    attempt.update(completed=True, elapsed_s=1800)
+    add_incident(attempt, 'queda')
+    assert score(p)['perfect_bonus'] == 0
+    attempt['perfect_override'] = True
+    store = Store(tmp_path / 'manual.sqlite3')
+    saved = store.save(p, status='finalized', reviewed=True)
+    assert saved['score']['perfect_bonus'] == 300
+    assert saved['score']['penalties'] == 100
+    restored = Store(tmp_path / 'restore-manual.sqlite3')
+    restored.restore(store.export_json())
+    assert restored.latest(p['id']) == saved
+    assert restored.latest(p['id'])['payload']['attempts'][0]['perfect_override'] is True
+
+
+def test_manual_false_overrides_success_and_invalid_value_rejected(scenario):
+    p = new_record(scenario, '8')
+    attempt = p['attempts'][0]
+    attempt.update(completed=True, elapsed_s=1200, perfect_override=False)
+    result = score(p)
+    assert not result['perfect']
+    assert result['perfect_bonus'] == 0
+    assert result['time_bonus'] == 0
+    attempt['perfect_override'] = 1
+    with pytest.raises(ValueError, match='seleção manual'):
+        score(p)
+
+
+@pytest.mark.parametrize('selected', [False, True])
+def test_time_changes_points_only_with_perfect_run(scenario, selected):
+    p = new_record(scenario, '8')
+    a = p['attempts'][0]
+    a.update(completed=True, followed_line=True, elapsed_s=1200, perfect_override=selected)
+    first = score(p)
+    a['elapsed_s'] = 1300
+    second = score(p)
+    assert first['time_bonus'] == (600 if selected else 0)
+    assert second['time_bonus'] == (500 if selected else 0)
+    assert first['total'] - second['total'] == (100 if selected else 0)
+    a['elapsed_s'] = 1801
+    assert score(p)['time_bonus'] == 0
+
+
+def test_incident_disables_perfect_and_time_bonus(scenario):
+    p = new_record(scenario, '8')
+    a = p['attempts'][0]
+    a.update(completed=True, elapsed_s=1200)
+    add_incident(a, 'queda')
+    result = score(p)
+    assert result['perfect_bonus'] == result['time_bonus'] == 0
+    a['perfect_override'] = True
+    result = score(p)
+    assert result['perfect_bonus'] == 300
+    assert result['time_bonus'] == 600

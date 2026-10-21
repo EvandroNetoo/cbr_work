@@ -51,6 +51,14 @@ RULES['interpretations'] = [
     'Fita: uma redução de 5%, 10% ou 25% sobre o subtotal com navegação, conforme 1, 2 ou 3+ colisões; faixas não cumulativas.',
     'Colisão grave: redução de 50% após navegação e fita. Reinício descarta os pontos da tentativa anterior.',
 ]
+PERFECT_POLICY = 'no_incidents_manual_override'
+RULES.update(version='CBR-2026-local-v4', perfect_policy=PERFECT_POLICY, time_requires_perfect=True)
+PERFECT_INTERPRETATIONS = [
+    'Perfect Run automático: todas as tarefas realizadas no tempo e nenhum incidente na tentativa avaliada.',
+    'A seleção manual de Perfect Run substitui o automático; voltar ao automático remove a escolha manual.',
+    'Bônus de tempo: somente quando Perfect Run estiver ativo; 1 ponto por segundo restante, sem valores negativos.',
+]
+RULES['interpretations'] = [line for line in RULES['interpretations'] if not line.startswith('Bônus de perfeição:')] + PERFECT_INTERPRETATIONS
 MISSIONS = {'BMT', 'BTT1', 'BTT2', 'AMT', 'ATT1', 'ATT2', 'FINAL'}
 
 
@@ -154,6 +162,29 @@ def upgrade_rules(record):
         attempt.update(automatic_percentages=True, followed_line=False)
 
 
+def enable_perfect_selection(record):
+    """Atualiza apenas fichas em edição; snapshots antigos continuam calculáveis."""
+    if record['rules'].get('perfect_policy') == PERFECT_POLICY and record['rules'].get('time_requires_perfect'):
+        return
+    record['rules']['perfect_policy'] = PERFECT_POLICY
+    record['rules']['time_requires_perfect'] = True
+    record['rules']['version'] += '-editor-v4'
+    record['rules']['interpretations'] = [line for line in record['rules']['interpretations']
+                                         if not line.startswith('Bônus de perfeição:') and line not in PERFECT_INTERPRETATIONS] + PERFECT_INTERPRETATIONS
+
+
+def perfect_run(record):
+    active = record['attempts'][-1]
+    all_tasks = all(active['arrivals'].values()) and all(o[k] for o in active['objects'] for k in ('identified', 'captured', 'delivered'))
+    automatic = active['completed'] and all_tasks and sum(a['elapsed_s'] for a in record['attempts']) <= record['limit_s']
+    if record['rules'].get('perfect_policy') == PERFECT_POLICY:
+        automatic = automatic and not active['incidents']
+        override = active.get('perfect_override')
+        if override is not None:
+            return override
+    return automatic
+
+
 def add_incident(attempt, kind, *, area='', obj=None, cause='', process='', decision=''):
     if kind not in INCIDENTS:
         raise ValueError('Incidente desconhecido.')
@@ -197,6 +228,8 @@ def validate(record):
     if not 1 <= len(attempts) <= 2:
         raise ValueError('A rodada deve ter uma ou duas tentativas.')
     for index, attempt in enumerate(attempts):
+        if attempt.get('perfect_override') is not None and type(attempt['perfect_override']) is not bool:
+            raise ValueError('A seleção manual de Perfect Run deve ser sim, não ou automático.')
         if automatic and (attempt.get('automatic_percentages') is not True or type(attempt.get('followed_line')) is not bool):
             raise ValueError('Informe se usou seguidor de linha.')
         number(attempt['elapsed_s'], 'Tempo consumido')
@@ -268,9 +301,10 @@ def score(record):
                                'object': obj['id'], 'points': rules[key]})
     missing = sum(l['points'] for l in losses)
     completed = active['completed']
-    perfect = completed and elapsed <= record['limit_s'] and not missing
+    perfect = perfect_run(record) if rules.get('perfect_policy') == PERFECT_POLICY else completed and elapsed <= record['limit_s'] and not missing
     perfect_bonus = len(active['objects']) * rules['perfect_per_object'] if perfect else 0
-    time_bonus = max(0, record['limit_s'] - elapsed) * rules['time_per_second'] if completed and elapsed <= record['limit_s'] else 0
+    time_eligible = perfect if rules.get('time_requires_perfect') else completed and elapsed <= record['limit_s']
+    time_bonus = max(0, record['limit_s'] - elapsed) * rules['time_per_second'] if time_eligible else 0
     seen_processes = set()
     penalty = 0
     for incident in active['incidents']:
