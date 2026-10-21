@@ -28,6 +28,12 @@ baixo nível permanece operacional na Banana sem depender do laço de rede.
 - `manipulation`: actions semânticas de coleta, carga e depósito.
 - `mission_manager`: execução sequencial de missões sobre Nav2 e manipulação.
 
+## Registro manual de testes
+
+O [painel local de testes](tools/robot_test_dashboard/README.md) registra missões
+por seed, calcula a pontuação CBR e mantém histórico e estatísticas, sem iniciar ROS.
+Execute `bash src/cbr_work/tools/robot_test_dashboard/run.sh` na raiz do workspace.
+
 ## Build
 
 Na raiz do workspace (`~/ros2_ws`):

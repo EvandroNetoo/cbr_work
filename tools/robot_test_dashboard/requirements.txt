@@ -1,0 +1,6 @@
+streamlit==1.66.0
+pandas==2.3.3
+# Compatível com NumPy 1.x usado pelos pacotes ROS deste workspace.
+numpy>=1.26,<2
+pyarrow==22.0.0
+PyYAML>=6.0,<7
