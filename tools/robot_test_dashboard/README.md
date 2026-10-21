@@ -45,7 +45,10 @@ e PyArrow foram fixadas para funcionar com o NumPy 1.x do workspace ROS.
    use um identificador por processo, como `captura_objeto4_WS2_1`.
    Repetir esse identificador na mesma tentativa cobra apenas uma dedução;
    um novo processo usa outro identificador.
-5. Se todas as tarefas tiverem sido realizadas, marque **Missão concluída**.
+5. Marque **Usou seguidor de linha** somente se o robô seguiu linha. Sem seguir
+   linha, o painel acrescenta 20% automaticamente. Cada incidente de fita aplica
+   automaticamente a faixa correspondente, sem pedir pontos ou justificativa.
+   Se todas as tarefas tiverem sido realizadas, marque **Missão concluída**.
    A conclusão além do limite não recebe bônus de tempo ou perfeição.
 6. Confira a memória de cálculo, marque a revisão e finalize. Qualquer edição
    posterior ao aceite da revisão exige revisar novamente. É possível finalizar
@@ -60,7 +63,7 @@ o rascunho na tela **Histórico**.
 
 ## Pontuação e interpretações
 
-A versão inicial é `CBR-2026-local-v1`, baseada no PDF
+A versão atual é `CBR-2026-local-v2`, baseada no PDF
 `CBR_RoboCup_Work_Rulebook_2026.pdf`, seções 5.5 e 6. O painel é um registro de
 treinos com as interpretações abaixo preservadas em cada teste:
 
@@ -75,9 +78,12 @@ treinos com as interpretações abaixo preservadas em cada teste:
 | Queda / intervenção humana | −100 por ocorrência |
 | Manipulação incorreta / colisão leve | −50 por ocorrência |
 | Manipulação deduzida | −50 por processo afetado |
+| Navegação sem seguidor de linha | +20% |
+| Fita: uma / duas / três ou mais colisões | −5% / −10% / −25% |
 
 O cálculo é **base − tarefas não realizadas − penalidades fixas + perfeição +
-tempo + ajustes**, seguido da redução de colisão grave quando aplicável.
+tempo + ajustes excepcionais**, depois **+20% se não seguiu linha**, depois
+**−5%, −10% ou −25% por fita** e, por fim, a redução de colisão grave quando aplicável.
 Incidentes são descontados separadamente e não apagam resultados já alcançados.
 Não há piso zero nem arredondamento implícito. Desclassificação zera o resultado.
 
@@ -88,22 +94,32 @@ penalidades são descartados e seu tempo continua consumido. Há no máximo um
 reinício. O tempo da primeira tentativa pode ser corrigido no bloco de consulta;
 os valores anteriores continuam preservados nas revisões do histórico.
 
-Colisões com fita criam decisões pendentes. O PDF cita 5%, 10% e 25%, mas não
-define sem ambiguidade todos os detalhes da composição. Informe o desconto
-convertido em pontos e justifique a base e a interpretação usadas. Por exemplo,
-5% de 3.300 pontos corresponde a um ajuste de **−165**. Bônus sem marcações,
-simplificações, exceções de penalidade e outras decisões também usam ajustes
-assinados, com justificativa e confirmação explícita. Um ajuste de 0 pode registrar
-que uma ocorrência não recebeu desconto conforme a arbitragem.
+O uso de seguidor de linha é uma opção por tentativa, desmarcada por padrão.
+O bônus de 20% usa o subtotal com tarefas conquistadas, penalidades fixas,
+perfeição, tempo e eventuais exceções. O desconto de fita usa esse subtotal com
+o bônus de navegação. As faixas de fita não se somam: duas colisões descontam
+10%, três ou mais descontam 25%. Assim, 3.300 pontos sem seguir linha tornam-se
+3.960; uma colisão com fita desconta 198 e resulta em **3.762 pontos**.
+
+Não é necessário criar ajuste de arbitragem para esses casos. O bloco recolhido
+**Simplificações e exceções (opcional)** serve apenas para decisões sem valor
+fixado no regulamento, como uma simplificação combinada com os árbitros.
 
 Decisões da primeira tentativa podem ser resolvidas após o reinício, mas seus
 valores não entram na pontuação da segunda tentativa. A regra de colisão grave
-aplica 50% ao subtotal após ajustes e sem bônus de conclusão. Cada ficha permite
+aplica 50% ao subtotal após navegação e fita e sem bônus de conclusão. Cada ficha permite
 consultar todas essas regras e interpretações; ela não depende de mudanças futuras
 nos arquivos originais nem nas constantes do programa.
 
 O exemplo `tests/fixtures/FINAL_seed8_equipe.yaml` tem dez objetos e oito áreas:
 **3.300 pontos de tarefas + 300 de perfeição**, antes do bônus de tempo e ajustes.
+
+As fichas `v1` conservam o cálculo original, inclusive os ajustes manuais já
+registrados. Ao abrir um rascunho antigo ou criar uma correção, use **Atualizar
+ficha para cálculo automático** para gerar uma revisão com as regras novas.
+Essa atualização substitui os ajustes manuais de fita e navegação pelo cálculo
+automático e começa com a opção de seguidor de linha desmarcada; confira-a antes
+de finalizar. As revisões anteriores continuam no histórico e nas exportações.
 
 ## Histórico, comparações e recuperação
 

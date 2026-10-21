@@ -99,7 +99,7 @@ def test_comparison_separates_seed_content_time_rules_and_pending(tmp_path, scen
     main = next(g for g in sets.values() if len(g) == 2)
     summary = summarize(main)
     assert summary['count'] == 2
-    assert summary['mean'] == summary['median'] == summary['best'] == 3300
+    assert summary['mean'] == summary['median'] == summary['best'] == 3960
     assert summary['stddev'] == 0
     assert summary['completion_rate'] == summary['perfect_rate'] == 0
     assert summary['mean_completed_s'] is None

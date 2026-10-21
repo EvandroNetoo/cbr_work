@@ -8,7 +8,7 @@ import streamlit as st
 
 from analytics import groups, summarize
 from domain import (INCIDENTS, TZ, add_incident, canonical, import_scenario,
-                    new_record, restart, score)
+                    new_record, restart, score, upgrade_rules)
 from storage import Store
 
 
@@ -59,6 +59,7 @@ def score_view(calculated):
         f"Base {calculated['base']:g} − tarefas {calculated['missing']:g} "
         f"− penalidades {calculated['penalties']:g} + perfeição {calculated['perfect_bonus']:g} "
         f"+ tempo {calculated['time_bonus']:g} + ajustes ({calculated['adjustments']:g}) "
+        + (f"+ navegação {calculated['navigation_bonus']:g} − fita {calculated['tape_loss']:g} " if 'navigation_bonus' in calculated else '') +
         f"− colisão grave {calculated['severe_loss']:g} = {calculated['total']:g}"
     )
     if calculated['disqualified']:
@@ -99,19 +100,24 @@ def import_form(store):
 
 
 def incident_editor(store, payload, attempt, prefix):
-    st.subheader('Incidentes e arbitragem')
+    st.subheader('Incidentes')
+    automatic = payload['rules'].get('automatic_percentages', False)
     areas = payload['scenario']['areas']
     objects = [o['id'] for o in attempt['objects']]
     with st.expander('Adicionar incidente'):
+        kind = st.selectbox('Tipo de incidente', list(INCIDENTS), format_func=INCIDENTS.get, key=prefix + ':incident_kind')
         with st.form(prefix + ':incident', clear_on_submit=True):
-            kind = st.selectbox('Tipo de incidente', list(INCIDENTS), format_func=INCIDENTS.get)
             a, b = st.columns(2)
             area = a.selectbox('Área do incidente', [''] + areas, format_func=lambda x: x or 'Não informada')
             obj = b.selectbox('Objeto do incidente', [None] + objects, format_func=lambda x: 'Não informado' if x is None else str(x))
             cause = st.text_input('Causa / observação')
-            process = st.text_input('Identificador do processo (obrigatório para manipulação deduzida)',
+            process = ''
+            if not automatic or kind == 'manipulacao_deduzida':
+                process = st.text_input('Identificador do processo (obrigatório para manipulação deduzida)',
                                     help='Ex.: captura_objeto4_WS2_tentativa1. Repetições no mesmo processo cobram uma única dedução; uma nova captura ou depósito usa outro identificador.')
-            decision = st.selectbox('Decisão para colisão grave', ['encerrar', 'reiniciar'],
+            decision = 'encerrar'
+            if not automatic or kind == 'colisao_grave':
+                decision = st.selectbox('Decisão para colisão grave', ['encerrar', 'reiniciar'],
                                     format_func=lambda x: 'Encerrar com redução de 50%' if x == 'encerrar' else 'Reiniciar a rodada')
             if st.form_submit_button('Adicionar incidente'):
                 try:
@@ -145,14 +151,24 @@ def incident_editor(store, payload, attempt, prefix):
             attempt['adjustments'] = [a for a in attempt['adjustments'] if a['id'] != item['id']]
             persist(store, payload)
             st.rerun()
-    st.caption('Percentuais e bônus sem marcações: registre o valor convertido em pontos e explique a base utilizada. Valores negativos deduzem; positivos acrescentam.')
-    with st.form(prefix + ':adjustment', clear_on_submit=True):
-        category = st.selectbox('Novo ajuste de arbitragem', ['Bônus de navegação sem marcações', 'Simplificação', 'Outra decisão'])
-        if st.form_submit_button('Registrar decisão pendente'):
-            attempt['adjustments'].append({'id': str(uuid4()), 'label': category, 'resolved': False, 'points': 0, 'reason': ''})
-            persist(store, payload)
-            st.rerun()
-    adjustment_editor(store, payload, attempt, prefix)
+    if automatic:
+        count = sum(i['type'] == 'fita' for i in attempt['incidents'])
+        rate = payload['rules']['tape_rates'][min(count, 3) - 1] if count else 0
+        st.caption(f'Colisões com fita: {count}. Desconto automático: {rate:.0%}. As faixas não são somadas.')
+    with st.expander('Simplificações e exceções (opcional)'):
+        st.caption('Use somente para uma decisão específica sem valor fixado no regulamento. Navegação, fita e demais penalidades são calculadas automaticamente nas fichas novas.')
+        with st.form(prefix + ':adjustment', clear_on_submit=True):
+            category = st.selectbox('Exceção aplicada', ['Simplificação', 'Outra decisão excepcional'])
+            points = st.number_input('Ajuste excepcional em pontos (+ / −)', value=0.0)
+            reason = st.text_input('Motivo da exceção')
+            if st.form_submit_button('Aplicar exceção'):
+                if not reason.strip():
+                    st.error('Descreva a decisão excepcional.')
+                else:
+                    attempt['adjustments'].append({'id': str(uuid4()), 'label': category, 'resolved': True, 'points': points, 'reason': reason})
+                    persist(store, payload)
+                    st.rerun()
+        adjustment_editor(store, payload, attempt, prefix)
 
 
 def adjustment_editor(store, payload, attempt, prefix):
@@ -218,6 +234,13 @@ def render_editor(store):
     st.header(f"Ficha · {payload['scenario']['mission']} / seed {payload['seed']}")
     st.caption('Rascunho com salvamento automático a cada alteração. Não participa das estatísticas até ser revisado e finalizado.')
     prefix = f"{payload['id']}:{st.session_state['editor_epoch']}:{len(payload['attempts'])}"
+    if not payload['rules'].get('automatic_percentages', False):
+        st.info('Ficha antiga: seu cálculo original foi preservado. Atualize para calcular navegação e fita automaticamente, mantendo a revisão anterior no histórico.')
+        if st.button('Atualizar ficha para cálculo automático'):
+            upgrade_rules(payload)
+            st.session_state['editor_epoch'] += 1
+            persist(store, payload)
+            st.rerun()
     date = datetime.fromisoformat(payload['tested_at']).astimezone(TZ)
     a, b, c = st.columns(3)
     day = a.date_input('Data do teste', value=date.date(), key=prefix + ':day')
@@ -227,6 +250,9 @@ def render_editor(store):
     if payload['scenario']['mission'] == 'FINAL' and payload['limit_s'] != 1200:
         st.info('Treino com limite diferente do PDF CBR 2026: a final no regulamento tem 20 minutos. Este teste usa o limite indicado acima e será comparado somente com testes do mesmo limite.')
     attempt = payload['attempts'][-1]
+    if payload['rules'].get('automatic_percentages', False):
+        attempt['followed_line'] = st.checkbox('Usou seguidor de linha', value=attempt['followed_line'], key=prefix + ':followed_line')
+        st.caption('Sem bônus de navegação.' if attempt['followed_line'] else 'Navegação sem seguir linha: bônus automático de 20%.')
     attempt['elapsed_s'] = st.number_input(f"Tempo consumido nesta tentativa (segundos) · tentativa {len(payload['attempts'])}", min_value=0.0, value=float(attempt['elapsed_s']), key=prefix + ':elapsed')
     fatal = any(i['type'] in ('colisao_grave', 'desclassificacao') for i in attempt['incidents'])
     if len(payload['attempts']) == 2:

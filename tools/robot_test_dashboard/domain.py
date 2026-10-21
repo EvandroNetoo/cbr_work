@@ -40,6 +40,17 @@ INCIDENTS = {
     'colisao_grave': 'Colisão grave', 'fita': 'Colisão com fita',
     'intervencao_humana': 'Intervenção humana', 'desclassificacao': 'Desclassificação',
 }
+LEGACY_RULES = deepcopy(RULES)
+RULES = deepcopy(LEGACY_RULES)
+RULES.update(version='CBR-2026-local-v2', automatic_percentages=True,
+             navigation_rate=0.20, tape_rates=[0.05, 0.10, 0.25])
+RULES['interpretations'] = [
+    line for line in RULES['interpretations'] if not line.startswith('Percentuais,')
+] + [
+    'Sem seguidor de linha: +20% sobre tarefas conquistadas, bônus, penalidades fixas e ajustes excepcionais.',
+    'Fita: uma redução de 5%, 10% ou 25% sobre o subtotal com navegação, conforme 1, 2 ou 3+ colisões; faixas não cumulativas.',
+    'Colisão grave: redução de 50% após navegação e fita. Reinício descarta os pontos da tentativa anterior.',
+]
 MISSIONS = {'BMT', 'BTT1', 'BTT2', 'AMT', 'ATT1', 'ATT2', 'FINAL'}
 
 
@@ -103,11 +114,12 @@ def import_scenario(text, filename):
     }
 
 
-def new_attempt(scenario):
+def new_attempt(scenario, automatic=True):
     return {'arrivals': {a: True for a in scenario['areas']},
             'objects': [{**o, 'identified': True, 'captured': True, 'delivered': True}
                         for o in scenario['objects']],
-            'elapsed_s': 0, 'completed': False, 'incidents': [], 'adjustments': []}
+            'elapsed_s': 0, 'completed': False, 'incidents': [], 'adjustments': [],
+            **({'automatic_percentages': True, 'followed_line': False} if automatic else {})}
 
 
 def new_record(scenario, seed, plan=None):
@@ -129,7 +141,17 @@ def restart(record):
         raise ValueError('Uma desclassificação não permite reinício.')
     if any(i['type'] == 'colisao_grave' and i.get('decision') != 'reiniciar' for i in first['incidents']):
         raise ValueError('A colisão grave foi registrada com encerramento.')
-    record['attempts'].append(new_attempt(record['scenario']))
+    record['attempts'].append(new_attempt(record['scenario'], record['rules'].get('automatic_percentages', False)))
+
+
+def upgrade_rules(record):
+    """Migração explícita de uma ficha; a revisão anterior permanece no SQLite."""
+    record['rules'] = deepcopy(RULES)
+    for attempt in record['attempts']:
+        tape_ids = {i['id'] for i in attempt['incidents'] if i['type'] == 'fita'}
+        attempt['adjustments'] = [a for a in attempt['adjustments']
+                                  if a['id'] not in tape_ids and a['label'] != 'Bônus de navegação sem marcações']
+        attempt.update(automatic_percentages=True, followed_line=False)
 
 
 def add_incident(attempt, kind, *, area='', obj=None, cause='', process='', decision=''):
@@ -140,7 +162,7 @@ def add_incident(attempt, kind, *, area='', obj=None, cause='', process='', deci
     item = {'id': str(uuid4()), 'type': kind, 'area': area, 'object': obj,
             'cause': cause, 'process': process.strip(), 'decision': decision}
     attempt['incidents'].append(item)
-    if kind == 'fita':
+    if kind == 'fita' and not attempt.get('automatic_percentages', False):
         attempt['adjustments'].append({'id': item['id'], 'label': 'Colisão com fita',
                                        'resolved': False, 'points': 0, 'reason': ''})
     return item
@@ -163,9 +185,20 @@ def validate(record):
     for value in rules['penalties'].values():
         number(value, 'Penalidade')
     attempts = record['attempts']
+    automatic = rules.get('automatic_percentages', False)
+    if automatic:
+        number(rules['navigation_rate'], 'Bônus de navegação')
+        if not isinstance(rules['tape_rates'], list) or len(rules['tape_rates']) != 3:
+            raise ValueError('Faixas de fita inválidas.')
+        for rate in rules['tape_rates']:
+            number(rate, 'Percentual de fita')
+            if rate > 1:
+                raise ValueError('Percentual de fita inválido.')
     if not 1 <= len(attempts) <= 2:
         raise ValueError('A rodada deve ter uma ou duas tentativas.')
     for index, attempt in enumerate(attempts):
+        if automatic and (attempt.get('automatic_percentages') is not True or type(attempt.get('followed_line')) is not bool):
+            raise ValueError('Informe se usou seguidor de linha.')
         number(attempt['elapsed_s'], 'Tempo consumido')
         if type(attempt['completed']) is not bool:
             raise ValueError('Conclusão inválida.')
@@ -209,7 +242,7 @@ def validate(record):
         if len({a['id'] for a in adjustments}) != len(adjustments):
             raise ValueError('Ajustes duplicados.')
         for incident in attempt['incidents']:
-            if incident['type'] == 'fita' and not any(a['id'] == incident['id'] for a in adjustments):
+            if not automatic and incident['type'] == 'fita' and not any(a['id'] == incident['id'] for a in adjustments):
                 raise ValueError('Colisão com fita exige ajuste de arbitragem.')
         for adj in adjustments:
             number(adj['points'], 'Ajuste em pontos', -1e12)
@@ -258,6 +291,18 @@ def score(record):
         if adj['resolved'] and adj['points'] < 0:
             losses.append({'kind': 'ajuste', 'cause': adj['label'], 'area': '', 'object': None, 'points': -adj['points']})
     subtotal = base - missing - penalty + perfect_bonus + time_bonus + adjustment
+    automatic = rules.get('automatic_percentages', False)
+    navigation_bonus = tape_loss = tape_rate = 0
+    tape_count = sum(i['type'] == 'fita' for i in active['incidents'])
+    if automatic:
+        navigation_bonus = subtotal * rules['navigation_rate'] if not active['followed_line'] else 0
+        subtotal += navigation_bonus
+        tape_rate = rules['tape_rates'][min(tape_count, 3) - 1] if tape_count else 0
+        tape_loss = subtotal * tape_rate
+        subtotal -= tape_loss
+        if tape_loss:
+            losses.append({'kind': 'penalidade', 'cause': f'Colisão com fita ({tape_rate:.0%})',
+                           'area': '', 'object': None, 'points': tape_loss})
     severe = any(i['type'] == 'colisao_grave' and i['decision'] == 'encerrar' for i in active['incidents'])
     severe_loss = subtotal * 0.5 if severe else 0
     total = subtotal - severe_loss
@@ -266,11 +311,15 @@ def score(record):
         losses.append({'kind': 'penalidade', 'cause': 'Colisão grave (50%)', 'area': '', 'object': None, 'points': severe_loss})
     if disqualified:
         total = 0
-    return {'base': base, 'missing': missing, 'penalties': penalty,
+    result = {'base': base, 'missing': missing, 'penalties': penalty,
             'perfect_bonus': perfect_bonus, 'time_bonus': time_bonus,
             'adjustments': adjustment, 'severe_loss': severe_loss, 'total': total,
             'elapsed_s': elapsed, 'completed': completed, 'perfect': perfect,
             'pending': pending, 'disqualified': disqualified, 'losses': losses}
+    if automatic:
+        result.update(navigation_bonus=navigation_bonus, tape_loss=tape_loss,
+                      tape_rate=tape_rate, tape_count=tape_count)
+    return result
 
 
 def comparison_key(record):

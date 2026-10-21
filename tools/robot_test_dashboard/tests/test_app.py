@@ -4,6 +4,7 @@ from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
 from storage import Store
+from domain import new_record
 
 
 APP = Path(__file__).resolve().parents[1] / 'app.py'
@@ -135,3 +136,32 @@ def test_incident_requires_new_review(tmp_path, monkeypatch, record):
     assert not app.error
     assert by_label(app.button, 'Finalizar teste').disabled
     assert store.latest(record['id'])['score']['penalties'] == 100
+
+
+def test_automatic_line_and_tape_without_manual_arbitration(tmp_path, monkeypatch, scenario):
+    record = new_record(scenario, '8')
+    app, store = start_app(tmp_path, monkeypatch, record)
+    assert store.latest(record['id'])['score']['total'] == 3960
+    assert not any(e.label == 'Novo ajuste de arbitragem' for e in app.selectbox)
+    assert not any(e.label == 'Decisão para colisão grave' for e in app.selectbox)
+    by_label(app.checkbox, 'Usou seguidor de linha').check().run()
+    assert store.latest(record['id'])['score']['total'] == 3300
+    by_label(app.selectbox, 'Tipo de incidente').set_value('fita').run()
+    by_label(app.button, 'Adicionar incidente').click().run()
+    assert not app.exception
+    assert not app.error
+    latest = store.latest(record['id'])
+    assert latest['score']['total'] == 3135
+    assert not latest['score']['pending']
+    assert not any(e.label == 'Valor em pontos (+ / −)' for e in app.number_input)
+    by_label(app.checkbox, 'Usou seguidor de linha').uncheck().run()
+    assert store.latest(record['id'])['score']['total'] == 3762
+
+
+def test_upgrade_button_keeps_old_revision(tmp_path, monkeypatch, record):
+    app, store = start_app(tmp_path, monkeypatch, record)
+    by_label(app.button, 'Atualizar ficha para cálculo automático').click().run()
+    assert not app.exception
+    assert not app.error
+    assert store.latest(record['id'])['score']['total'] == 3960
+    assert store.history(record['id'])[-1]['score']['total'] == 3300
