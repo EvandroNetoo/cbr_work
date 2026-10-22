@@ -1,0 +1,21 @@
+# Visita todas as áreas do tipo WS cadastradas em arena.yaml, sem tarefas.
+# Mantém o alinhamento de chegada e o recuo de saída padrão das visitas.
+schema_version: 2
+plan_id: visitar_todas_ws
+initial_location: start
+finish: true
+visits:
+  - target: WS_1
+    tasks: []
+  - target: WS_2
+    tasks: []
+  - target: WS_3
+    tasks: []
+  - target: WS_4
+    tasks: []
+  - target: WS_5
+    tasks: []
+  - target: ST
+    tasks: []
+  - target: PP
+    tasks: []

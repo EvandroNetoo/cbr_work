@@ -24,6 +24,20 @@ class Store:
                 saved_at TEXT NOT NULL, status TEXT NOT NULL,
                 reason TEXT NOT NULL, payload TEXT NOT NULL, score TEXT NOT NULL,
                 PRIMARY KEY(record_id, revision))''')
+            db.execute('CREATE TABLE IF NOT EXISTS preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+
+    def generation_settings(self):
+        with closing(self.connect()) as db:
+            row = db.execute("SELECT value FROM preferences WHERE key='generation'").fetchone()
+        return json.loads(row['value']) if row else {}
+
+    def save_generation_setting(self, key, value):
+        with closing(self.connect()) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute("SELECT value FROM preferences WHERE key='generation'").fetchone()
+            settings = json.loads(row['value']) if row else {}
+            settings[key] = value
+            db.execute('INSERT OR REPLACE INTO preferences VALUES (?, ?)', ('generation', json.dumps(settings)))
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=15)

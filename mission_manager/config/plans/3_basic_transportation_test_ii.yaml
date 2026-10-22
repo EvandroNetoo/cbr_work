@@ -1,30 +1,29 @@
-# Migrado dos passos ativos; rota e destinos preservados.
-# Teste de 8 minutos. Exemplo de cinco ATTCs e quatro destinos ativos.
-# Neste exemplo, a tag 5 começa na WS_2 e vai para WS_1; as tags 1 a 4
-# começam na WS_1 e vão para WS_2, WS_3 e WS_4. Ajuste cada coleta e
-# destino conforme a distribuição real e as AprilTags sorteadas.
-# Calibre em arena.yaml as alturas reais (5, 10 ou 15 cm), poses e mapa
-# de navegação após posicionar os dois obstáculos. O YAML não configura
-# obstáculos, desvios dinâmicos nem o prazo de 8 minutos.
+# Objetos por área — estados declarados no arquivo de equipe do Commander.
+# WS_1: inicial=[12]; final=[1]
+# WS_2: inicial=[1]; final=[2]
+# WS_3: inicial=[11]; final=[14, 12]
+# WS_4: inicial=[14, 2]; final=[11]
+
 schema_version: 2
-plan_id: basic_transportation_test_ii
+plan_id: 3_basic_transportation_test_ii
+initial_location: start
 finish: true
 visits:
+  - target: WS_4
+    tasks:
+      - {action: pick, tag_ids: [14, 2]}
   - target: WS_2
     tasks:
+      - {action: place_on_table, tag_ids: [2]}
       - {action: pick, tag_ids: [1]}
   - target: WS_1
     tasks:
       - {action: place_on_table, tag_ids: [1]}
-      - {action: pick, tag_ids: [2, 3]}
+      - {action: pick, tag_ids: [12]}
   - target: WS_3
     tasks:
-      - {action: place_on_table, tag_ids: [3]}
-      - {action: pick, tag_ids: [5]}
+      - {action: place_on_table, tag_ids: [12, 14]}
+      - {action: pick, tag_ids: [11]}
   - target: WS_4
     tasks:
-      - {action: place_on_table, tag_ids: [5]}
-      - {action: pick, tag_ids: [4]} 
-  - target: WS_2
-    tasks:
-      - {action: place_on_table, tag_ids: [2, 4]}
+      - {action: place_on_table, tag_ids: [11]}

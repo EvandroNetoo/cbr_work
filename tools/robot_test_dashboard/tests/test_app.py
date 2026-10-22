@@ -33,9 +33,9 @@ def by_label(elements, text):
 
 def test_empty_pages(tmp_path, monkeypatch):
     app, _ = start_app(tmp_path, monkeypatch)
-    app.radio[0].set_value('Histórico').run()
+    by_label(app.radio, 'Navegação').set_value('Histórico').run()
     assert not app.exception
-    app.radio[0].set_value('Estatísticas').run()
+    by_label(app.radio, 'Navegação').set_value('Estatísticas').run()
     assert not app.exception
     assert 'Finalize' in app.info[0].value
 
@@ -51,7 +51,7 @@ def test_edit_autosave_reopen_review_and_finalize(tmp_path, monkeypatch, record)
     assert latest['status'] == 'draft'
     assert not by_label(app.checkbox, 'Perfect Run').value
     reopened = AppTest.from_file(str(APP), default_timeout=20).run()
-    reopened.radio[0].set_value('Histórico').run()
+    by_label(reopened.radio, 'Navegação').set_value('Histórico').run()
     assert not reopened.exception
     by_label(reopened.button, 'Abrir rascunho atual para edição').click().run()
     assert not reopened.exception
@@ -108,11 +108,11 @@ def test_history_correction_void_and_statistics(tmp_path, monkeypatch, record):
     assert store.latest(record['id'])['score']['completed']
     by_label(app.checkbox, 'Revisei as tarefas, o tempo, os incidentes e a memória de cálculo').check().run()
     by_label(app.button, 'Finalizar teste').click().run()
-    app.radio[0].set_value('Estatísticas').run()
+    by_label(app.radio, 'Navegação').set_value('Estatísticas').run()
     assert not app.exception
     assert not app.error
-    assert len(app.metric) == 6
-    app.radio[0].set_value('Histórico').run()
+    assert len(app.metric) == 8
+    by_label(app.radio, 'Navegação').set_value('Histórico').run()
     by_label(app.text_input, 'Justificativa para corrigir ou anular o registro').input('Correção da observação').run()
     by_label(app.button, 'Criar revisão para correção').click().run()
     assert not app.exception
@@ -216,7 +216,7 @@ def test_manual_perfect_survives_reopening(tmp_path, monkeypatch, scenario):
     assert not by_label(app.checkbox, 'Perfect Run').value
     by_label(app.checkbox, 'Perfect Run').check().run()
     by_label(app.button, 'Fechar ficha salva').click().run()
-    app.radio[0].set_value('Histórico').run()
+    by_label(app.radio, 'Navegação').set_value('Histórico').run()
     by_label(app.button, 'Abrir rascunho atual para edição').click().run()
     assert by_label(app.checkbox, 'Perfect Run').value
     assert store.latest(record['id'])['score']['perfect_bonus'] == 300

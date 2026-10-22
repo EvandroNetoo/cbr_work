@@ -6,10 +6,11 @@ from uuid import uuid4
 import pandas as pd
 import streamlit as st
 
-from analytics import groups, summarize
+from analytics import accumulated_errors, eligible_rows, groups, summarize, summarize_mission
 from domain import (INCIDENTS, TZ, add_incident, canonical, import_scenario,
                     new_record, restart, score, upgrade_rules, enable_perfect_selection, perfect_run)
 from storage import Store
+from generation_ui import generation_form
 
 
 st.set_page_config(page_title='Bancada de testes · CBR', page_icon='🤖', layout='wide')
@@ -74,6 +75,10 @@ def score_view(calculated):
 
 def import_form(store):
     st.header('Novo teste')
+    mode = st.radio('Origem do cenário', ['Importar cenário', 'Gerar por seed'], horizontal=True)
+    if mode == 'Gerar por seed':
+        generation_form(store, activate)
+        return
     st.write('Importe o cenário da equipe. A ficha começa com as tarefas realizadas; marque as falhas durante a revisão.')
     upload = st.file_uploader('Cenário do Commander (*_equipe.yaml)', type=['yaml', 'yml'], key='scenario_upload')
     if upload is None:
@@ -401,20 +406,42 @@ def history_page(store):
 
 def statistics_page(store):
     st.header('Estatísticas')
-    sets = groups(store.list_latest())
-    if not sets:
+    rows = eligible_rows(store.list_latest())
+    if not rows:
         st.info('Finalize um teste revisado e resolva as pendências para começar a comparar os resultados.')
         return
+    results_tab, errors_tab = st.tabs(['Resultados por missão', 'Erros acumulados · todas as missões'])
+    with results_tab:
+        mission_statistics(rows)
+    with errors_tab:
+        global_errors_view(rows)
+
+
+def mission_statistics(rows):
+    missions = sorted({row['payload']['scenario']['mission'] for row in rows})
+    mission = st.selectbox('Missão', missions, key='statistics:mission')
+    mission_rows = [row for row in rows if row['payload']['scenario']['mission'] == mission]
+    sets = groups(mission_rows)
     keys = list(sets)
-    index = st.selectbox('Cenário comparável', range(len(keys)), format_func=lambda i: (
-        f'{keys[i][0]} / seed {keys[i][1]} · cenário {keys[i][2][:10]} · {keys[i][3]/60:g} min · regras {sets[keys[i]][0]["payload"]["rules"]["version"]} · grupo {i+1}'))
-    data = summarize(sets[keys[index]])
-    st.caption(f"{data['count']} testes finalizados, sem pendências. Cenário, seed, limite e regras iguais.")
+    index = st.selectbox('Cenário comparável', [None, *range(len(keys))], format_func=lambda i: (
+        'Todos os cenários desta missão' if i is None else
+        f'seed {keys[i][1]} · cenário {keys[i][2][:10]} · {keys[i][3]/60:g} min · regras {sets[keys[i]][0]["payload"]["rules"]["version"]} · grupo {i+1}'),
+        key='statistics:scenario:' + mission)
+    selected = mission_rows if index is None else sets[keys[index]]
+    data = summarize_mission(selected) if index is None else summarize(selected)
+    st.subheader('Resultados · ' + mission)
+    st.caption(f"{data['count']} testes finalizados, sem pendências, somente da missão {mission}.")
+    if index is None:
+        st.caption('Resumo das seeds e cenários desta missão. Pontuações em valores absolutos; cenários, limites e regras podem variar. Selecione um cenário comparável para acompanhar condições iguais.')
+    else:
+        st.caption('Cenário, seed, limite e regras iguais.')
     a, b, c, d = st.columns(4)
     for col, title, value in [(a, 'Média', data['mean']), (b, 'Mediana', data['median']),
                                (c, 'Melhor resultado', data['best']), (d, 'Desvio padrão', data['stddev'])]:
         col.metric(title, f'{value:.1f}')
-    a, b = st.columns(2)
+    a, b, c, d = st.columns(4)
+    c.metric('Testes finalizados', data['count'])
+    d.metric('Missões concluídas', f"{data['completion_rate']:.0%}")
     a.metric('Testes com Perfect Run', f"{data['perfect_rate']:.0%}")
     b.metric('Tempo médio com todas as tarefas realizadas', '—' if data['mean_completed_s'] is None else f"{data['mean_completed_s']/60:.2f} min")
     timeline = pd.DataFrame(data['timeline'])
@@ -422,18 +449,40 @@ def statistics_page(store):
     st.subheader('Evolução da pontuação')
     st.line_chart(timeline, x='data', y='pontos')
     st.subheader('Tempos das missões concluídas')
-    completed = [r for r in sets[keys[index]] if r['score']['completed']]
+    completed = [r for r in selected if r['score']['completed']]
     if completed:
-        st.dataframe(pd.DataFrame([{'Data': r['payload']['tested_at'], 'Tempo (s)': r['score']['elapsed_s']} for r in completed]), hide_index=True)
+        st.dataframe(pd.DataFrame([{'Data': datetime.fromisoformat(r['payload']['tested_at']).astimezone(TZ).strftime('%d/%m/%Y %H:%M'), 'Seed': r['payload']['seed'], 'Tempo (s)': r['score']['elapsed_s']} for r in completed]), hide_index=True)
     else:
         st.caption('Nenhuma missão concluída neste grupo.')
-    st.subheader('Principais perdas acumuladas')
+    st.subheader('Perdas acumuladas · ' + mission)
     if data['losses']:
         frame = pd.DataFrame(data['losses']).rename(columns={'area': 'Área', 'object': 'Objeto', 'cause': 'Causa', 'points': 'Pontos perdidos'})
         st.dataframe(frame, hide_index=True)
         st.bar_chart(frame.groupby('Causa', as_index=False)['Pontos perdidos'].sum(), x='Causa', y='Pontos perdidos')
     else:
         st.success('Nenhuma perda registrada nesses testes.')
+
+
+def global_errors_view(rows):
+    data = accumulated_errors(rows)
+    st.subheader('Erros acumulados · todas as missões')
+    st.caption(f"{data['count']} testes finalizados e sem pendências. Esta visão reúne todas as missões e seeds, independentemente da seleção na outra aba.")
+    st.subheader('Incidentes registrados')
+    st.caption('Contagem por tipo, incluindo incidentes das tentativas anteriores a um reinício.')
+    if data['incidents']:
+        frame = pd.DataFrame(data['incidents'])
+        st.dataframe(frame, hide_index=True)
+        st.bar_chart(frame, x='Tipo', y='Ocorrências')
+    else:
+        st.success('Nenhum incidente registrado.')
+    st.subheader('Tarefas não realizadas e deduções')
+    st.caption('Pontos perdidos nas tentativas que compõem a pontuação. Cada registro representa uma perda calculada; o total pode incluir tarefas, penalidades e ajustes.')
+    if data['losses']:
+        frame = pd.DataFrame(data['losses'])
+        st.dataframe(frame, hide_index=True)
+        st.bar_chart(frame.groupby('Causa', as_index=False)['Pontos perdidos'].sum(), x='Causa', y='Pontos perdidos')
+    else:
+        st.success('Nenhuma perda registrada.')
 
 
 store = Store()

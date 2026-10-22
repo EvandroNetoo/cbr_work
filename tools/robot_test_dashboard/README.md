@@ -2,7 +2,8 @@
 
 Painel local em português para registrar manualmente missões completas por
 **missão + seed**, calcular a pontuação e acompanhar os resultados. Não importa
-ROS, não movimenta o robô e funciona sem internet depois da instalação.
+ROS no processo da interface, não movimenta o robô e funciona sem internet depois
+da instalação. A geração opcional de planos chama o ROS 2 instalado por CLI.
 
 ## Iniciar
 
@@ -31,6 +32,63 @@ Também aceita `ROBOT_TEST_PYTHON=/caminho/absoluto/python`. As versões de pand
 e PyArrow foram fixadas para funcionar com o NumPy 1.x do workspace ROS.
 
 ## Registrar um teste
+
+### Gerar cenário e plano por seed
+
+Em **Novo teste → Gerar por seed**, selecione a prova e informe a seed. Em
+**Caminhos e opções de planejamento**, confira a pasta e o Python do Commander,
+o setup ROS do workspace, arena, mapa e parâmetros do planner. Os caminhos deste
+workspace já vêm preenchidos. A metaarena e os decoys podem ficar vazios para
+usar os padrões do Commander.
+
+Todos os campos são salvos automaticamente no SQLite local ao confirmar a edição
+(Enter ou sair do campo). Ao voltar à tela ou reiniciar o painel, os valores
+continuam preenchidos, inclusive a seed. Não é necessário clicar em gerar para
+salvar as preferências.
+
+Clique em **Gerar cenário e plano**. O Commander gera os YAMLs de equipe e juiz;
+depois o `mission_manager generate_plan` calcula as distâncias e otimiza o plano.
+A geração usa processos em segundo plano e mostra andamento e logs. Requer
+Commander instalado, workspace ROS compilado e máscara keepout junto ao mapa.
+O planner local inicia automaticamente e não envia comandos de movimento.
+
+Cada execução mantém seus arquivos e logs em `data/generations/<execução>/`
+(ao lado do banco configurado por `ROBOT_TEST_DB`). Consulte execuções anteriores
+em **Gerações salvas** e baixe os YAMLs. Falhas preservam os arquivos já gerados
+e os logs. Fechar a aba não interrompe a geração. O limite de busca configurado
+vale após as distâncias; há um limite adicional de 30 minutos para essa etapa e
+inicialização. As preferências e essas pastas não fazem parte da exportação JSON
+de fichas; os cenários e planos anexados às fichas fazem.
+
+Se o otimizador atingir o limite de tempo ou de estados, consulte o log, aumente
+**Limite da busca** ou **Máximo de estados da busca** e gere novamente. Um plano
+parcial não é publicado como resultado concluído.
+
+Para o plano, use **Salvar plano na pasta de missões**: o painel grava diretamente
+em `src/cbr_work/mission_manager/config/plans`, sem depender da pasta Downloads do
+navegador. Na configuração padrão, também grava no pacote instalado em
+`install/mission_manager/share/mission_manager/config/plans`, se o pacote já está
+instalado, disponibilizando o plano ao executor sem recompilar. O nome do arquivo
+e o `plan_id` seguem o tipo da missão, substituindo o plano anterior:
+
+| Prova | Arquivo |
+|---|---|
+| BMT | `1_basic_manipulation_test.yaml` |
+| BTT1 | `2_basic_transportation_test_i.yaml` |
+| BTT2 | `3_basic_transportation_test_ii.yaml` |
+| AMT | `4_advanced_transportation_test.yaml` |
+| ATT1 | `5_advanced_transportation_test_i.yaml` |
+| ATT2 | `6_advanced_transportation_test_ii.yaml` |
+| FINAL | `7_final_test.yaml` |
+
+O original da geração permanece preservado. O ID para execução aparece na tela.
+**Pasta para salvar os planos** permite escolher outro
+destino, que também fica salvo; nesse caso, configure o executor para esse destino.
+
+Ao terminar, confira o resumo e use **Criar rascunho com cenário e plano**. A ficha
+recebe cópias dos arquivos exatos, sem precisar fazer upload novamente.
+
+### Importar arquivos existentes
 
 1. Em **Novo teste**, importe `*_equipe.yaml` do Commander, confira a seed e
    associe opcionalmente o YAML do plano otimizado utilizado.
@@ -146,10 +204,19 @@ registro das estatísticas até nova finalização. A anulação exige justifica
 preserva todas as revisões anteriores; também é possível corrigir uma anulação.
 
 As estatísticas usam apenas a revisão atual de registros finalizados e sem
-pendências. Comparações separam missão, seed, conteúdo semântico do cenário,
-limite e regras completas. Comentários e formatação do YAML não alteram a
-identidade; mudanças no conteúdo alteram. O desvio padrão exibido é populacional,
-e os tempos médios consideram somente missões marcadas como concluídas.
+pendências. Em **Resultados por missão**, escolha uma missão: indicadores,
+evolução da pontuação, tempos e perdas pertencem somente a ela. O resumo padrão
+reúne todas as seeds dessa missão. O filtro **Cenário comparável** permite limitar
+os resultados à mesma seed, conteúdo semântico do cenário, limite e regras
+completas. Comentários e formatação do YAML não alteram a identidade; mudanças
+no conteúdo alteram. O desvio padrão exibido é populacional, e os tempos médios
+consideram somente missões marcadas como concluídas.
+
+A aba **Erros acumulados · todas as missões** reúne os erros de todas as missões
+e seeds, independentemente do filtro da outra aba. Exibe ocorrências e testes
+afetados por tipo de incidente, incluindo tentativas anteriores a um reinício.
+Uma tabela separada soma os pontos perdidos por tarefas não realizadas,
+penalidades e ajustes, considerando somente as tentativas que entram na pontuação.
 
 O banco recebe um backup diário em `data/backups/`, usando a data de São Paulo
 na primeira abertura do dia. Os backups locais ficam no mesmo disco: use a

@@ -1,12 +1,21 @@
+# Visita todas as áreas do tipo WS cadastradas em arena.yaml, sem tarefas.
+# Mantém o alinhamento de chegada e o recuo de saída padrão das visitas.
 schema_version: 2
 plan_id: cubos_1_2_3
+initial_location: start
 finish: true
 visits:
   - target: WS_1
-    tasks:
-      - {action: pick, tag_ids: [15, 9]}
-
+    tasks: []
+  - target: WS_2
+    tasks: []
+  - target: WS_3
+    tasks: []
+  - target: WS_4
+    tasks: []
+  - target: WS_5
+    tasks: []
+  - target: ST
+    tasks: []
   - target: PP
-    tasks:
-      - {action: place_on_precision_table, tag_ids: [15], reference_tag_id: 6}
-      - {action: place_on_precision_table, tag_ids: [9], reference_tag_id: 1}
+    tasks: []
