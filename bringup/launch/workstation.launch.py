@@ -1,5 +1,8 @@
 """Optional workstation tools; autonomous processes stay on the robot."""
 
+import os
+import platform
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
@@ -8,6 +11,14 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 from so_arm_101_moveit_config.configuration import get_combined_moveit_config
+
+
+def _rviz_environment():
+    """Avoid the WSLg D3D12 rendering path that can crash RViz map shaders."""
+    is_wsl = 'microsoft' in platform.release().lower()
+    if is_wsl and 'LIBGL_ALWAYS_SOFTWARE' not in os.environ:
+        return {'LIBGL_ALWAYS_SOFTWARE': 'true'}
+    return {}
 
 
 def generate_launch_description():
@@ -19,6 +30,7 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('enable_rviz')),
         arguments=['-d', PathJoinSubstitution([
             FindPackageShare('bringup'), 'config', 'telemetry.rviz'])],
+        additional_env=_rviz_environment(),
         parameters=[moveit_config.robot_description,
                     moveit_config.robot_description_semantic,
                     moveit_config.robot_description_kinematics,

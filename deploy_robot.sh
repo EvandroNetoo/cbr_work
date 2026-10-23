@@ -24,6 +24,7 @@ sync_sources() {
     --exclude install \
     --exclude log \
     --exclude .git \
+    --exclude tools/robot_test_dashboard/ \
     --exclude __pycache__ \
     --exclude .pyc \
     --exclude .pyo \
