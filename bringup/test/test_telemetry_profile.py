@@ -25,11 +25,13 @@ def test_telemetry_launch_only_starts_rviz():
         assert forbidden not in source
 
 
-def test_workstation_uses_software_rendering_only_for_rviz_on_wsl():
+def test_workstation_enables_d3d12_only_for_rviz_on_wsl():
     source = (PACKAGE_ROOT / 'launch' / 'workstation.launch.py').read_text()
 
     assert "'microsoft' in platform.release().lower()" in source
-    assert "'LIBGL_ALWAYS_SOFTWARE': 'true'" in source
+    assert "os.environ.get('GALLIUM_DRIVER', 'd3d12')" in source
+    assert "'MESA_D3D12_DEFAULT_ADAPTER_NAME', 'Intel'" in source
+    assert 'LIBGL_ALWAYS_SOFTWARE' not in source
     assert 'additional_env=_rviz_environment()' in source
 
 

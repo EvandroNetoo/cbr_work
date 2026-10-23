@@ -14,11 +14,16 @@ from so_arm_101_moveit_config.configuration import get_combined_moveit_config
 
 
 def _rviz_environment():
-    """Avoid the WSLg D3D12 rendering path that can crash RViz map shaders."""
+    """Enable WSL GPU acceleration without changing native Linux."""
     is_wsl = 'microsoft' in platform.release().lower()
-    if is_wsl and 'LIBGL_ALWAYS_SOFTWARE' not in os.environ:
-        return {'LIBGL_ALWAYS_SOFTWARE': 'true'}
-    return {}
+    if not is_wsl:
+        return {}
+
+    return {
+        'GALLIUM_DRIVER': os.environ.get('GALLIUM_DRIVER', 'd3d12'),
+        'MESA_D3D12_DEFAULT_ADAPTER_NAME': os.environ.get(
+            'MESA_D3D12_DEFAULT_ADAPTER_NAME', 'Intel'),
+    }
 
 
 def generate_launch_description():
