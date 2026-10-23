@@ -25,7 +25,7 @@ controller_server:
     enable_stamped_cmd_vel: true
     # 10 Hz e suficiente para a velocidade maxima de 0,374 m/s da base e
     # reduz pela metade a frequencia de otimizacoes do MPPI.
-    controller_frequency: 10.0
+    controller_frequency: 15.0
     costmap_update_timeout: 0.50
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
@@ -49,8 +49,8 @@ controller_server:
       plugin: "nav2_mppi_controller::MPPIController"
       # 800 x 40 x 10 Hz usa cerca de 1/7 das amostras por segundo do perfil
       # original (2000 x 56 x 20 Hz), mantendo horizonte de 4 segundos.
-      time_steps: 40
-      model_dt: 0.10
+      time_steps: 45
+      model_dt: 0.0666666667
       batch_size: 800
       iteration_count: 1
       motion_model: "Omni"
@@ -71,7 +71,7 @@ controller_server:
       vx_std: 0.200
       vy_std: 0.200
       wz_std: 0.777
-      prune_distance: 0.80
+      prune_distance: 1.0
       transform_tolerance: 0.2
       # Mantem uma media ponderada entre boas trajetorias. Temperaturas muito
       # baixas fazem uma unica amostra dominar e geram comandos aos trancos.
