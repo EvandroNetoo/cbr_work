@@ -192,7 +192,13 @@ de finalizar. As revisões anteriores continuam no histórico e nas exportaçõe
 
 ## Histórico, comparações e recuperação
 
-O SQLite fica por padrão em `data/tests.sqlite3`, ignorado pelo Git.
+O SQLite fica por padrão em `data/tests.sqlite3`, versionado no Git com os testes,
+suas revisões e as preferências do painel. Os cenários e planos anexados às fichas
+já estão preservados no banco.
+Assim, um clone já abre com os dados registrados, sem restaurar uma exportação.
+As pastas `data/generations/` e `data/backups/`, logs, caches e arquivos temporários
+ficam apenas no ambiente local, ignorados pelo Git.
+Após registrar novos testes, inclua somente o banco no próximo commit.
 `ROBOT_TEST_DB=/caminho/tests.sqlite3` permite escolher outro local.
 Revisões são acrescentadas, nunca sobrescritas. Alterações simultâneas da mesma
 ficha são recusadas: reabra o registro pelo Histórico para carregar a versão atual.

@@ -1,2 +1,4 @@
-data/
+# Versionar somente o banco usado pelo painel.
+data/*
+!data/tests.sqlite3
 .venv/
