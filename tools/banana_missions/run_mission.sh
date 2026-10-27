@@ -10,5 +10,4 @@ source /opt/ros/jazzy/setup.bash
 source /home/banana/ros2_ws/install/setup.bash
 source /home/banana/ros2_ws/src/cbr_work/bringup/scripts/dds_environment.bash banana
 
-exec ros2 action send_goal /mission/execute interfaces/action/ExecuteMission \
-    "{plan_id: $1, start_pose: start}" --feedback
+exec python -u /home/banana/ros2_ws/src/cbr_work/tools/banana_missions/mission_client.py "$1"

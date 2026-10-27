@@ -759,7 +759,13 @@ Isso cria uma pasta `~/Missao_<plan_id>` por plano do código-fonte. Selecione
 com Cima/Baixo e aperte Enter. Todas enviam `start_pose: start`, carregam o
 ambiente ROS e o perfil DDS `banana`; o menu aguarda o resultado da action.
 O robô deve estar fisicamente em `start` antes de confirmar. Logs do menu
-ficam em `~/logs/`. O botão Voltar não cancela uma missão durante essa espera.
+ficam em `~/logs/`. Durante uma missão iniciada pelo menu, pressione **Voltar**
+para solicitar o cancelamento da action. O cliente cancela somente o goal dessa
+execução e aguarda o resultado final antes de devolver o controle ao menu.
+Se Voltar for pressionado antes do envio, a missão não é enviada; se a aceitação
+estiver pendente, o cancelamento é solicitado assim que o goal for aceito.
+Enquanto isso, os outros botões ficam sem ação e o menu não redesenha o OLED.
+Esse botão não cancela missões iniciadas por outros clientes/terminais.
 Com `show_menu_when_idle: true` em `base_hardware/config/face.yaml`, a carinha
 reserva o OLED somente enquanto `/mission/active` é verdadeiro. Entre missões,
 o menu volta a exibir as opções e ler os botões. O menu e a carinha usam
