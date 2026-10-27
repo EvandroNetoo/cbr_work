@@ -1,6 +1,8 @@
 mission_face_node:
   ros__parameters:
     mission_state_topic: /mission/state
+    mission_active_topic: /mission/active
+    show_menu_when_idle: true
     i2c_bus: 0
     i2c_address: 0x3C
     fps: 20.0

@@ -16,6 +16,7 @@ from typing import Any, Callable
 
 from action_msgs.msg import GoalStatus
 from ament_index_python.packages import get_package_share_directory
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from interfaces.action import (
     AnalyzeScene,
     ExecuteMission,
@@ -42,6 +43,7 @@ from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_srvs.srv import SetBool
+from std_msgs.msg import Bool
 
 from .errors import ActionUncertain, ConfigurationError, DestinationUnavailable, MissionCanceled, RetrieveFailed, StateConflict, StepFailed, TaskNotFound, PrecisionSlotOccupied
 from .loaders import load_arena, load_plan, PLAN_ID_PATTERN, validate_plan
@@ -82,6 +84,7 @@ class MissionManager(PrecisionRuntime, Node):
             or not hasattr(PrepareManipulator.Goal(), 'gripper_loaded')
             or not hasattr(PlaceOnTable.Goal(), 'use_fallback_pose')
             or not hasattr(FollowWall.Goal(), 'alignment_error_ignore_duration')
+            or not hasattr(ExecuteMission.Goal(), 'start_pose')
         ):
             raise ConfigurationError(
                 'As interfaces instaladas estão desatualizadas; '
@@ -92,6 +95,8 @@ class MissionManager(PrecisionRuntime, Node):
             'arena_file': str(share / 'config' / 'arena.yaml'),
             'plans_directory': str(share / 'config' / 'plans'),
             'execute_action': '/mission/execute',
+            'mission_active_topic': '/mission/active',
+            'initial_pose_topic': '/initialpose',
             'state_topic': '/mission/state',
             'state_frame_id': 'arm_base_link',
             'cargo_slot_ids': ['left', 'right'],
@@ -215,6 +220,12 @@ class MissionManager(PrecisionRuntime, Node):
             str(self.get_parameter('state_topic').value),
             state_qos,
         )
+        self._initial_pose_publisher = self.create_publisher(
+            PoseWithCovarianceStamped,
+            str(self.get_parameter('initial_pose_topic').value), 1)
+        self._mission_active_publisher = self.create_publisher(
+            Bool, str(self.get_parameter('mission_active_topic').value), state_qos)
+        self._publish_mission_active(False)
 
         def client(action_type, parameter_name):
             return ActionClient(
@@ -261,6 +272,11 @@ class MissionManager(PrecisionRuntime, Node):
         self.get_logger().info(
             'Mission manager pronto; estado do mundo, arena e planos sob gestão.'
         )
+
+    def _publish_mission_active(self, active: bool) -> None:
+        publisher = getattr(self, '_mission_active_publisher', None)
+        if publisher is not None:
+            publisher.publish(Bool(data=active))
 
     def _state_message(self) -> ManipulationState:
         known, gripper, slots = self._world_state.snapshot()
@@ -3212,6 +3228,29 @@ class MissionManager(PrecisionRuntime, Node):
             goal_handle.abort()
         return result
 
+    def _initialize_localization(self, arena: Arena, target: str) -> None:
+        """Publish the arena pose just like RViz's 2D Pose Estimate."""
+        if not target:
+            return
+        if not arena.has_target(target):
+            choices = ', '.join(['start', 'finish', *sorted(arena.service_areas)])
+            raise ConfigurationError(f'start_pose {target!r} inválido; opções: {choices}.')
+        pose = arena.pose_for(target)
+        message = PoseWithCovarianceStamped()
+        message.header.frame_id = arena.frame_id
+        message.pose.pose.position.x = pose.x_m
+        message.pose.pose.position.y = pose.y_m
+        message.pose.pose.orientation.z = math.sin(pose.yaw_rad / 2.0)
+        message.pose.pose.orientation.w = math.cos(pose.yaw_rad / 2.0)
+        # Same default uncertainty as RViz's 2D Pose Estimate.
+        message.pose.covariance[0] = 0.25
+        message.pose.covariance[7] = 0.25
+        message.pose.covariance[35] = math.radians(15.0) ** 2
+        self._check_canceled()
+        message.header.stamp = self.get_clock().now().to_msg()
+        self._initial_pose_publisher.publish(message)
+        self.get_logger().info(f'Pose inicial enviada: {target}.')
+
     def _execute_callback(self, goal_handle: Any) -> ExecuteMission.Result:
         plan_id = str(goal_handle.request.plan_id)
         with self._lock:
@@ -3228,8 +3267,18 @@ class MissionManager(PrecisionRuntime, Node):
             self._cancel_event.clear()
         started_at = time.monotonic()
         try:
+            self._publish_mission_active(True)
             arena, plan = self._load_goal_files(plan_id)
             self._check_canceled()
+            start_pose = str(getattr(goal_handle.request, 'start_pose', ''))
+            if start_pose:
+                if not arena.has_target(start_pose):
+                    choices = ', '.join(['start', 'finish', *sorted(arena.service_areas)])
+                    raise ConfigurationError(
+                        f'start_pose {start_pose!r} inválido; opções: {choices}.')
+                plan = replace(plan, initial_location=start_pose)
+                validate_plan(plan, arena, tuple(self._world_state.snapshot()[2]), self._check_canceled)
+            self._initialize_localization(arena, start_pose)
             result = self._execute_validated_mission(goal_handle, arena, plan)
             elapsed_s = time.monotonic() - started_at
             result.message += f' Tempo total de execução: {elapsed_s:.2f} s.'
@@ -3249,6 +3298,7 @@ class MissionManager(PrecisionRuntime, Node):
             with self._lock:
                 self._mission_goal_handle = None
                 self._busy = False
+                self._publish_mission_active(False)
 
     def _execute_validated_mission(self, goal_handle: Any, arena: Arena, plan: Plan) -> ExecuteMission.Result:
         self._stack_alignment = None

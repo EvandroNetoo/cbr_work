@@ -732,6 +732,42 @@ ros2 action send_goal /mission/execute interfaces/action/ExecuteMission \
   "{plan_id: example_transport}" --feedback
 ```
 
+O campo opcional `start_pose` é o nome de um local de `arena.yaml`: `start`,
+`finish` ou uma chave de `service_areas` (por exemplo, `WS_1` ou `PP`). Vazio
+ou omitido mantém a localização atual. Quando preenchido, publica uma estimativa
+em `/initialpose`, como o **2D Pose Estimate** do RViz, com a pose e o frame da
+arena. Isso informa onde o robô já está; não move o robô até o local.
+Depois da publicação, a missão segue sem esperar confirmação de `/amcl_pose`
+e sem aplicar filtros de distância, orientação ou timestamp à resposta do AMCL.
+Local desconhecido retorna `CONFIGURATION_ERROR` sem publicar.
+O tópico de envio é configurável por `initial_pose_topic`.
+O local informado também passa a ser a localização lógica inicial da missão.
+
+```bash
+ros2 action send_goal /mission/execute interfaces/action/ExecuteMission \
+  "{plan_id: 7_final_test, start_pose: start}" --feedback
+```
+
+No Banana, com a stack ROS já iniciada, crie as opções do teclado com:
+
+```bash
+~/ros2_ws/.venv/bin/python \
+  ~/ros2_ws/src/cbr_work/tools/banana_missions/install_menu.py
+```
+
+Isso cria uma pasta `~/Missao_<plan_id>` por plano do código-fonte. Selecione
+com Cima/Baixo e aperte Enter. Todas enviam `start_pose: start`, carregam o
+ambiente ROS e o perfil DDS `banana`; o menu aguarda o resultado da action.
+O robô deve estar fisicamente em `start` antes de confirmar. Logs do menu
+ficam em `~/logs/`. O botão Voltar não cancela uma missão durante essa espera.
+Com `show_menu_when_idle: true` em `base_hardware/config/face.yaml`, a carinha
+reserva o OLED somente enquanto `/mission/active` é verdadeiro. Entre missões,
+o menu volta a exibir as opções e ler os botões. O menu e a carinha usam
+`/tmp/cbr_mission_face.lock` para essa reserva; o arquivo pode continuar no
+disco, mas o bloqueio é liberado automaticamente se o processo morrer.
+Após mudar a action, recompile `interfaces` nos três computadores e reinicie
+os processos ROS que usam esse contrato.
+
 Para executar o exemplo com contêineres e depósitos nas workspaces, migrado
 pelos passos ativos do arquivo original:
 

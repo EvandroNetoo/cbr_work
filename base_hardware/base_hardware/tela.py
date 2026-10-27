@@ -3,7 +3,6 @@ from luma.core.render import canvas
 from luma.oled.device import ssd1306
 from PIL import ImageFont
 
-
 class Tela:
     width = 128
     height = 64

@@ -83,6 +83,8 @@ def spin_until(executor, condition, timeout=4.0):
 def test_yaml_changes_operation_idle_uncertainty_and_disconnect(ros_context, tmp_path):
     config = yaml.safe_load(
         (Path(__file__).parents[1] / 'config' / 'face.yaml').read_text())
+    # Exercise the configured idle expression independently of the menu mode.
+    config['mission_face_node']['ros__parameters']['show_menu_when_idle'] = False
     expressions = config['mission_face_node']['ros__parameters']['expressions']
     expressions.update(idle='feliz', unknown_state='surpreso',
                        unknown_operation='piscando', disconnected='bravo')
@@ -188,3 +190,42 @@ def test_display_failure_retries_and_renders_latest_mission(ros_context, monkeyp
     finally:
         node.destroy_node()
     assert recovered.cleaned
+
+
+def test_menu_owns_idle_display_and_face_reserves_it_only_during_mission(ros_context):
+    import fcntl
+    from rclpy.parameter import Parameter
+    from std_msgs.msg import Bool
+
+    faces = []
+    def factory(**kwargs):
+        face = FakeFace()
+        faces.append(face)
+        return face
+    node = MissionFaceNode(
+        face_factory=factory, context=ros_context,
+        parameter_overrides=[Parameter('show_menu_when_idle', value=True)])
+    try:
+        node._animate()
+        assert faces == []
+        with open('/tmp/cbr_mission_face.lock', 'r') as probe:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(probe, fcntl.LOCK_UN)
+            node._on_mission_active(Bool(data=True))
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            node._animate()
+            assert len(faces) == 1 and faces[0].frames
+            node._on_mission_active(Bool(data=False))
+            assert faces[0].cleaned
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(probe, fcntl.LOCK_UN)
+            node._animate()
+            assert len(faces) == 1
+            node._on_mission_active(Bool(data=True))
+            node._animate()
+            assert len(faces) == 2
+    finally:
+        node.destroy_node()
+    with open('/tmp/cbr_mission_face.lock', 'r') as probe:
+        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)

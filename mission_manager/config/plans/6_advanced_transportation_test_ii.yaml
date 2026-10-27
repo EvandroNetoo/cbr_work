@@ -1,6 +1,6 @@
 # Containers e entrega na mesa por cor.
 schema_version: 2
-plan_id: advanced_transportation_test_i
+plan_id: 6_advanced_transportation_test_ii
 initial_location: start
 finish: true
 

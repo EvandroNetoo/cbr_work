@@ -1,6 +1,9 @@
 # Request execution of a visit-based plan installed in mission_manager/config/plans.
 # Invalid plans are accepted at the protocol level, then aborted with an error result.
 string plan_id
+# Optional arena location for the initial localization estimate (not a navigation goal).
+# Empty: preserve localization. Otherwise: start, finish, or a service_areas key.
+string start_pose
 ---
 uint16 SUCCESS=0
 uint16 CONFIGURATION_ERROR=1

@@ -1,6 +1,7 @@
 """OLED da base: snapshot de missão via DDS e animação em um processo separado."""
 
 import math
+import fcntl
 import time
 
 from interfaces.msg import ManipulationState
@@ -9,6 +10,7 @@ from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import Bool
 
 from .mission_face import OPERATION_EXPRESSIONS, expression_for_mission, validate_expression
 
@@ -25,6 +27,8 @@ class MissionFaceNode(Node):
     def __init__(self, face_factory=None, **kwargs):
         super().__init__('mission_face_node', **kwargs)
         self.declare_parameter('mission_state_topic', '/mission/state')
+        self.declare_parameter('mission_active_topic', '/mission/active')
+        self.declare_parameter('show_menu_when_idle', False)
         self.declare_parameter('i2c_bus', 0)
         self.declare_parameter('i2c_address', 0x3C)
         self.declare_parameter('fps', 20.0)
@@ -59,6 +63,10 @@ class MissionFaceNode(Node):
         self._next_attempt = 0.0
         self._expression = self._special_expressions['idle']
         self._state_seen = False
+        self._show_menu_when_idle = bool(self.get_parameter('show_menu_when_idle').value)
+        self._mission_active = False
+        # The menu probes this advisory lock; a crash releases it automatically.
+        self._menu_lock = open('/tmp/cbr_mission_face.lock', 'a')
         qos = QoSProfile(
             depth=1, reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -66,6 +74,9 @@ class MissionFaceNode(Node):
         topic = str(self.get_parameter('mission_state_topic').value)
         self._subscription = self.create_subscription(
             ManipulationState, topic, self._on_mission_state, qos)
+        self._active_subscription = self.create_subscription(
+            Bool, str(self.get_parameter('mission_active_topic').value),
+            self._on_mission_active, qos)
         # A tela segue animando mesmo sem novas mensagens ou com /clock parado.
         self._steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
         self._animation_timer = self.create_timer(
@@ -73,6 +84,21 @@ class MissionFaceNode(Node):
         self._discovery_timer = self.create_timer(
             1.0, self._check_publisher, clock=self._steady_clock)
         self.get_logger().info(f'Tela da base acompanha {topic}; aguardando missão.')
+
+    def _on_mission_active(self, message):
+        self._mission_active = message.data
+        if not self._show_menu_when_idle:
+            return
+        if self._mission_active:
+            try:
+                fcntl.flock(self._menu_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                self._mission_active = False
+                self.get_logger().warning('Outro processo da carinha já está usando o OLED.')
+        else:
+            # Finish OLED cleanup before allowing the menu to resume drawing.
+            self._release_display()
+            fcntl.flock(self._menu_lock, fcntl.LOCK_UN)
 
     def _on_mission_state(self, message):
         self._state_seen = True
@@ -89,12 +115,22 @@ class MissionFaceNode(Node):
             self.get_logger().info(f'Expressão da base: {expression}')
 
     def _check_publisher(self):
+        if (self._show_menu_when_idle and self._mission_active
+                and self._active_subscription.get_publisher_count() == 0):
+            self._on_mission_active(Bool(data=False))
         # O tópico publica mudanças, não um heartbeat: silêncio não significa falha.
         if self._state_seen and self._subscription.get_publisher_count() == 0:
             self._state_seen = False
             self._set_expression(self._special_expressions['disconnected'])
 
     def _animate(self):
+        if self._show_menu_when_idle and not self._mission_active:
+            return
+        if not self._show_menu_when_idle:
+            try:
+                fcntl.flock(self._menu_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return
         if self._face is None:
             if time.monotonic() < self._next_attempt:
                 return
@@ -128,6 +164,8 @@ class MissionFaceNode(Node):
         self._animation_timer.cancel()
         self._discovery_timer.cancel()
         self._release_display()
+        if self._menu_lock is not None:
+            self._menu_lock.close()
         return super().destroy_node()
 
 

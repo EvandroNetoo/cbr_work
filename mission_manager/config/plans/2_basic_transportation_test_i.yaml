@@ -5,7 +5,7 @@
 # em arena.yaml para as alturas reais de 5 ou 10 cm antes de executar.
 # O formato atual do plano não recebe o sorteio nem impõe o prazo.
 schema_version: 2
-plan_id: basic_transportation_test_i
+plan_id: 2_basic_transportation_test_i
 finish: true
 visits:
   - target: WS_1

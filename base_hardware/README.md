@@ -65,6 +65,14 @@ Assim, uma tela ligada depois do início da missão recebe o snapshot atual.
 A animação roda a até 20 FPS, com transições suaves, mesmo quando nenhuma
 nova mensagem é publicada.
 
+O perfil `config/face.yaml` usa `show_menu_when_idle: true`: o nó também
+assina `/mission/active` (`std_msgs/msg/Bool`, reliable/transient_local).
+Enquanto não há missão, libera o OLED para o menu dos botões. Durante a
+missão, reserva `/tmp/cbr_mission_face.lock` e anima normalmente. Ao encerrar
+ou perder o publicador de atividade, libera a tela. Para exibir a carinha
+continuamente, configure `show_menu_when_idle: false`; nesse modo o menu
+permanece pausado enquanto a carinha reserva o OLED.
+
 | `active_operation` | Expressão |
 | --- | --- |
 | `navigate`, `finish`, `follow_wall` | `correndo`, com vento frontal |
@@ -79,8 +87,9 @@ O rosto acompanha a operação informada pelo gerenciador, inclusive enquanto
 aguarda a conclusão dessa operação. O tópico atual contém estado da carga e
 operação ativa; não informa a velocidade real da base nem distingue sucesso
 de cancelamento quando a operação fica vazia ao encerrar. Nessas condições o
-rosto volta a `neutro`. Perder o publicador também volta a `neutro`; o simples
-silêncio durante uma operação longa mantém a expressão.
+rosto volta a `neutro` no modo contínuo. Perder o publicador também volta a
+`neutro` nesse modo; o simples silêncio durante uma operação longa mantém
+a expressão. No modo com menu, o fim da missão devolve a tela ao menu.
 
 Barramento, endereço, FPS, tópico e intervalo de reconexão ficam em
 `config/face.yaml` (padrão: I2C 0, endereço `0x3C`). Se a tela estiver ausente
