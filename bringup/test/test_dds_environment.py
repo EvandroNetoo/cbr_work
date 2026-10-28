@@ -59,3 +59,13 @@ def test_invalid_selection_preserves_environment(selector, missing_profile):
         if source "$1" "$2"; then exit 1; fi
         printf '%s\\n' "$RMW_IMPLEMENTATION" "$CYCLONEDDS_URI" "$ROS_DOMAIN_ID"
     ''', 'banana' if missing_profile else 'invalid') == ['original', 'original', '42']
+
+
+@pytest.mark.parametrize('role', ['banana', 'rasp'])
+def test_board_launch_output_does_not_depend_on_the_ssh_terminal(selector, role):
+    assert shell(selector, '''
+        source "$1" "$2" || exit 1
+        printf '%s\\n' "$OVERRIDE_LAUNCH_PROCESS_OUTPUT"
+        source "$1" notebook || exit 1
+        test -z "${OVERRIDE_LAUNCH_PROCESS_OUTPUT+x}" || exit 1
+    ''', role) == ['own_log']

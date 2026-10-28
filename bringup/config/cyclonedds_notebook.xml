@@ -22,6 +22,8 @@
       <FragmentSize>1200 B</FragmentSize>
     </General>
     <Discovery>
+      <!-- Rediscover promptly after Wi-Fi reconnects with the same address. -->
+      <SPDPInterval>1 s</SPDPInterval>
       <ParticipantIndex>auto</ParticipantIndex>
       <MaxAutoParticipantIndex>64</MaxAutoParticipantIndex>
       <Peers>

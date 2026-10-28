@@ -237,7 +237,8 @@ No notebook, `DontRoute=true` descarta os endereços DDS fora da sub-rede
 Wi-Fi, incluindo os `10.50.0.x` anunciados pelas placas. Sem isso, é possível
 descobrir tópicos mas não receber os dados. Esse ajuste pressupõe os três
 Wi-Fi na mesma sub-rede; precisa ser revisto se houver VPN ou roteamento
-entre sub-redes. Ele não foi aplicado aos perfis das placas.
+entre sub-redes. Nas placas, o mesmo filtro aceita as duas redes configuradas,
+Ethernet e Wi-Fi, sem escolher uma rota através do gateway para outros locators.
 
 O script seleciona RMW e XML, define domínio 10 e descoberta SUBNET, e remove
 `ROS_LOCALHOST_ONLY` e `ROS_STATIC_PEERS` da sessão para evitar conflito com o
@@ -245,12 +246,60 @@ perfil. Ele não para processos nem o daemon. Ao migrar, pare os launches antigo
 configure o ambiente, execute `ros2 daemon stop` e inicie novamente. Aplicar o
 ambiente a um terminal não migra os nós que já estão executando.
 
+Há um único XML por máquina, sem alternância de perfil ao desligar o roteador.
 Ethernet tem prioridade 100 e Wi-Fi 10. Dados usam unicast; multicast fica
 restrito à descoberta SPDP. A descoberta é recebida nas interfaces configuradas,
-e o peer fixo da outra placa e localhost ajudam na descoberta remota e local.
+e os peers fixos dos IPs Ethernet da própria placa e da outra ajudam na
+descoberta local e remota. `DontRoute=true` nas placas filtra locators fora
+das sub-redes configuradas; os endereços Wi-Fi do notebook continuam aceitos.
+O anúncio SPDP é repetido a cada segundo nas quatro máquinas para reduzir a
+demora na redescoberta após a volta do Wi-Fi.
 Há até 65 índices automáticos (0–64); a faixa não deve crescer sem medição,
 pois aumenta as sondagens. O XML do notebook exige seu Wi-Fi. Nas placas o
 Wi-Fi é opcional na inicialização, para permitir operação sem hotspot.
+
+### Queda do Wi-Fi e logs do terminal SSH
+
+Os nós das duas placas devem permanecer ativos com o cabo conectado quando o
+roteador é desligado. O notebook deixa de se comunicar enquanto estiver sem
+Wi-Fi e deve redescobrir as placas quando a conexão voltar com os mesmos IPs.
+Isso inclui tópicos, serviços e actions; dar preferência ao cabo não elimina
+as tentativas DDS aos endereços Wi-Fi já descobertos.
+
+No teste de 26/10/2026, foi possível reproduzir uma parada mesmo com o cabo
+funcionando: erros `ddsi_udp_conn_write ... retcode -1` encheram cerca de 64 KiB
+de saída de cada processo quando o terminal deixou de ser consumido, como
+pode ocorrer em um SSH desconectado. A descoberta e as chamadas ROS pararam.
+Isso é compatível com os logs anexados e com a retomada ao reconectar o SSH;
+os trechos disponíveis não registram o erro inicial da coleta no robô físico.
+
+O seletor `dds_environment.bash`, ao escolher `banana` ou `rasp`, agora define
+`OVERRIDE_LAUNCH_PROCESS_OUTPUT=own_log`. O ROS launch drena stdout e stderr
+para arquivos por processo no diretório de logs, sem enviar esse fluxo ao
+terminal SSH. Isso também cobre os nós dos launches incluídos. Os perfis
+`notebook`, `wsl` e `fastdds` removem essa opção da sessão.
+
+Consulte a pasta informada pelo launch ao iniciar, normalmente em `~/.ros/log`
+ou em `ROS_LOG_DIR`. Os arquivos `*-stdout.log`, `*-stderr.log` e `*-stdout_stderr.log`
+permitem recolher os registros após reconectar. Não use `output=log` como
+substituto: no ROS launch essa opção ainda envia stderr para a tela; `own_log`
+é a opção que mantém os dois fluxos em arquivo. Configurar apenas
+`Tracing/OutputFile` no CycloneDDS também não elimina os erros de stderr.
+
+Para manter os launches e a CLI ativos caso o SSH encerre a sessão, use uma
+sessão persistente como `tmux`. Com o novo destino da saída, o controle também
+não depende de alguém estar lendo os logs no terminal.
+
+`RedundantNetworking` permanece **false**: a biblioteca CycloneDDS 0.10.5
+instalada abortou em `wras_cover_locatorset` ao ativá-lo com vários processos.
+Não basta trocar essa opção para `true` nessa versão. A configuração mantém
+os IPs fixos do cabo, Wi-Fi opcional e os limites de fragmentação existentes.
+
+Depois de atualizar **ambas as placas** e o notebook, reconstrua `bringup`,
+pare os launches antigos, selecione `banana`, `rasp` e `notebook`/`wsl` nos
+respectivos terminais, execute `ros2 daemon stop` e reinicie os launches.
+Alterar o XML ou dar `source` não reconfigura os processos DDS já iniciados.
+A action da missão pode continuar sendo enviada pelo notebook com Wi-Fi.
 
 ### Workstation no WSL 2
 
@@ -312,8 +361,8 @@ Wi-Fi, e prioridade não proíbe outros caminhos. O hotspot precisa permitir
 comunicação entre clientes e multicast. Se bloquear apenas multicast, será
 necessário configurar descoberta unicast para os endereços Wi-Fi atuais.
 Inicie com os IPs já atribuídos. Mudança de IP/hotspot ou interface que aparece
-após a inicialização pode exigir reiniciar os processos; não há promessa de
-reconexão transparente. Retirar o cabo não deve ser usado como teste de
+após a inicialização pode exigir reiniciar os processos. A reconexão testada
+restaura os mesmos endereços e interfaces existentes na inicialização. Retirar o cabo não deve ser usado como teste de
 continuidade garantida: uma política estrita sem Wi-Fi não teria caminho reserva.
 
 Os limites de payload UDP são 1400 bytes (incluindo RTPS), e os fragmentos DDS
@@ -358,8 +407,18 @@ Valide com o robô parado antes de comandar movimento:
 3. Notebook assinando o mesmo tópico da outra placa: dados entre placas no cabo.
 4. Actions: descoberta, feedback, resultado e cancelamento; serviços também.
 5. Imagens/mapas: frequência, latência, perdas, fragmentação IP e CPU.
-6. Desconexão/reconexão do notebook e do Wi-Fi: ausência de regressão no cabo.
+6. Desligar/religar o roteador: ações locais e entre placas continuam no cabo;
+   o notebook volta a trocar tópicos, serviços e actions quando recuperar o Wi-Fi.
+   Repetir com o terminal SSH sem consumir saída e conferir os logs DDS em `/tmp`.
 7. Reinício de cada placa, diferentes ordens de inicialização e troca de hotspot.
+
+Validação local: três namespaces Linux com os mesmos nomes de interfaces e
+IPs das placas/notebook. Com a saída dos servidores na tela e sem consumidor,
+a execução bloqueou após encher o pipe. Com `own_log`, cada placa concluiu
+60 ciclos de serviços/actions locais e remotos durante a queda, com feedback e
+resultado, mantendo os tópicos ativos. Novos nós descobriram os servidores
+sem Wi-Fi; o notebook funcionou antes e depois da reconexão, sem reiniciar ROS.
+Esse teste não executa câmera, sensores ou motores: repita a missão no robô.
 
 ### Retorno ao Fast DDS
 

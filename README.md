@@ -12,6 +12,10 @@ Raspberry Pi: câmera / EKF / AMCL / Nav2 / MoveIt / manipulação / missão
 Notebook:     RViz / MotionPlanning / teleop / diagnóstico
 ```
 
+Cada placa usa um único XML CycloneDDS: Ethernet entre as placas e Wi-Fi
+opcional para ROS com o notebook. A missão deve continuar quando o roteador
+é desligado. Ao iniciar via SSH, use uma sessão persistente como `tmux`.
+
 Os dois computadores do robô devem usar o mesmo `ROS_DOMAIN_ID`. O controle de
 baixo nível permanece operacional na Banana sem depender do laço de rede.
 
@@ -120,7 +124,7 @@ ros2 launch bringup workstation.launch.py
 ```
 
 Antes do primeiro uso, instale as dependências com
-`rosdep` e reconstrua o pacote `bringup`. Ao trocar de middleware, pare os
+`rosdep` e reconstrua o pacote `bringup`. Ao alterar o XML ou trocar de middleware, pare os
 processos anteriores e execute `ros2 daemon stop` antes de iniciar os novos.
 No WSL espelhado, prefira `ros2 topic list --no-daemon --spin-time 5`; se o
 comando sem essa opção expirar, execute `ros2 daemon start` novamente.

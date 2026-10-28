@@ -1,17 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Cyclone DDS 0.10.5 / ROS 2 Jazzy. Ethernet preference, not Wi-Fi isolation.
-     SPDP discovery still uses Wi-Fi multicast. Start after DHCP is ready. -->
+<!-- Cyclone DDS 0.10.5 / ROS 2 Jazzy. Ethernet between boards; optional Wi-Fi
+     for the notebook. Fixed Ethernet peers keep discovery independent of Wi-Fi. -->
 <CycloneDDS xmlns="https://cdds.io/config">
   <Domain Id="any">
     <General>
       <Transport>udp</Transport>
+      <DontRoute>true</DontRoute>
       <Interfaces>
-        <NetworkInterface name="eth0" priority="100"/>
+        <NetworkInterface name="eth0" address="10.50.0.2" priority="100"/>
         <NetworkInterface name="wlan0" priority="10" presence_required="false"/>
       </Interfaces>
       <AllowMulticast>spdp</AllowMulticast>
       <MulticastRecvNetworkInterfaceAddresses>all</MulticastRecvNetworkInterfaceAddresses>
       <EnableMulticastLoopback>true</EnableMulticastLoopback>
+      <!-- RedundantNetworking=true crashes in the stock Cyclone DDS 0.10.5. -->
       <RedundantNetworking>false</RedundantNetworking>
       <!-- IPv4 MTU >= 1500; message size includes RTPS, excludes IP/UDP. -->
       <MaxMessageSize>1400 B</MaxMessageSize>
@@ -19,10 +21,13 @@
       <FragmentSize>1200 B</FragmentSize>
     </General>
     <Discovery>
+      <!-- Rediscover promptly after Wi-Fi reconnects with the same address. -->
+      <SPDPInterval>1 s</SPDPInterval>
       <ParticipantIndex>auto</ParticipantIndex>
       <MaxAutoParticipantIndex>64</MaxAutoParticipantIndex>
       <Peers>
-        <Peer Address="127.0.0.1"/>
+        <!-- Own Ethernet IP discovers other local processes without Wi-Fi. -->
+        <Peer Address="10.50.0.2"/>
         <Peer Address="10.50.0.1"/>
       </Peers>
     </Discovery>
