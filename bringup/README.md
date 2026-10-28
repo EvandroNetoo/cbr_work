@@ -273,22 +273,64 @@ pode ocorrer em um SSH desconectado. A descoberta e as chamadas ROS pararam.
 Isso é compatível com os logs anexados e com a retomada ao reconectar o SSH;
 os trechos disponíveis não registram o erro inicial da coleta no robô físico.
 
-O seletor `dds_environment.bash`, ao escolher `banana` ou `rasp`, agora define
-`OVERRIDE_LAUNCH_PROCESS_OUTPUT=own_log`. O ROS launch drena stdout e stderr
-para arquivos por processo no diretório de logs, sem enviar esse fluxo ao
-terminal SSH. Isso também cobre os nós dos launches incluídos. Os perfis
-`notebook`, `wsl` e `fastdds` removem essa opção da sessão.
+O padrão é mostrar os logs no SSH. O seletor `dds_environment.bash` limpa a
+antiga configuração persistente de saída; depois de atualizar, execute novamente
+o `source` do perfil correspondente antes de iniciar os launches.
 
-Consulte a pasta informada pelo launch ao iniciar, normalmente em `~/.ros/log`
-ou em `ROS_LOG_DIR`. Os arquivos `*-stdout.log`, `*-stderr.log` e `*-stdout_stderr.log`
-permitem recolher os registros após reconectar. Não use `output=log` como
+Para desenvolvimento, use os comandos normais:
+
+```bash
+# Banana
+ros2 launch bringup hardware.launch.py
+# Raspberry
+ros2 launch bringup processing.launch.py
+```
+
+Para uma missão em que o Wi-Fi será desligado, use estes comandos silenciosos:
+
+```bash
+# Banana
+OVERRIDE_LAUNCH_PROCESS_OUTPUT=own_log ros2 launch bringup hardware.launch.py >/dev/null 2>&1
+# Raspberry
+OVERRIDE_LAUNCH_PROCESS_OUTPUT=own_log ros2 launch bringup processing.launch.py >/dev/null 2>&1
+```
+
+`own_log` faz o ROS launch drenar stdout e stderr dos nós para arquivos locais,
+incluindo nós de launches incluídos. O redirecionamento elimina também as
+mensagens de início/encerramento do launch no SSH. A variável vale apenas para
+essa execução: o próximo comando normal volta a mostrar os logs. O launch
+continua em primeiro plano e Ctrl+C o encerra normalmente.
+
+A visualização separada é opcional para a execução silenciosa. Em outra conexão
+SSH para a mesma placa:
+
+```bash
+source ~/ros2_ws/install/setup.bash
+ros2 run bringup follow_logs
+```
+
+O comando seleciona a execução mais recente em `~/.ros/log` (respeitando
+`ROS_HOME`/`ROS_LOG_DIR`), mostra as últimas 20 linhas de cada arquivo e acompanha
+novas mensagens, incluindo arquivos de nós iniciados depois. Ctrl+C ou a queda
+desse SSH encerra somente a visualização. Ele permanece na execução selecionada;
+depois de reiniciar o launch, execute o comando novamente.
+
+Para acompanhar uma execução específica, informe a pasta mostrada pelo launch:
+
+```bash
+ros2 run bringup follow_logs /home/banana/.ros/log/PASTA_DA_EXECUCAO
+```
+
+Os arquivos combinados se chamam `<processo>.log`; `*-stdout.log` e `*-stderr.log`
+contêm os mesmos fluxos separados. O visualizador usa os combinados para evitar
+mensagens duplicadas. Não use `output=log` como
 substituto: no ROS launch essa opção ainda envia stderr para a tela; `own_log`
 é a opção que mantém os dois fluxos em arquivo. Configurar apenas
 `Tracing/OutputFile` no CycloneDDS também não elimina os erros de stderr.
 
 Para manter os launches e a CLI ativos caso o SSH encerre a sessão, use uma
-sessão persistente como `tmux`. Com o novo destino da saída, o controle também
-não depende de alguém estar lendo os logs no terminal.
+sessão persistente como `tmux`. No comando silencioso, o fluxo de logs não
+depende de alguém estar lendo o terminal.
 
 `RedundantNetworking` permanece **false**: a biblioteca CycloneDDS 0.10.5
 instalada abortou em `wras_cover_locatorset` ao ativá-lo com vários processos.
@@ -409,7 +451,8 @@ Valide com o robô parado antes de comandar movimento:
 5. Imagens/mapas: frequência, latência, perdas, fragmentação IP e CPU.
 6. Desligar/religar o roteador: ações locais e entre placas continuam no cabo;
    o notebook volta a trocar tópicos, serviços e actions quando recuperar o Wi-Fi.
-   Repetir com o terminal SSH sem consumir saída e conferir os logs DDS em `/tmp`.
+   Repetir com o comando silencioso e o terminal SSH sem consumir saída;
+   conferir os arquivos na pasta de logs informada pelo launch.
 7. Reinício de cada placa, diferentes ordens de inicialização e troca de hotspot.
 
 Validação local: três namespaces Linux com os mesmos nomes de interfaces e

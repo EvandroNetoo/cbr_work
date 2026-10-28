@@ -61,11 +61,11 @@ def test_invalid_selection_preserves_environment(selector, missing_profile):
     ''', 'banana' if missing_profile else 'invalid') == ['original', 'original', '42']
 
 
-@pytest.mark.parametrize('role', ['banana', 'rasp'])
-def test_board_launch_output_does_not_depend_on_the_ssh_terminal(selector, role):
+@pytest.mark.parametrize('role', ['banana', 'rasp', 'notebook', 'wsl', 'fastdds'])
+def test_selection_restores_normal_output_after_old_quiet_setting(selector, role):
     assert shell(selector, '''
+        export OVERRIDE_LAUNCH_PROCESS_OUTPUT=own_log
         source "$1" "$2" || exit 1
-        printf '%s\\n' "$OVERRIDE_LAUNCH_PROCESS_OUTPUT"
-        source "$1" notebook || exit 1
         test -z "${OVERRIDE_LAUNCH_PROCESS_OUTPUT+x}" || exit 1
-    ''', role) == ['own_log']
+        printf 'normal\\n'
+    ''', role) == ['normal']

@@ -23,3 +23,9 @@ def record(scenario):
     payload['attempts'][0].pop('automatic_percentages')
     payload['attempts'][0].pop('followed_line')
     return payload
+
+
+@pytest.fixture(autouse=True)
+def isolate_planner_ui(monkeypatch):
+    monkeypatch.setattr('generation_ui.ensure_service',
+                        lambda *args, **kwargs: {'state': 'starting', 'message': 'Iniciando servidor…'})

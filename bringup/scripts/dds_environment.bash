@@ -29,12 +29,9 @@ _cbr_dds_environment() {
             return 2
             ;;
     esac
-    # A disconnected SSH terminal must not block nodes when DDS floods stderr.
-    # own_log drains both streams to per-process files, with no screen handler.
-    case "$role" in
-        banana|rasp) export OVERRIDE_LAUNCH_PROCESS_OUTPUT=own_log ;;
-        *) unset OVERRIDE_LAUNCH_PROCESS_OUTPUT ;;
-    esac
+    # Normal launches show logs. Select own_log on the individual launch command
+    # for Wi-Fi-off tests; clear the old persistent setting when sourcing again.
+    unset OVERRIDE_LAUNCH_PROCESS_OUTPUT
     export ROS_DOMAIN_ID=10
     # Keep all machines discoverable. Peers are managed by the selected XML.
     unset ROS_LOCALHOST_ONLY ROS_STATIC_PEERS

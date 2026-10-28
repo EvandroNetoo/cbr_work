@@ -175,3 +175,49 @@ def test_save_plan_uses_mission_filename(tmp_path, mission, expected):
     assert paths == [existing]
     assert existing.read_text() == '# Original preservado\nplan_id: ' + expected + '\nfinish: true\n'
     assert other.read_text() == 'preservar'
+
+
+def test_persistent_planner_pipeline_shares_cache_and_endpoints(tmp_path):
+    import json
+    import os
+    from generation import write_json
+    from planner_service import fingerprint, identity
+    settings = fake_settings(tmp_path)
+    root = tmp_path / 'generations'
+    service = root / 'planner'
+    service.mkdir(parents=True)
+    write_json(service / 'request.json', {'namespace': '/dashboard_test'})
+    write_json(service / 'status.json', {'state': 'ready', 'message': 'ok'})
+    write_json(service / 'worker.json', {'pid': os.getpid(), 'identity': identity(os.getpid())})
+    binary = tmp_path / 'ros2'
+    binary.write_text('#!' + sys.executable + '\nimport json, pathlib, sys\n'
+                      'args = sys.argv\n'
+                      'out = pathlib.Path(args[args.index("--output") + 1])\n'
+                      'out.write_text("plan_id: plano\\n")\n'
+                      '(out.parent / "args.json").write_text(json.dumps(args))\n')
+    planner = {'directory': str(service), 'key': fingerprint(settings)}
+    jobs = [start_generation(root, settings, planner=planner) for _ in range(2)]
+    for directory in jobs:
+        assert wait_job(directory)['state'] == 'done'
+    arguments = [json.loads((directory / 'args.json').read_text()) for directory in jobs]
+    caches = [args[args.index('--cache') + 1] for args in arguments]
+    assert caches[0] == caches[1]
+    assert Path(caches[0]).parent == root / 'cache'
+    assert '--external-planner' in arguments[0]
+    assert arguments[0][arguments[0].index('--planner-server') + 1] == '/dashboard_test/planner_server'
+    write_json(service / 'status.json', {'state': 'error', 'message': 'stopped'})
+    with pytest.raises(ValueError, match='servidor'):
+        start_generation(root, settings, planner=planner)
+
+
+def test_generation_button_waits_for_ready_server(tmp_path, monkeypatch):
+    monkeypatch.setenv('ROBOT_TEST_DB', str(tmp_path / 'tests.sqlite3'))
+    state = {'state': 'starting', 'message': 'Iniciando servidor…'}
+    monkeypatch.setattr('generation_ui.ensure_service', lambda *a, **kw: state)
+    app = AppTest.from_file(str(APP)).run()
+    next(e for e in app.radio if e.label == 'Origem do cenário').set_value('Gerar por seed').run()
+    assert next(e for e in app.button if e.label == 'Gerar cenário e plano').disabled
+    state.update(state='ready', message='Servidor pronto')
+    app.run()
+    assert not next(e for e in app.button if e.label == 'Gerar cenário e plano').disabled
+    assert not app.exception

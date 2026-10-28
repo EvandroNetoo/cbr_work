@@ -31,6 +31,7 @@ setup(
     description='Embedded CBR robot bringup',
     license='GPL-3.0-only',
     entry_points={'console_scripts': [
+        'follow_logs = bringup.follow_logs:main',
         'publish_robot_description = bringup.robot_description_publisher:main',
         'wait_for_hardware_states = bringup.wait_for_hardware_states:main',
         'xbox_base_teleop = bringup.xbox_base_teleop:main',

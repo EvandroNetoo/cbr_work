@@ -127,8 +127,13 @@ def validate_settings(settings):
         raise ValueError('Arquivo de metaarena não encontrado.')
 
 
-def start_generation(root, settings):
+def start_generation(root, settings, *, planner=None):
     validate_settings(settings)
+    if planner is not None:
+        from planner_service import fingerprint, service_status
+        if service_status(Path(planner['directory']))['state'] != 'ready' or fingerprint(settings) != planner['key']:
+            raise ValueError('Aguarde o servidor ficar pronto com a configuração atual.')
+        settings = {**settings, '_planner': planner}
     directory = Path(root).resolve() / (datetime.now(TZ).strftime('%Y%m%d-%H%M%S') + '_' + uuid4().hex[:8])
     directory.mkdir(parents=True)
     write_json(directory / 'request.json', dict(settings))
@@ -181,10 +186,21 @@ def generate(directory):
         team = directory / f"{settings['mission']}_seed{int(settings['seed'])}_equipe.yaml"
         import_scenario(team.read_text(encoding='utf-8'), team.name)
         plan = directory / 'plano.yaml'
+        planner = settings.get('_planner')
+        cache = directory / 'nav2_distances.json'
+        if planner:
+            from planner_service import fingerprint, service_status
+            if service_status(Path(planner['directory']))['state'] != 'ready' or fingerprint(settings) != planner['key']:
+                raise ValueError('Servidor indisponível ou configuração alterada. Gere novamente.')
+            cache = directory.parent / 'cache' / (planner['key'] + '.json')
+            cache.parent.mkdir(exist_ok=True)
         command = ['ros2', 'run', 'mission_manager', 'generate_plan', '--task', str(team),
                    '--output', str(plan), '--objective', settings['objective'],
                    '--time-limit', settings['time_limit'], '--max-states', settings['max_states'],
-                   '--cache', str(directory / 'nav2_distances.json')]
+                   '--cache', str(cache)]
+        if planner:
+            from planner_service import planner_arguments
+            command += planner_arguments(planner['directory'])
         for key, flag in [('arena', '--arena'), ('map', '--map'), ('planner_params', '--planner-params')]:
             command += [flag, str(Path(settings[key]).expanduser().resolve())]
         command += ['--cargo-slots', *settings['cargo_slots'].split()]

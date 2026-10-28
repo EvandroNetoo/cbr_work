@@ -50,7 +50,20 @@ Clique em **Gerar cenário e plano**. O Commander gera os YAMLs de equipe e juiz
 depois o `mission_manager generate_plan` calcula as distâncias e otimiza o plano.
 A geração usa processos em segundo plano e mostra andamento e logs. Requer
 Commander instalado, workspace ROS compilado e máscara keepout junto ao mapa.
-O planner local inicia automaticamente e não envia comandos de movimento.
+Ao abrir **Gerar por seed**, o painel inicia um servidor local de planejamento
+em segundo plano e mostra **Iniciando / Pronto / Erro**, com logs e opção de tentar
+novamente. O botão de geração fica disponível quando o servidor está pronto.
+O servidor é reutilizado entre seeds, em um namespace próprio, e não envia
+comandos de movimento. Ao encerrar o processo do painel, o servidor também encerra;
+fechar apenas a aba do navegador mantém ambos ativos.
+
+Alterar mapa, imagem do mapa, máscara keepout, arena, setup ROS ou parâmetros
+reinicia o servidor antes da próxima geração. Se houver uma geração em andamento,
+a troca aguarda sua conclusão. As distâncias ficam em `data/generations/cache/`,
+compartilhadas entre seeds com a mesma configuração. O conteúdo dos arquivos
+identifica o cache: mudanças no mapa, na máscara ou nos parâmetros usam outro
+cache. Os arquivos e logs de cada geração continuam separados. O supervisor usa
+o Python do sistema (`/usr/bin/python3`) com o setup ROS selecionado.
 
 Cada execução mantém seus arquivos e logs em `data/generations/<execução>/`
 (ao lado do banco configurado por `ROBOT_TEST_DB`). Consulte execuções anteriores

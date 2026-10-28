@@ -14,7 +14,10 @@ Notebook:     RViz / MotionPlanning / teleop / diagnóstico
 
 Cada placa usa um único XML CycloneDDS: Ethernet entre as placas e Wi-Fi
 opcional para ROS com o notebook. A missão deve continuar quando o roteador
-é desligado. Ao iniciar via SSH, use uma sessão persistente como `tmux`.
+é desligado. Os launches normais mostram logs no SSH. Para testar sem Wi-Fi,
+use o [comando silencioso](bringup/README.md#queda-do-wi-fi-e-logs-do-terminal-ssh),
+que grava a saída dos nós em arquivos locais. Uma sessão como `tmux` mantém
+os processos ativos caso a sessão SSH seja encerrada.
 
 Os dois computadores do robô devem usar o mesmo `ROS_DOMAIN_ID`. O controle de
 baixo nível permanece operacional na Banana sem depender do laço de rede.

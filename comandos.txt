@@ -2,7 +2,7 @@ ros2 launch bringup workstation.launch.py enable_xbox_teleop:=true
 ros2 launch nav2_bringup localization_launch.py   map:=/home/evandro/ros2_ws/src/cbr_work/bringup/maps/arena.yaml   params_file:=/home/evandro/ros2_ws/tools/amcl_localization.yaml autostart:=true
 ros2 launch bringup navigation.launch.py
 ros2 launch mission_manager mission_manager.launch.py
-
+ros2 action send_goal /mission/execute   interfaces/action/ExecuteMission   "{plan_id: 7_final_test, start_pose: start}"   --feedback
 
 ros2 service call /so101_hardware_node/set_torque std_srvs/srv/SetBool "{data: false}"
 
@@ -18,6 +18,17 @@ ros2 launch bringup processing.launch.py
 ros2 launch bringup processing.launch.py disable_components:=mission,manipulation
 # Notebook: inicia missão, manipulação e visão
 ros2 launch bringup processing.launch.py components:=mission,manipulation
+
+# Banana
+OVERRIDE_LAUNCH_PROCESS_OUTPUT=own_log ros2 launch bringup hardware.launch.py >/dev/null 2>&1
+
+# Raspberry
+OVERRIDE_LAUNCH_PROCESS_OUTPUT=own_log ros2 launch bringup processing.launch.py >/dev/null 2>&1
+
+ros2 control list_controllers
+ros2 lifecycle get /bt_navigator
+ros2 action info /vl53/follow_wall
+ros2 action info /mission/execute
 
 # Raspberry: inicia explicitamente todos os componentes possiveis
 ros2 launch bringup processing.launch.py components:=rsp,ekf,camera,vision,localization,navigation,moveit,manipulation,mission

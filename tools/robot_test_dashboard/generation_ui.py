@@ -3,6 +3,8 @@ from pathlib import Path
 
 import streamlit as st
 
+from planner_service import ensure_service
+
 from domain import MISSIONS, import_scenario, new_record
 from generation import (DEFAULTS, INSTALLED_PLANS_DIRECTORY, MISSION_PLAN_IDS, PLANS_DIRECTORY,
                         read_status, save_plan, start_generation)
@@ -48,19 +50,11 @@ def generation_form(store, activate):
         settings['time_limit'] = text('time_limit', 'Limite da busca (segundos)', 'Após o cálculo das distâncias. O processo pode demorar mais que esse limite.')
         settings['max_states'] = text('max_states', 'Máximo de estados da busca', 'Se o otimizador atingir um limite, aumente este valor ou o tempo e gere novamente.')
     root = store.path.resolve().parent / 'generations'
-    jobs = sorted(root.glob('*/status.json'), reverse=True) if root.exists() else []
+    jobs = sorted((p for p in root.glob('*/status.json') if p.parent.name != 'planner'), reverse=True) if root.exists() else []
     running = any(read_status(path.parent)['state'] == 'running' for path in jobs)
     st.session_state['generation:busy'] = running
-    if st.button('Gerar cenário e plano', type='primary', disabled=running):
-        try:
-            directory = start_generation(root, settings)
-            st.session_state['generation:selected'] = str(directory)
-            st.rerun()
-        except (OSError, ValueError) as exc:
-            st.error(str(exc))
-    if running:
-        st.info('Há uma geração em andamento. O acompanhamento abaixo é atualizado automaticamente.')
-    jobs = sorted(root.glob('*/status.json'), reverse=True) if root.exists() else []
+    planner_controls(root, settings)
+    jobs = sorted((p for p in root.glob('*/status.json') if p.parent.name != 'planner'), reverse=True) if root.exists() else []
     if jobs:
         st.selectbox('Gerações salvas', [str(p.parent) for p in jobs],
                      format_func=lambda p: Path(p).name, key='generation:selected')
@@ -73,7 +67,7 @@ def generation_result(store, activate):
     try:
         status = read_status(directory)
         running = any(read_status(path.parent)['state'] == 'running'
-                      for path in directory.parent.glob('*/status.json'))
+                      for path in directory.parent.glob('*/status.json') if path.parent.name != 'planner')
         if running != st.session_state.get('generation:busy', False):
             st.rerun()
         if status['state'] == 'running':
@@ -121,3 +115,40 @@ def generation_result(store, activate):
                 st.code(path.read_text(encoding='utf-8', errors='replace')[-20000:] or 'Aguardando saída…', language='text')
     except (OSError, ValueError) as exc:
         st.error(str(exc))
+
+
+@st.fragment(run_every=2)
+def planner_controls(root, settings):
+    running = any(read_status(path.parent)['state'] == 'running'
+                  for path in root.glob('*/status.json') if path.parent.name != 'planner')
+    try:
+        planner = ensure_service(root, settings, busy=running)
+        if planner['state'] == 'ready':
+            st.success(planner['message'])
+        elif planner['state'] == 'error':
+            st.error(planner['message'])
+            if st.button('Tentar iniciar servidor novamente'):
+                ensure_service(root, settings, busy=running, retry=True)
+                st.rerun()
+        else:
+            st.info(planner['message'])
+        if st.button('Gerar cenário e plano', type='primary',
+                     disabled=running or planner['state'] != 'ready'):
+            directory = start_generation(root, settings, planner=planner)
+            st.session_state['generation:selected'] = str(directory)
+            st.rerun()
+        if running:
+            st.info('Há uma geração em andamento. O acompanhamento é atualizado automaticamente.')
+        with st.expander('Logs do servidor de planejamento'):
+            directory = root / 'planner'
+            paths = [directory / 'worker.log']
+            from planner_service import service_status
+            status = service_status(directory)
+            if status.get('log'):
+                paths.append(Path(status['log']))
+            for path in paths:
+                if path.is_file():
+                    st.caption(path.name)
+                    st.code(path.read_text(errors='replace')[-20000:] or 'Aguardando saída…', language='text')
+    except (OSError, ValueError, KeyError) as exc:
+        st.error('Não foi possível preparar o servidor: ' + str(exc))
