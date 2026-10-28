@@ -12,7 +12,7 @@ def validate_expression(parameter_name: str, expression: str) -> str:
 
 OPERATION_EXPRESSIONS = {
     'navigate': 'navigate',
-    'finish': 'finish',
+    'finish': 'comemorar',
     'follow_wall': 'follow_wall',
     'analyze_scene': 'analyze_scene',
     'pick': 'pick',

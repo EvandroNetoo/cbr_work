@@ -41,7 +41,7 @@ def state(operation='', known=True):
 
 
 @pytest.mark.parametrize('operation, expected', [
-    (operation, operation) for operation in (
+    (operation, 'comemorar' if operation == 'finish' else operation) for operation in (
         'navigate', 'finish', 'follow_wall', 'analyze_scene', 'pick', 'store',
         'retrieve', 'place_on_table', 'place_in_container', 'place_on_shelf',
         'place_on_precision_table', 'stack', 'organize_precision',
@@ -50,6 +50,13 @@ def state(operation='', known=True):
 
 def test_mission_operation_selects_expression(operation, expected):
     assert expression_for_mission(operation, True) == expected
+
+
+def test_default_yaml_and_mapping_select_celebration_for_finish():
+    config = yaml.safe_load(
+        (Path(__file__).parents[1] / 'config' / 'face.yaml').read_text())
+    operations = config['mission_face_node']['ros__parameters']['expressions']['operations']
+    assert operations['finish'] == expression_for_mission('finish', True) == 'comemorar'
 
 
 def test_uncertain_inventory_overrides_running_expression():
