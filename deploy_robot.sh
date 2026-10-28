@@ -3,11 +3,11 @@
 set -euo pipefail
 
 # BANANA="banana@172.20.10.8"
-BANANA="banana@10.156.187.44"
+BANANA="banana@10.217.69.44"
 # BANANA="banana@192.168.1.218"
 
 # RASPBERRY="rasp@172.20.10.13"
-RASPBERRY="rasp@10.156.187.248"
+RASPBERRY="rasp@10.217.69.248"
 # RASPBERRY="rasp@192.168.1.114"
 
 WORKSPACE="$HOME/ros2_ws"

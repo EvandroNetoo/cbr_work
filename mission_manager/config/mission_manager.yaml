@@ -3,6 +3,7 @@ mission_manager:
     arena_file: ""
     plans_directory: ""
     execute_action: /mission/execute
+    odometry_topic: /odom
     state_topic: /mission/state
     state_frame_id: arm_base_link
     cargo_slot_ids: [left, right]
@@ -27,6 +28,12 @@ mission_manager:
     vision_led_hold_off_service: /vision/hold_led_off
     server_timeout_s: 10.0
     navigation_timeout_s: 9999999.0
+    # Após falha ao navegar saindo de uma área, aguarda o AMCL aplicar a
+    # pose cadastrada dessa área antes de reenviar o objetivo ao Nav2.
+    navigation_pose_recovery_wait_s: 2.0
+    # A recuperação só ocorre se o robô continuar próximo da posição
+    # medida pela odometria imediatamente antes de enviar a action de navegação.
+    navigation_pose_recovery_radius_m: 0.5
     manipulation_timeout_s: 9999999.0
     # Total attempts per operation, including the first attempt.
     operation_max_attempts: 2

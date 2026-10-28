@@ -65,6 +65,8 @@ def test_follow_wall_safety_parameters_are_enabled_by_default():
     assert parameters['follow_wall.alignment_error_ignore_sec'] == 1.0
     assert parameters['follow_wall.alignment_recovery_distance_mm'] == 100
     assert parameters['follow_wall.minimum_lateral_clearance_mm'] == 10
+    assert parameters['navigation_pose_recovery_wait_s'] == 2.0
+    assert parameters['navigation_pose_recovery_radius_m'] == 0.5
     assert 'place_at_pose_action' not in parameters
 
     arena = yaml.safe_load((PACKAGE / 'config' / 'arena.yaml').read_text())

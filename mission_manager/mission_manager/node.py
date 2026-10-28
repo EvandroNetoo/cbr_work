@@ -36,6 +36,7 @@ from interfaces.msg import (
     SceneObservation,
 )
 from nav2_msgs.action import NavigateToPose
+from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -97,6 +98,7 @@ class MissionManager(PrecisionRuntime, Node):
             'execute_action': '/mission/execute',
             'mission_active_topic': '/mission/active',
             'initial_pose_topic': '/initialpose',
+            'odometry_topic': '/odom',
             'state_topic': '/mission/state',
             'state_frame_id': 'arm_base_link',
             'cargo_slot_ids': ['left', 'right'],
@@ -120,6 +122,8 @@ class MissionManager(PrecisionRuntime, Node):
             'place_on_shelf_action': '/manipulation/place_on_shelf',
             'server_timeout_s': 10.0,
             'navigation_timeout_s': 120.0,
+            'navigation_pose_recovery_wait_s': 2.0,
+            'navigation_pose_recovery_radius_m': 0.5,
             'manipulation_timeout_s': 120.0,
             'operation_max_attempts': 2,
             'retrieve_max_attempts': 4,
@@ -141,6 +145,12 @@ class MissionManager(PrecisionRuntime, Node):
 
         self._mission_recovery_rounds = self._nonnegative_integer_parameter(
             'mission_recovery_rounds')
+        self._navigation_pose_recovery_wait_s = (
+            self._nonnegative_float_parameter(
+                'navigation_pose_recovery_wait_s'))
+        self._navigation_pose_recovery_radius_m = (
+            self._nonnegative_float_parameter(
+                'navigation_pose_recovery_radius_m'))
 
         self._wall_max_alignment_error_mm = (
             self._nonnegative_integer_parameter(
@@ -201,6 +211,8 @@ class MissionManager(PrecisionRuntime, Node):
         self._direct_pick_observation: TableObservation | None = None
         self._active_children = {}
         self._departure_completed_for = None
+        self._last_departed_service_area = None
+        self._odometry_position_xy: tuple[float, float] | None = None
         self._arena: Arena | None = None
         self._service_area_vision_active = False
 
@@ -223,6 +235,12 @@ class MissionManager(PrecisionRuntime, Node):
         self._initial_pose_publisher = self.create_publisher(
             PoseWithCovarianceStamped,
             str(self.get_parameter('initial_pose_topic').value), 1)
+        self._odometry_subscription = self.create_subscription(
+            Odometry,
+            str(self.get_parameter('odometry_topic').value),
+            self._on_odometry,
+            1,
+        )
         self._mission_active_publisher = self.create_publisher(
             Bool, str(self.get_parameter('mission_active_topic').value), state_qos)
         self._publish_mission_active(False)
@@ -837,6 +855,23 @@ class MissionManager(PrecisionRuntime, Node):
 
     def _navigation_timeout(self) -> float:
         return float(self.get_parameter('navigation_timeout_s').value)
+
+    def _on_odometry(self, message: Odometry) -> None:
+        position = message.pose.pose.position
+        x, y = float(position.x), float(position.y)
+        if math.isfinite(x) and math.isfinite(y):
+            self._odometry_position_xy = (x, y)
+
+    def _navigation_recovery_distance(
+        self, start_position: tuple[float, float] | None
+    ) -> float | None:
+        current_position = getattr(self, '_odometry_position_xy', None)
+        if start_position is None or current_position is None:
+            return None
+        return math.hypot(
+            current_position[0] - start_position[0],
+            current_position[1] - start_position[1],
+        )
 
     def _manipulation_timeout(self) -> float:
         return float(self.get_parameter('manipulation_timeout_s').value)
@@ -1778,6 +1813,7 @@ class MissionManager(PrecisionRuntime, Node):
             else:
                 self._run_area_motion(
                     self._prepare_for_navigation, self._depart_service_area, boundary=True)
+            self._last_departed_service_area = self._current_location
             self._departure_completed_for = None
             self._current_wall_distance_mm = None
             self._current_lateral_position_mm = 0.0
@@ -1790,13 +1826,55 @@ class MissionManager(PrecisionRuntime, Node):
         goal.pose.pose.position.y = pose.y_m
         goal.pose.pose.orientation.z = math.sin(pose.yaw_rad / 2.0)
         goal.pose.pose.orientation.w = math.cos(pose.yaw_rad / 2.0)
-        self._call_action(
-            self._navigate_client,
-            goal,
-            f'navegação até {target}',
-            self._navigation_timeout(),
-            self._navigation_failure,
-        )
+        navigation_start_position = getattr(
+            self, '_odometry_position_xy', None)
+        try:
+            self._call_action(
+                self._navigate_client,
+                goal,
+                f'navegação até {target}',
+                self._navigation_timeout(),
+                self._navigation_failure,
+            )
+        except StepFailed as error:
+            recovery_area = getattr(
+                self, '_last_departed_service_area', None)
+            if recovery_area is None:
+                raise
+            recovery_distance = self._navigation_recovery_distance(
+                navigation_start_position)
+            recovery_radius = self._navigation_pose_recovery_radius_m
+            if recovery_distance is None:
+                self.get_logger().warning(
+                    'Navegação falhou, mas a odometria antes e depois '
+                    'da action não está disponível; recuperação de pose '
+                    'não será executada.')
+                raise
+            if recovery_distance > recovery_radius:
+                self.get_logger().warning(
+                    f'Navegação falhou após deslocamento de '
+                    f'{recovery_distance:.3f} m, fora do raio de recuperação '
+                    f'de {recovery_radius:.3f} m; pose não será redefinida.')
+                raise
+            self.get_logger().warning(
+                f'Navegação após sair de {recovery_area} falhou ({error}). '
+                f'O robô permaneceu a {recovery_distance:.3f} m da posição '
+                f'inicial (raio {recovery_radius:.3f} m). '
+                f'Redefinindo a pose estimada para {recovery_area} antes de '
+                'tentar novamente.')
+            self._initialize_localization(self._arena, recovery_area)
+            self._wait_for_navigation_pose_recovery()
+            # The first attempt and recovery wait may be long enough for Nav2 to
+            # reject the original timestamp on the second goal.
+            goal.pose.header.stamp = self.get_clock().now().to_msg()
+            self._call_action(
+                self._navigate_client,
+                goal,
+                f'navegação até {target} após recuperar pose de '
+                f'{recovery_area}',
+                self._navigation_timeout(),
+                self._navigation_failure,
+            )
         # Nav2 arrival is a physical fact even if camera activation/alignment fails.
         self._current_location = target
         self._current_wall_distance_mm = None
@@ -1831,6 +1909,18 @@ class MissionManager(PrecisionRuntime, Node):
             )
             self._current_lateral_position_mm = 0.0
         self._current_location = target
+
+    def _wait_for_navigation_pose_recovery(self) -> None:
+        """Wait for localization to consume /initialpose, remaining cancellable."""
+        wait_s = self._navigation_pose_recovery_wait_s
+        deadline = time.monotonic() + wait_s
+        completed = threading.Event()
+        while True:
+            self._check_canceled()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                return
+            completed.wait(min(0.05, remaining))
 
     def _recover_pick(
         self, result: Any, step: Step, *, alignment_only: bool = False,
@@ -3305,6 +3395,7 @@ class MissionManager(PrecisionRuntime, Node):
         self._last_stack_placement = None
         self._status = 'running'
         self._departure_completed_for = None
+        self._last_departed_service_area = None
         self._service_area_vision_active = False
         self._current_location = 'start'
         self._current_wall_distance_mm = None

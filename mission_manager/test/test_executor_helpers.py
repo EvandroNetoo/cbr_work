@@ -1370,6 +1370,147 @@ def test_navigation_keeps_apriltag_memory_for_later_return():
     assert manager._current_lateral_position_mm == 0.0
 
 
+def test_navigation_failure_after_departure_restores_area_pose_and_retries():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'WS_1'
+    manager._service_area_vision_active = False
+    manager._current_wall_distance_mm = 200.0
+    manager._current_lateral_position_mm = 0.0
+    _attach_world_state(manager)
+    manager._navigate_client = object()
+    manager._prepare_for_navigation = lambda: None
+    manager._navigation_timeout = lambda: 120.0
+    manager._navigation_pose_recovery_radius_m = 0.5
+    manager._odometry_position_xy = (1.0, 2.0)
+    manager._control_wall = lambda *_args, **_kwargs: FollowWall.Result()
+    manager._check_canceled = lambda: None
+    manager.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(to_msg=lambda: Time()))
+    events = []
+    manager.get_logger = lambda: SimpleNamespace(
+        info=lambda *_args: None, warning=lambda message: events.append(('warning', message)))
+    manager._initial_pose_publisher = SimpleNamespace(
+        publish=lambda message: events.append(('pose', copy.deepcopy(message))))
+    manager._wait_for_navigation_pose_recovery = lambda: events.append(('wait', None))
+
+    attempts = 0
+
+    def navigate(*_args, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        events.append(('navigate', attempts))
+        if attempts == 1:
+            manager._odometry_position_xy = (1.2, 2.1)
+            raise StepFailed('sem caminho')
+        return NavigateToPose.Result()
+
+    manager._call_action = navigate
+
+    manager._navigate('start')
+
+    assert [event[0] for event in events] == [
+        'navigate', 'warning', 'pose', 'wait', 'navigate']
+    recovered = events[2][1]
+    assert recovered.header.frame_id == 'map'
+    assert recovered.pose.pose.position.x == 1.0
+    assert recovered.pose.pose.position.y == 2.0
+    assert manager._current_location == 'start'
+
+
+def test_navigation_failure_without_service_area_departure_is_not_retried():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'start'
+    manager._current_wall_distance_mm = None
+    manager._current_lateral_position_mm = 0.0
+    _attach_world_state(manager)
+    manager._navigate_client = object()
+    manager._prepare_for_navigation = lambda: None
+    manager._navigation_timeout = lambda: 120.0
+    manager.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(to_msg=lambda: Time()))
+    manager._call_action = lambda *_args, **_kwargs: (
+        _ for _ in ()).throw(StepFailed('sem caminho'))
+
+    with pytest.raises(StepFailed, match='sem caminho'):
+        manager._navigate('WS_1')
+
+
+def test_navigation_failure_from_start_uses_last_departed_service_area():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'start'
+    manager._last_departed_service_area = 'WS_1'
+    manager._current_wall_distance_mm = None
+    manager._current_lateral_position_mm = 0.0
+    _attach_world_state(manager)
+    manager._navigate_client = object()
+    manager._prepare_for_navigation = lambda: None
+    manager._navigation_timeout = lambda: 120.0
+    manager._navigation_pose_recovery_radius_m = 0.5
+    manager._odometry_position_xy = (0.0, 0.0)
+    manager._check_canceled = lambda: None
+    manager.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(to_msg=lambda: Time()))
+    manager.get_logger = lambda: SimpleNamespace(
+        info=lambda *_args: None, warning=lambda *_args: None)
+    recovered = []
+    manager._initial_pose_publisher = SimpleNamespace(
+        publish=lambda message: recovered.append(copy.deepcopy(message)))
+    manager._wait_for_navigation_pose_recovery = lambda: None
+    attempts = 0
+
+    def navigate(*_args, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            manager._odometry_position_xy = (0.3, 0.0)
+            raise StepFailed('sem caminho')
+        return NavigateToPose.Result()
+
+    manager._call_action = navigate
+
+    manager._navigate('finish')
+
+    assert attempts == 2
+    assert len(recovered) == 1
+    assert recovered[0].pose.pose.position.x == 1.0
+    assert recovered[0].pose.pose.position.y == 2.0
+
+
+def test_navigation_failure_outside_recovery_radius_does_not_reset_pose():
+    manager = MissionManager.__new__(MissionManager)
+    manager._arena = _arena()
+    manager._current_location = 'start'
+    manager._last_departed_service_area = 'WS_1'
+    manager._current_wall_distance_mm = None
+    manager._current_lateral_position_mm = 0.0
+    manager._navigation_pose_recovery_radius_m = 0.5
+    manager._odometry_position_xy = (0.0, 0.0)
+    _attach_world_state(manager)
+    manager._navigate_client = object()
+    manager._prepare_for_navigation = lambda: None
+    manager._navigation_timeout = lambda: 120.0
+    manager.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(to_msg=lambda: Time()))
+    manager.get_logger = lambda: SimpleNamespace(warning=lambda *_args: None)
+    published = []
+    manager._initial_pose_publisher = SimpleNamespace(
+        publish=lambda message: published.append(message))
+
+    def navigate(*_args, **_kwargs):
+        manager._odometry_position_xy = (0.6, 0.0)
+        raise StepFailed('sem caminho')
+
+    manager._call_action = navigate
+
+    with pytest.raises(StepFailed, match='sem caminho'):
+        manager._navigate('finish')
+
+    assert published == []
+
+
 def test_pick_recovery_prepares_arm_in_apriltag_observation_pose():
     manager = MissionManager.__new__(MissionManager)
     manager._prepare_client = object()
