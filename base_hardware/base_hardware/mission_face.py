@@ -11,19 +11,19 @@ def validate_expression(parameter_name: str, expression: str) -> str:
 
 
 OPERATION_EXPRESSIONS = {
-    'navigate': 'correndo',
-    'finish': 'correndo',  # O último passo ainda navega até a posição final.
-    'follow_wall': 'correndo',
-    'analyze_scene': 'surpreso',
-    'pick': 'bravo',
-    'store': 'piscando',
-    'retrieve': 'bravo',
-    'place_on_table': 'feliz',
-    'place_in_container': 'feliz',
-    'place_on_shelf': 'feliz',
-    'place_on_precision_table': 'bravo',
-    'stack': 'bravo',
-    'organize_precision': 'bravo',
+    'navigate': 'navigate',
+    'finish': 'finish',
+    'follow_wall': 'follow_wall',
+    'analyze_scene': 'analyze_scene',
+    'pick': 'pick',
+    'store': 'store',
+    'retrieve': 'retrieve',
+    'place_on_table': 'place_on_table',
+    'place_in_container': 'place_in_container',
+    'place_on_shelf': 'place_on_shelf',
+    'place_on_precision_table': 'place_on_precision_table',
+    'stack': 'stack',
+    'organize_precision': 'organize_precision',
 }
 
 

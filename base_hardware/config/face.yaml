@@ -9,7 +9,8 @@ mission_face_node:
     retry_interval_sec: 5.0
 
     # Edite os rostos abaixo e reinicie o launch da base para aplicar.
-    # Opções: neutro, feliz, triste, bravo, surpreso, dormindo, piscando, correndo.
+    # Rostos: nomes das operações abaixo, piscar, piscadinha e comemorar.
+    # Todos animados. Nomes antigos (neutro, feliz, bravo etc.) são aceitos.
     expressions:
       idle: neutro               # Aguardando missão ou missão encerrada.
       disconnected: neutro       # Publicador da missão desconectado.
@@ -18,16 +19,16 @@ mission_face_node:
 
       # Nome da operação publicada em /mission/state: rosto desejado.
       operations:
-        navigate: correndo                 # Navegando entre estações.
-        finish: correndo                   # Indo até a posição final.
-        follow_wall: correndo              # Deslocando junto à parede.
-        analyze_scene: surpreso            # Analisando a cena.
-        pick: bravo                        # Coletando objeto.
-        store: piscando                    # Guardando na base.
-        retrieve: bravo                    # Recuperando objeto da base.
-        place_on_table: feliz              # Entregando na mesa.
-        place_in_container: feliz          # Entregando no recipiente.
-        place_on_shelf: feliz              # Entregando na prateleira.
-        place_on_precision_table: bravo    # Posicionando com precisão.
-        stack: bravo                       # Empilhando.
-        organize_precision: bravo          # Organizando a mesa de precisão.
+        navigate: navigate                                   # Navegando entre estações.
+        finish: finish                                       # Indo até a posição final.
+        follow_wall: follow_wall                             # Deslocando junto à parede.
+        analyze_scene: analyze_scene                         # Analisando a cena.
+        pick: pick                                           # Coletando objeto.
+        store: store                                         # Guardando na base.
+        retrieve: retrieve                                   # Recuperando objeto da base.
+        place_on_table: place_on_table                       # Entregando na mesa.
+        place_in_container: place_in_container               # Entregando no recipiente.
+        place_on_shelf: place_on_shelf                       # Entregando na prateleira.
+        place_on_precision_table: place_on_precision_table   # Posicionando com precisão.
+        stack: stack                                         # Empilhando.
+        organize_precision: organize_precision               # Organizando a mesa de precisão.

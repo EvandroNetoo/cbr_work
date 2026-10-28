@@ -41,12 +41,13 @@ def state(operation='', known=True):
 
 
 @pytest.mark.parametrize('operation, expected', [
-    ('navigate', 'correndo'), ('finish', 'correndo'),
-    ('pick', 'bravo'), ('store', 'piscando'), ('retrieve', 'bravo'),
-    ('place_on_table', 'feliz'), ('place_in_container', 'feliz'),
-    ('place_on_shelf', 'feliz'), ('place_on_precision_table', 'bravo'),
-    ('stack', 'bravo'), ('', 'neutro'), ('future_operation', 'neutro'),
-])
+    (operation, operation) for operation in (
+        'navigate', 'finish', 'follow_wall', 'analyze_scene', 'pick', 'store',
+        'retrieve', 'place_on_table', 'place_in_container', 'place_on_shelf',
+        'place_on_precision_table', 'stack', 'organize_precision',
+    )
+] + [('', 'neutro'), ('future_operation', 'neutro')])
+
 def test_mission_operation_selects_expression(operation, expected):
     assert expression_for_mission(operation, True) == expected
 
@@ -100,7 +101,7 @@ def test_yaml_changes_operation_idle_uncertainty_and_disconnect(ros_context, tmp
         assert face.frames[-1] == 'feliz'
         for message, expected in (
             (state('navigate'), 'dormindo'),
-            (state('store'), 'piscando'),
+            (state('store'), 'store'),
             (state('navigate', known=False), 'surpreso'),
             (state('future_operation'), 'piscando'),
             (state(), 'feliz'),
@@ -128,21 +129,21 @@ def test_late_subscriber_animates_retained_state_and_returns_to_idle(ros_context
         publisher.publish(state('navigate'))
         face_node = MissionFaceNode(face_factory=lambda **kwargs: face, context=ros_context)
         executor.add_node(face_node)
-        spin_until(executor, lambda: face.frames.count('correndo') >= 5)
+        spin_until(executor, lambda: face.frames.count('navigate') >= 5)
         assert face_node._subscription.qos_profile.durability == DurabilityPolicy.TRANSIENT_LOCAL
 
         publisher.publish(state('pick'))
-        spin_until(executor, lambda: face.frames[-1:] == ['bravo'])
+        spin_until(executor, lambda: face.frames[-1:] == ['pick'])
         publisher.publish(state('place_on_table'))
-        spin_until(executor, lambda: face.frames[-1:] == ['feliz'])
+        spin_until(executor, lambda: face.frames[-1:] == ['place_on_table'])
         publisher.publish(state('navigate', known=False))
         spin_until(executor, lambda: face.frames[-1:] == ['triste'])
         publisher.publish(state('navigate'))
-        spin_until(executor, lambda: face.frames[-1:] == ['correndo'])
+        spin_until(executor, lambda: face.frames[-1:] == ['navigate'])
         # Sem heartbeat, uma operação longa continua animando normalmente.
         before = len(face.frames)
         spin_until(executor, lambda: len(face.frames) >= before + 25)
-        assert face.frames[-1] == 'correndo'
+        assert face.frames[-1] == 'navigate'
 
         publisher_node.destroy_publisher(publisher)
         spin_until(executor, lambda: face.frames[-1:] == ['neutro'])
@@ -177,7 +178,7 @@ def test_display_failure_retries_and_renders_latest_mission(ros_context, monkeyp
         assert len(calls) == 1
         now[0] += 4
         node._animate()
-        assert first.frames == ['correndo']
+        assert first.frames == ['navigate']
         assert calls[-1] == {'i2c_bus': 0, 'i2c_address': 0x3C, 'fps': 20.0}
 
         first.fail = True
@@ -186,7 +187,7 @@ def test_display_failure_retries_and_renders_latest_mission(ros_context, monkeyp
         node._on_mission_state(state('pick'))
         now[0] += 5
         node._animate()
-        assert recovered.frames == ['bravo']
+        assert recovered.frames == ['pick']
     finally:
         node.destroy_node()
     assert recovered.cleaned

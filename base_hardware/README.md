@@ -75,13 +75,12 @@ permanece pausado enquanto a carinha reserva o OLED.
 
 | `active_operation` | Expressão |
 | --- | --- |
-| `navigate`, `finish`, `follow_wall` | `correndo`, com vento frontal |
-| `pick`, `retrieve`, `stack`, `place_on_precision_table`, `organize_precision` | `bravo`, concentrado |
-| `store` | `piscando` |
-| `place_on_table`, `place_in_container`, `place_on_shelf` | `feliz` |
-| `analyze_scene` | `surpreso` |
+| Cada uma das 13 operações de `config/face.yaml` | Rosto próprio com o mesmo nome da operação, conforme o modelo |
 | vazio ou operação desconhecida | `neutro` |
 | `state_known: false`, em qualquer operação | `triste` |
+
+Prévia dos desenhos na resolução do OLED: [animação](docs/faces_preview.gif)
+e [quadro de referência](docs/faces_preview.png).
 
 O rosto acompanha a operação informada pelo gerenciador, inclusive enquanto
 aguarda a conclusão dessa operação. O tópico atual contém estado da carga e
@@ -105,16 +104,22 @@ ao lado da operação; os comentários explicam cada situação:
       unknown_state: triste
       unknown_operation: neutro
       operations:
-        navigate: correndo
-        pick: bravo
-        store: piscando
-        place_on_table: feliz
+        navigate: navigate
+        pick: pick
+        store: store
+        place_on_table: place_on_table
 ```
 
-Valores disponíveis: `neutro`, `feliz`, `triste`, `bravo`, `surpreso`,
-`dormindo`, `piscando`, `correndo`. Um nome inválido gera uma mensagem com a
-chave incorreta e as opções aceitas. Operações omitidas mantêm os padrões.
-`unknown_state` tem prioridade sobre os demais rostos.
+Valores disponíveis: os 13 nomes de operação da tabela de configuração,
+`piscar`, `piscadinha` e `comemorar`. Os nomes antigos `neutro`, `feliz`,
+`triste`, `bravo`, `surpreso`, `dormindo`, `piscando` e `correndo` continuam
+aceitos como aliases dos novos desenhos. Todos os rostos mantêm animação,
+com movimento das pupilas, piscadas e balanço suave. Olhos fechados ou
+apertados mantêm o movimento da face; `piscar` e `piscadinha` reabrem os olhos
+periodicamente. Suor e brilhos também se movem quando presentes.
+Um nome inválido gera uma mensagem com a chave incorreta e as opções aceitas.
+Operações omitidas mantêm os padrões. `unknown_state` tem prioridade sobre
+os demais rostos.
 
 Após editar o arquivo, reinicie o launch para aplicar. Com `--symlink-install`,
 o arquivo instalado aponta para o YAML de origem; em uma instalação sem
