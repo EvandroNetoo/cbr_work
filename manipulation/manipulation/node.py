@@ -779,9 +779,14 @@ class ManipulationServer(Node):
                                 PickObject.Result.RECOVERY_OUT_OF_REACH,
                             )
                     front = profile.strategy == 'front'
+                    if front and not profile.pre_grasp_state:
+                        raise ConfigurationError('Coleta frontal exige pre_grasp_state.')
+                    self._feedback(
+                        goal_handle, PickObject, ManipulationFeedback.APPROACHING,
+                        0.40, 'Preparando coleta de frente na SH' if front
+                        else 'Preparando aproximação do objeto sobre a mesa',
+                    )
                     if front:
-                        if not profile.pre_grasp_state:
-                            raise ConfigurationError('Coleta frontal exige pre_grasp_state.')
                         # A tag está no topo; o contato ocorre à meia altura.
                         grasp_pose = PoseStamped()
                         grasp_pose.header.frame_id = REFERENCIAL_BASE
@@ -800,11 +805,6 @@ class ManipulationServer(Node):
                         approach_pose = criar_pose(
                             x, y, grasp_z + profile.approach_height_m, grasp_yaw)
 
-                    self._feedback(
-                        goal_handle, PickObject, ManipulationFeedback.APPROACHING,
-                        0.40, 'Aproximando de frente na SH' if front
-                        else 'Aproximando do objeto sobre a mesa',
-                    )
                     if not front:
                         self._motion.executar_objetivo(
                             GRUPO_BRACO, restricoes_de_pre_pegada(approach_pose),
@@ -1513,11 +1513,11 @@ class ManipulationServer(Node):
             release_options['tolerancia_de_inclinacao'] = math.radians(
                 profile.tilt_tolerance_deg
             )
+        self._feedback(
+            goal_handle, action_type, ManipulationFeedback.APPROACHING,
+            0.40, f'Aproximando do destino: {destination}',
+        )
         if profile.approach_height_m > 0.0:
-            self._feedback(
-                goal_handle, action_type, ManipulationFeedback.APPROACHING,
-                0.40, f'Aproximando do destino: {destination}',
-            )
             approach_pose = copy.deepcopy(release_pose)
             approach_pose.pose.position.z += profile.approach_height_m
             self._motion.executar_objetivo(
@@ -1574,7 +1574,7 @@ class ManipulationServer(Node):
     ) -> tuple[str, int, PoseStamped]:
         """Move straight to the target position, release and return."""
         self._feedback(
-            goal_handle, PlaceInContainer, ManipulationFeedback.PREPARING,
+            goal_handle, PlaceInContainer, ManipulationFeedback.APPROACHING,
             0.40, f'Movendo diretamente ao destino: {destination}',
         )
         # Publish the exact gripper_tcp_near target used below. The vision node
@@ -1887,7 +1887,7 @@ class ManipulationServer(Node):
                         position.y += dy
                         position.z += dz
                         self._feedback(
-                            goal_handle, action_type, ManipulationFeedback.OBSERVING, 0.30,
+                            goal_handle, action_type, ManipulationFeedback.APPROACHING, 0.30,
                             f'AprilTag {reference_tag_id} ausente; usando último empilhamento '
                             f'com offset XYZ {profile.missing_tag_offset_xyz} m.',
                         )
@@ -1914,6 +1914,10 @@ class ManipulationServer(Node):
                                            tag.pose.position.y - (y + dy)) <= request.occupancy_radius_m]
                 if blockers:
                     raise NoFreeSpace(f'Cavidade PP ocupada por {blockers}; depósito recusado.')
+            self._feedback(
+                goal_handle, action_type, ManipulationFeedback.APPROACHING,
+                0.35, f'Referência {reference_tag_id} localizada; calculando pose para {operation_name}',
+            )
             release_pose = criar_pose(
                 x + dx,
                 y + dy,

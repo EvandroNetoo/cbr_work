@@ -104,6 +104,7 @@ def test_removed_feedback_settings_are_ignored_in_old_yaml(tmp_path):
 def test_precision_release_only_opens_after_successful_wiggle(failure):
     from test_semantic_placement import _cartesian_profile, _pose
     server = ManipulationServer.__new__(ManipulationServer)
+    server._feedback = lambda *_: None
     profile = replace(_cartesian_profile(), name='precision_table', approach_height_m=0,
                       retreat_height_m=0, base_wiggle=BaseWiggleProfile(enabled=True))
     events = []
@@ -132,6 +133,7 @@ def test_only_enabled_precision_release_runs_wiggle(enabled):
     from interfaces.action import StackObject
     from test_semantic_placement import _cartesian_profile, _pose
     server = ManipulationServer.__new__(ManipulationServer)
+    server._feedback = lambda *_: None
     profile = replace(_cartesian_profile(), approach_height_m=0, retreat_height_m=0,
                       base_wiggle=BaseWiggleProfile(enabled=enabled))
     events = []
@@ -222,8 +224,9 @@ def test_sequence_finishes_all_stages_and_pauses_in_order_before_release(monkeyp
     server._open_for_placement = lambda *_: opened.append(base.time)
     server._return_after_placement = lambda: None
     server._release_at_pose(SimpleNamespace(is_cancel_requested=False), PlaceOnPrecisionTable, _pose(), profile, 'PP')
-    assert [stamp for stamp, _message in feedback] == pytest.approx([0., .6, 2.2])
-    assert [f'Rebolada {index}/3' in message for index, (_, message) in enumerate(feedback, 1)] == [True] * 3
+    assert 'Aproximando do destino' in feedback[0][1]
+    assert [stamp for stamp, _message in feedback] == pytest.approx([0., 0., .6, 2.2])
+    assert [f'Rebolada {index}/3' in message for index, (_, message) in enumerate(feedback[1:], 1)] == [True] * 3
     assert opened == pytest.approx([3.5])
     assert not server._base_wiggle_active.is_set() and base.commands[-1] == (0., 0., 0.)
 
@@ -237,6 +240,7 @@ def test_cancellation_in_second_stage_stops_sequence_and_keeps_gripper_closed(mo
     profile = replace(_cartesian_profile(), approach_height_m=0, retreat_height_m=0,
                       base_wiggle=BaseWiggleProfile(enabled=True, sequence=stages))
     server = ManipulationServer.__new__(ManipulationServer)
+    server._feedback = lambda *_: None
     server._motion = SimpleNamespace(executar_objetivo=lambda *_: None)
     opened, started = [], []
     server._open_for_placement = lambda *_: opened.append(True)

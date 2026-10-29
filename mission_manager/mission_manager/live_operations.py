@@ -4,6 +4,9 @@ import threading
 
 
 class LiveOperations:
+    DECISION_OPERATIONS = frozenset({
+        'place_on_shelf', 'retrieve', 'store',
+    })
     _IGNORED = {None, '', 'prepare_manipulator'}
 
     def __init__(self):
@@ -22,6 +25,11 @@ class LiveOperations:
             return False
         self._operation = operation
         return True
+
+    def decided(self, operation):
+        """Operações sem percepção já têm rosto ao serem escolhidas."""
+        with self._lock:
+            return operation in self.DECISION_OPERATIONS and self._select(operation)
 
     def pending(self, operation):
         token = object()

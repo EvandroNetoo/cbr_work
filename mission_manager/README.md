@@ -737,8 +737,13 @@ O campo opcional `start_pose` é o nome de um local de `arena.yaml`: `start`,
 ou omitido mantém a localização atual. Quando preenchido, publica uma estimativa
 em `/initialpose`, como o **2D Pose Estimate** do RViz, com a pose e o frame da
 arena. Isso informa onde o robô já está; não move o robô até o local.
-Depois da publicação, a missão segue sem esperar confirmação de `/amcl_pose`
-e sem aplicar filtros de distância, orientação ou timestamp à resposta do AMCL.
+Depois da publicação, aguarda `start_pose_wait_s` segundos (padrão: `3.0`)
+para estabilizar a localização antes de iniciar a missão e a navegação.
+A espera é fixa, permite cancelar a missão e não depende de confirmação de
+`/amcl_pose`. Configure esse parâmetro em `config/mission_manager.yaml` ou com
+`ros2 param set /mission_manager start_pose_wait_s 3.0` para as próximas missões.
+O valor deve ser finito e não negativo; `0.0` desativa a espera. Sem `start_pose`,
+essa espera não é aplicada.
 Local desconhecido retorna `CONFIGURATION_ERROR` sem publicar.
 O tópico de envio é configurável por `initial_pose_topic`.
 O local informado também passa a ser a localização lógica inicial da missão.
@@ -814,9 +819,25 @@ o depósito físico.
 O snapshot atual é publicado em `/mission/state` com QoS `transient_local`.
 Seu `active_operation` mantém a última ação visual recebida até outra ação
 relevante chegar. Navegação e análise são selecionadas ao despachar a action.
-Manipulações aguardam o feedback: `OBSERVING` seleciona `analyze_scene`, e
+`place_on_shelf`, `retrieve` e `store`, que não fazem percepção interna,
+selecionam o rosto assim que o executor escolhe a operação. Também trocam
+o rosto no despacho quando chamadas diretamente. Toda fase `OBSERVING`
+seleciona `analyze_scene`, inclusive dentro de outra ação.
+Coleta e depósitos que analisam o destino aguardam o feedback:
 `APPROACHING`, `GRASPING`, `RETREATING` ou `RELEASING` selecionam a operação
-correspondente. Agendar `pick` não mostra coleta antes da observação.
+correspondente. Por exemplo, `place_in_container` mantém `analyze_scene`
+durante a busca e muda para o depósito ao encontrar o contêiner e iniciar
+o movimento até ele, antes de abrir a garra. Uma nova busca volta a mostrar
+análise. Na coleta da SH, `pick` aparece após confirmar o cubo, antes da
+passagem por `home` e da preparação da pose baixa. Em `stack` e
+`place_on_precision_table`, a referência encontrada seleciona o rosto da
+operação antes do cálculo da pose do braço, após concluir o alinhamento.
+Tentativas que apenas localizam o alvo para alinhar a base mantêm o rosto
+de análise; a operação só aparece quando a tentativa vai executar o braço.
+O gerenciador verifica `require_alignment` em stack/PP e `alignment_completed`
+na coleta SH: feedback de aproximação recebido numa chamada apenas de
+alinhamento continua selecionando análise, sem antecipar o rosto de execução.
+Agendar uma coleta ou depósito com percepção não antecipa seu rosto.
 `VALIDATING`, `PREPARING`, `RECOVERING` e ajustes laterais mantêm o rosto atual.
 Por exemplo: navegação → análise → ajuste lateral (mantém análise) → nova
 análise (mantém análise) → coleta. Expressões repetidas não reiniciam a animação;

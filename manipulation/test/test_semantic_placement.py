@@ -4,7 +4,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 from geometry_msgs.msg import PoseStamped
-from interfaces.action import PlaceInContainer, PlaceOnShelf, PlaceOnTable, StackObject
+from interfaces.action import PlaceInContainer, PlaceOnPrecisionTable, PlaceOnShelf, PlaceOnTable, StackObject
 from interfaces.msg import (
     AprilTagStampedDetection, ContainerStampedDetection,
     ManipulationFeedback, ManipulationResult, SceneObservation, TableSurfaceGrid,
@@ -149,7 +149,7 @@ def test_stack_applies_its_tilt_tolerance_only_at_release(tolerance):
 
 @pytest.mark.parametrize('action', [StackObject, PlaceOnTable])
 @pytest.mark.parametrize('approach, retreat', [(0.0, 0.0), (0.0, 0.08), (0.03, 0.0), (0.03, 0.08)])
-def test_zero_placement_heights_skip_motion_and_feedback(action, approach, retreat):
+def test_zero_placement_heights_skip_optional_motion_but_report_approach(action, approach, retreat):
     server = ManipulationServer.__new__(ManipulationServer)
     server._effect_known = True
     server._effect_location = ManipulationResult.LOCATION_UNKNOWN
@@ -160,6 +160,7 @@ def test_zero_placement_heights_skip_motion_and_feedback(action, approach, retre
     server._transfer_state = lambda *_args: events.append('observation')
 
     def move(_group, constraints, *_args):
+        assert phases[0] == ManipulationFeedback.APPROACHING
         pose = constraints[0].position_constraints[0].constraint_region.primitive_poses[0]
         events.append(pose.position.z)
 
@@ -175,7 +176,7 @@ def test_zero_placement_heights_skip_motion_and_feedback(action, approach, retre
     expected = ([0.1 + approach] if approach else []) + [0.1, 'open']
     expected += ([0.1 + retreat] if retreat else []) + ['observation']
     assert events == expected
-    assert (ManipulationFeedback.APPROACHING in phases) == bool(approach)
+    assert phases.count(ManipulationFeedback.APPROACHING) == 1
     assert (ManipulationFeedback.RETREATING in phases) == bool(retreat)
     assert phases.count(ManipulationFeedback.RELEASING) == 1
     assert location == ManipulationResult.LOCATION_DESTINATION
@@ -195,6 +196,8 @@ def test_stack_alignment_request_returns_support_pose_without_releasing():
         pickup_profile=lambda _name: SimpleNamespace(observation_state='detect_apriltags'),
     )
     server._arm_state = lambda *_args: None
+    phases = []
+    server._feedback = lambda _handle, _action, phase, *_: phases.append(phase)
     server.get_parameter = lambda _name: SimpleNamespace(value=2.0)
     server._analyze_for_operation = lambda *_args, **_kwargs: ([], [], None)
     server._motion = SimpleNamespace(pose_da_april_tag=lambda *_args: (0.04, -0.3, 0.15, 20.0))
@@ -209,6 +212,7 @@ def test_stack_alignment_request_returns_support_pose_without_releasing():
     assert captured.value.recovery_reason == StackObject.Result.RECOVERY_ALIGNMENT_REQUIRED
     assert captured.value.detected_pose.pose.position.x == pytest.approx(0.04)
     assert captured.value.detected_pose.pose.position.y == pytest.approx(-0.3)
+    assert phases == [ManipulationFeedback.OBSERVING]
     server._effect_known = True
     server._effect_location = ManipulationResult.LOCATION_UNKNOWN
     result = server._make_result(
@@ -220,6 +224,66 @@ def test_stack_alignment_request_returns_support_pose_without_releasing():
     assert result.detected_pose == captured.value.detected_pose
     assert result.outcome.effect_known
     assert result.outcome.final_object_location == ManipulationResult.LOCATION_UNKNOWN
+
+
+@pytest.mark.parametrize('action, profile_name', [
+    (StackObject, 'stack'), (PlaceOnPrecisionTable, 'precision_table'),
+])
+@pytest.mark.parametrize('alignment', [False, True])
+def test_reference_placement_reports_target_before_calculating_arm_pose(
+    monkeypatch, action, profile_name, alignment,
+):
+    import manipulation.node as node_module
+
+    server = _operation_only_server()
+    server._profiles = SimpleNamespace(
+        placements={profile_name: replace(
+            _cartesian_profile(), name=profile_name, strategy='tag_relative',
+            calibrated_reference=True)},
+        pickup_profile=lambda _: SimpleNamespace(observation_state='detect_apriltags'),
+    )
+    phases, releases, calculations = [], [], []
+    server._feedback = lambda _handle, _action, phase, *_: phases.append(phase)
+    server._arm_state = lambda *_: None
+    server.get_parameter = lambda _: SimpleNamespace(value=2.0)
+
+    def analyze(*_, **kwargs):
+        assert phases == [ManipulationFeedback.OBSERVING]
+        return [], [], None
+
+    def reference(*_):
+        assert phases == [ManipulationFeedback.OBSERVING]
+        return 0.04, -0.3, 0.15, 20.0
+
+    original_pose = node_module.criar_pose
+    expected_phases = [ManipulationFeedback.OBSERVING]
+    if not alignment:
+        expected_phases.append(ManipulationFeedback.APPROACHING)
+
+    def calculate(*args, **kwargs):
+        assert phases == expected_phases
+        calculations.append(True)
+        return original_pose(*args, **kwargs)
+
+    server._analyze_for_operation = analyze
+    server._motion = SimpleNamespace(pose_da_april_tag=reference)
+    server._release_at_pose = lambda *_: releases.append(True)
+    monkeypatch.setattr(node_module, 'criar_pose', calculate)
+    goal = action.Goal(require_alignment=alignment)
+    if action is StackObject:
+        goal.support_tag_id = 5
+        execute = server._execute_stack
+    else:
+        goal.reference_tag_id = 5
+        execute = server._execute_place_on_precision_table
+    if alignment:
+        with pytest.raises(PickRecoveryRequired):
+            execute(SimpleNamespace(request=goal))
+    else:
+        execute(SimpleNamespace(request=goal))
+    assert calculations == [True]
+    assert releases == ([] if alignment else [True])
+    assert phases == expected_phases
 
 
 def test_common_release_reports_physical_effect_only_after_opening_gripper():
@@ -260,6 +324,7 @@ def test_container_release_restricts_position_and_wrist_then_returns_directly():
     targets = []
 
     def move(*args):
+        assert feedback == [ManipulationFeedback.APPROACHING]
         events.append('motion')
         motions.append(args)
 
@@ -282,7 +347,7 @@ def test_container_release_restricts_position_and_wrist_then_returns_directly():
     )
 
     assert events == ['target', 'motion', 'open', 'observation']
-    assert ManipulationFeedback.APPROACHING not in feedback
+    assert feedback == [ManipulationFeedback.APPROACHING, ManipulationFeedback.RELEASING]
     assert ManipulationFeedback.RETREATING not in feedback
     target_z = lambda motion: (
         motion[1][0].position_constraints[0]
@@ -1166,6 +1231,8 @@ def test_precision_table_requires_calibrated_reference():
 def test_precision_missing_reference_never_releases():
     from interfaces.action import PlaceOnPrecisionTable
     server = _operation_only_server()
+    phases = []
+    server._feedback = lambda _handle, _action, phase, *_: phases.append(phase)
     server._profiles.placements['precision_table'] = replace(
         _cartesian_profile(), name='precision_table', strategy='tag_relative',
         calibrated_reference=True,
@@ -1183,12 +1250,15 @@ def test_precision_missing_reference_never_releases():
     with pytest.raises(ObjectNotFound):
         server._execute_place_on_precision_table(SimpleNamespace(
             request=PlaceOnPrecisionTable.Goal(reference_tag_id=42)))
+    assert phases == [ManipulationFeedback.OBSERVING]
 
 
 @pytest.mark.parametrize('blocked', [False, True])
 def test_pp_same_id_reference_and_object_never_confuse_release_target(blocked):
     from interfaces.action import PlaceOnPrecisionTable
     server = _operation_only_server()
+    phases = []
+    server._feedback = lambda _handle, _action, phase, *_: phases.append(phase)
     profile = replace(_cartesian_profile(), name='precision_table', strategy='tag_relative',
                       calibrated_reference=True, reference_offset_xyz=(0.0, .06, 0.0))
     server._profiles = SimpleNamespace(placements={'precision_table': profile},
@@ -1220,14 +1290,18 @@ def test_pp_same_id_reference_and_object_never_confuse_release_target(blocked):
         with pytest.raises(NoFreeSpace, match='ocupada'):
             server._execute_place_on_precision_table(SimpleNamespace(request=goal))
         assert not releases
+        assert phases == [ManipulationFeedback.OBSERVING]
     else:
         server._execute_place_on_precision_table(SimpleNamespace(request=goal))
         assert releases[0].pose.position.z == pytest.approx(.02)
+        assert phases == [ManipulationFeedback.OBSERVING, ManipulationFeedback.APPROACHING]
 
 
 @pytest.mark.parametrize('has_previous, visible', [(False, False), (True, False), (True, True)])
 def test_stack_missing_tag_uses_only_supplied_previous_pose(has_previous, visible):
     server = _operation_only_server()
+    phases = []
+    server._feedback = lambda _handle, _action, phase, *_: phases.append(phase)
     profile = replace(_cartesian_profile(), name='stack', strategy='tag_relative',
                       calibrated_reference=True, reference_offset_xyz=(0.0, 0.0, 0.02),
                       missing_tag_offset_xyz=(0.01, -0.02, 0.042))
@@ -1249,12 +1323,14 @@ def test_stack_missing_tag_uses_only_supplied_previous_pose(has_previous, visibl
         with pytest.raises(ObjectNotFound):
             server._execute_stack(SimpleNamespace(request=goal))
         assert not releases
+        assert phases == [ManipulationFeedback.OBSERVING]
     else:
         server._execute_stack(SimpleNamespace(request=goal))
         pos = releases[0].pose.position
         expected = (0.03, -0.24, 0.17) if visible else (0.01, -0.02, 0.142)
         assert (pos.x, pos.y, pos.z) == pytest.approx(expected)
         assert goal.previous_placed_pose.pose.position.z == 0.10
+        assert phases == [ManipulationFeedback.OBSERVING, ManipulationFeedback.APPROACHING]
 
 
 @pytest.mark.parametrize('retreat_failed', [False, True])

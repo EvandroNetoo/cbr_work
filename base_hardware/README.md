@@ -84,8 +84,14 @@ o publicador, o destino anterior deixa de ser exibido.
 
 O campo `active_operation` de `/mission/state` mantém a última ação visual
 recebida. Navegação e análise selecionam o rosto ao serem despachadas;
-manipulações aguardam a fase efetiva para evitar mostrar coleta antes da
-observação. Feedback `OBSERVING` seleciona `analyze_scene`; `APPROACHING`,
+`place_on_shelf`, `retrieve` e `store`, que não fazem percepção interna,
+já selecionam o rosto quando a operação é escolhida. Toda fase `OBSERVING`
+seleciona `analyze_scene`, inclusive dentro de outra operação. Nas ações
+com percepção, o rosto da coleta ou do depósito aparece após confirmar o
+alvo. Na SH, isso precede a preparação do braço em `home` e na pose baixa;
+em stack e PP, precede o cálculo da pose após concluir o alinhamento.
+Localizar o alvo apenas para centralizar a base mantém o rosto de análise.
+Feedback `APPROACHING`,
 `GRASPING`, `RETREATING` e `RELEASING` selecionam a manipulação correspondente.
 Preparação, recuperação e ajustes laterais mantêm o rosto atual.
 Concluir uma action não restaura expressões anteriores, mesmo em execução

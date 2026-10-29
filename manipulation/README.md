@@ -65,6 +65,12 @@ após o alinhamento configurado. Chamadas isoladas
 mantêm `false` por padrão. Tentativas internas no mesmo ponto reutilizam a
 primeira captura, sem repetir fotografias a cada tentativa de planejamento.
 
+Após confirmar o cubo, o feedback passa para `APPROACHING` antes de calcular
+a pose de coleta e preparar o braço. Na SH, isso precede a passagem por
+`home` e a pose baixa. A tentativa que apenas solicita alinhamento da base
+mantém `OBSERVING`; o rosto de coleta só aparece na tentativa final, após
+alinhar e confirmar o cubo novamente.
+
 Quando `pickup.tabletop.reachability_filter_enabled` está habilitado, a coleta
 usa seus próprios limites `reach_x/y_*`, CP e CL, definidos em
 `pickup.tabletop`. Uma AprilTag detectada fora dessa região é rejeitada antes
@@ -269,8 +275,19 @@ Nos depósitos que usam aproximação e recuo por pose (`stack`, `table` e
 `explicit_pose`), `approach_height_m: 0` pula o movimento de aproximação
 elevada e segue diretamente à pose de soltura. `retreat_height_m: 0` pula a
 elevação após soltar e segue ao retorno para `detect_apriltags`. Cada campo
-pode ser zerado independentemente; as fases puladas não publicam feedback
-de aproximação ou elevação. Valores negativos não são aceitos.
+pode ser zerado independentemente; a elevação pulada não publica feedback
+de retirada. `APPROACHING` é publicado antes do primeiro movimento até o
+destino, mesmo sem aproximação elevada; no contêiner, também precede o
+movimento direto de depósito. Assim, `OBSERVING` acompanha a busca e a tela
+troca para o depósito antes de abrir a garra. Valores negativos não são aceitos.
+
+Em `stack` e `place_on_precision_table`, a referência encontrada já gera
+`APPROACHING` antes do cálculo da pose do braço, quando o alinhamento já
+permite executar o depósito. Uma tentativa que apenas solicita alinhamento
+mantém `OBSERVING`. Na PP, a verificação de cavidade livre continua ocorrendo
+antes do cálculo da pose de depósito; referência ausente ou cavidade ocupada
+mantêm `OBSERVING`. O fallback válido de stack por pose anterior também
+seleciona o rosto de empilhamento antes do planejamento do braço.
 
 ```bash
 ros2 action send_goal manipulation/stack interfaces/action/StackObject \

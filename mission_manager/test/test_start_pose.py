@@ -70,18 +70,24 @@ def test_cancel_before_publishing_pose(arena):
 
 
 @pytest.mark.parametrize('target', ['', 'start', 'WS_1', 'missing'])
-def test_action_localizes_before_executing_and_rejects_unknown_target(arena, target):
+@pytest.mark.parametrize('wait_s', [0.0, 3.0, 5.5, -1.0, float('nan'), float('inf')])
+def test_action_localizes_before_executing_and_rejects_unknown_target(arena, target, wait_s):
     manager = MissionManager.__new__(MissionManager)
     manager._lock = threading.RLock()
     manager._cancel_event = threading.Event()
     manager._world_state = WorldState(['left', 'right'])
     plan = load_plan(Path(__file__).parents[1] / 'config' / 'plans' / '7_final_test.yaml')
     manager._load_goal_files = lambda _: (arena, plan)
-    manager.get_logger = lambda: SimpleNamespace(error=lambda _: None)
+    manager.get_logger = lambda: SimpleNamespace(error=lambda _: None, info=lambda _: None)
+    manager.get_parameter = lambda name: SimpleNamespace(value=wait_s)
     events = []
     manager._initialize_localization = lambda _arena, name: events.append(('localize', name))
+    manager._wait_for_localization = lambda seconds: events.append(('wait', seconds))
     def execute(_handle, _arena, actual_plan):
-        assert events == [('localize', target)]
+        expected = [('localize', target)]
+        if target:
+            expected.append(('wait', wait_s))
+        assert events == expected
         assert actual_plan.initial_location == (target or plan.initial_location)
         events.append(('execute', actual_plan.initial_location))
         return ExecuteMission.Result()
@@ -89,10 +95,62 @@ def test_action_localizes_before_executing_and_rejects_unknown_target(arena, tar
     handle = SimpleNamespace(
         request=ExecuteMission.Goal(plan_id=plan.plan_id, start_pose=target), abort=lambda: None)
     result = manager._execute_callback(handle)
-    if target == 'missing':
+    if target == 'missing' or (target and not (0.0 <= wait_s < float('inf'))):
         assert result.code == ExecuteMission.Result.CONFIGURATION_ERROR
         assert events == []
     else:
         assert result.code == ExecuteMission.Result.SUCCESS
-        assert len(events) == 2
+        assert len(events) == (3 if target else 2)
+    assert not manager._busy
+
+
+@pytest.mark.parametrize('wait_s', [0.0, 3.0, 5.5])
+@pytest.mark.parametrize('cancel', [False, True])
+def test_localization_wait_respects_duration_and_cancellation(monkeypatch, wait_s, cancel):
+    manager = MissionManager.__new__(MissionManager)
+    manager._cancel_event = threading.Event()
+    manager._cancel_active_child = lambda: None
+    elapsed = 0.0
+
+    def wait(seconds):
+        nonlocal elapsed
+        elapsed += seconds
+        if cancel:
+            manager._cancel_event.set()
+
+    monkeypatch.setattr('mission_manager.node.time.monotonic', lambda: elapsed)
+    monkeypatch.setattr(manager._cancel_event, 'wait', wait)
+    if cancel and wait_s:
+        with pytest.raises(MissionCanceled):
+            manager._wait_for_localization(wait_s)
+        assert elapsed <= 0.05
+    else:
+        manager._wait_for_localization(wait_s)
+        assert elapsed == pytest.approx(wait_s)
+
+
+def test_cancel_during_start_pose_wait_prevents_mission_execution(arena):
+    manager, events = manager_fixture()
+    manager._lock = threading.RLock()
+    manager._cancel_event = threading.Event()
+    manager._world_state = WorldState(['left', 'right'])
+    manager.get_logger = lambda: SimpleNamespace(info=lambda _: None, error=lambda _: None)
+    manager.get_parameter = lambda name: SimpleNamespace(value=3.0)
+    plan = load_plan(Path(__file__).parents[1] / 'config' / 'plans' / '7_final_test.yaml')
+    manager._load_goal_files = lambda _: (arena, plan)
+
+    def cancel_wait(seconds):
+        assert seconds == 3.0
+        assert len(events) == 1
+        raise MissionCanceled('cancel')
+
+    manager._wait_for_localization = cancel_wait
+    manager._execute_validated_mission = lambda *_: pytest.fail('missão cancelada')
+    canceled = []
+    handle = SimpleNamespace(
+        request=ExecuteMission.Goal(plan_id=plan.plan_id, start_pose='start'),
+        canceled=lambda: canceled.append(True))
+    result = manager._execute_callback(handle)
+    assert result.code == ExecuteMission.Result.CANCELED
+    assert canceled == [True]
     assert not manager._busy

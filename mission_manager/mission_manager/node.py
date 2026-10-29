@@ -100,6 +100,7 @@ class MissionManager(PrecisionRuntime, Node):
             'mission_active_topic': '/mission/active',
             'navigation_target_topic': '/mission/navigation_target',
             'initial_pose_topic': '/initialpose',
+            'start_pose_wait_s': 3.0,
             'odometry_topic': '/odom',
             'state_topic': '/mission/state',
             'state_frame_id': 'arm_base_link',
@@ -433,12 +434,20 @@ class MissionManager(PrecisionRuntime, Node):
         tracker = self._live_operation_tracker()
         token = tracker.pending(operation) if operation is not None else None
         has_manipulation_feedback = operation not in (None, 'navigate', 'finish', 'analyze_scene')
+        show_on_dispatch = not has_manipulation_feedback or operation in tracker.DECISION_OPERATIONS
+        # A localização para alinhar a base não executa a coleta nem o depósito.
+        alignment_only = (
+            isinstance(goal, (StackObject.Goal, PlaceOnPrecisionTable.Goal))
+            and goal.require_alignment
+        ) or (
+            isinstance(goal, PickObject.Goal)
+            and goal.profile == 'shelf_front' and not goal.alignment_completed
+        )
 
         def dispatched():
             if on_goal_dispatched is not None:
                 on_goal_dispatched()
-            # Manipulações só trocam o rosto na fase efetiva, não antes de observar.
-            if token is not None and not has_manipulation_feedback and tracker.dispatched(token):
+            if token is not None and show_on_dispatch and tracker.dispatched(token):
                 self._publish_world_state()
 
         def feedback(message):
@@ -448,7 +457,7 @@ class MissionManager(PrecisionRuntime, Node):
                 visible = 'analyze_scene'
             elif phase in (ManipulationFeedback.APPROACHING, ManipulationFeedback.GRASPING,
                            ManipulationFeedback.RETREATING, ManipulationFeedback.RELEASING):
-                visible = operation
+                visible = 'analyze_scene' if alignment_only else operation
             if token is not None and tracker.feedback(token, visible):
                 self._publish_world_state()
             if feedback_callback is not None:
@@ -1989,16 +1998,17 @@ class MissionManager(PrecisionRuntime, Node):
         self._current_location = target
 
     def _wait_for_navigation_pose_recovery(self) -> None:
+        self._wait_for_localization(self._navigation_pose_recovery_wait_s)
+
+    def _wait_for_localization(self, wait_s: float) -> None:
         """Wait for localization to consume /initialpose, remaining cancellable."""
-        wait_s = self._navigation_pose_recovery_wait_s
         deadline = time.monotonic() + wait_s
-        completed = threading.Event()
         while True:
             self._check_canceled()
             remaining = deadline - time.monotonic()
             if remaining <= 0.0:
                 return
-            completed.wait(min(0.05, remaining))
+            self._cancel_event.wait(min(0.05, remaining))
 
     def _recover_pick(
         self, result: Any, step: Step, *, alignment_only: bool = False,
@@ -3079,6 +3089,7 @@ class MissionManager(PrecisionRuntime, Node):
         self._failed_step_id = task_id
         self._current_step_index = self._completed_steps
         self._active_world_operation = step.action
+        self._live_operation_tracker().decided(step.action)
         self._publish_world_state()
         self._feedback(goal_handle, self._completed_steps, max(plan.total_steps, self._completed_steps + 1),
                        replace(step, step_id=task_id), description)
@@ -3454,7 +3465,13 @@ class MissionManager(PrecisionRuntime, Node):
                         f'start_pose {start_pose!r} inválido; opções: {choices}.')
                 plan = replace(plan, initial_location=start_pose)
                 validate_plan(plan, arena, tuple(self._world_state.snapshot()[2]), self._check_canceled)
+                wait_s = self._nonnegative_float_parameter('start_pose_wait_s')
             self._initialize_localization(arena, start_pose)
+            if start_pose:
+                if wait_s > 0.0:
+                    self.get_logger().info(
+                        f'Aguardando {wait_s:g} s para estabilizar a localização.')
+                self._wait_for_localization(wait_s)
             result = self._execute_validated_mission(goal_handle, arena, plan)
             elapsed_s = time.monotonic() - started_at
             result.message += f' Tempo total de execução: {elapsed_s:.2f} s.'

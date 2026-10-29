@@ -3,6 +3,8 @@ mission_manager:
     arena_file: ""
     plans_directory: ""
     execute_action: /mission/execute
+    # Espera fixa após publicar start_pose, antes de iniciar a missão.
+    start_pose_wait_s: 3.0
     odometry_topic: /odom
     state_topic: /mission/state
     navigation_target_topic: /mission/navigation_target
@@ -42,4 +44,4 @@ mission_manager:
     # Exhaustion stops the mission with cargo preserved instead of skipping it.
     retrieve_max_attempts: 4
     # Additional rounds of pending visits before finish; unresolved failures block finish.
-    mission_recovery_rounds: 1
+    mission_recovery_rounds: 9999999

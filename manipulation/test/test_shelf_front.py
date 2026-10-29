@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from interfaces.action import PickObject
+from interfaces.msg import ManipulationFeedback
 from manipulation.errors import PickRecoveryRequired
 from manipulation.node import ManipulationServer
 from manipulation.profiles import load_profiles
@@ -44,11 +45,78 @@ def _server(position):
 def test_front_pick_requests_alignment_attempt_before_target_motion():
     position = (0.0, -0.22, 0.14)
     server, goal, events = _server(position)
+    phases = []
+    server._feedback = lambda _handle, _action, phase, *_: phases.append(phase)
     with pytest.raises(PickRecoveryRequired) as captured:
         server._execute_pick(SimpleNamespace(request=goal))
     assert captured.value.recovery_reason == PickObject.Result.RECOVERY_ALIGNMENT_REQUIRED
     assert not any(event[0] == 'motion' for event in events)
     assert ('gripper', 'grip') not in events
+    assert phases == [ManipulationFeedback.PREPARING, ManipulationFeedback.OBSERVING]
+
+
+def test_front_alignment_then_pick_reports_approach_only_in_final_attempt():
+    server, goal, events = _server((0.0, -0.22, 0.14))
+    phases = []
+    server._feedback = lambda _handle, _action, phase, *_: phases.append(phase)
+    with pytest.raises(PickRecoveryRequired):
+        server._execute_pick(SimpleNamespace(request=goal))
+    assert phases == [ManipulationFeedback.PREPARING, ManipulationFeedback.OBSERVING]
+    assert ('state', 'home') not in events
+    assert ('gripper', 'grip') not in events
+
+    # A base se alinha, e a nova tentativa confirma o cubo antes de preparar o braço.
+    goal.alignment_completed = True
+    server._execute_pick(SimpleNamespace(request=goal))
+    assert phases == [
+        ManipulationFeedback.PREPARING, ManipulationFeedback.OBSERVING,
+        ManipulationFeedback.PREPARING, ManipulationFeedback.OBSERVING,
+        ManipulationFeedback.APPROACHING, ManipulationFeedback.GRASPING,
+        ManipulationFeedback.RETREATING,
+    ]
+    assert ('state', 'home') in events
+    assert ('gripper', 'grip') in events
+
+
+@pytest.mark.parametrize('cached', [False, True])
+def test_front_pick_reports_target_before_home_and_low_pose_preparation(cached):
+    server, goal, events = _server((0.0, -0.22, 0.14))
+    goal.alignment_completed = True
+    goal.use_observed_detection = cached
+    if cached:
+        goal.observed_detection.id = goal.tag_id
+        goal.observed_detection.header.frame_id = 'arm_base_link'
+        goal.observed_detection.pose.position.y = -0.22
+        goal.observed_detection.pose.position.z = 0.14
+        goal.observed_detection.pose.orientation.w = 1.0
+    phases = []
+    server._feedback = lambda _handle, _action, phase, *_: phases.append(phase)
+    original_analyze = server._analyze_for_operation
+    original_arm_state = server._arm_state
+    original_ready = server._motion.mover_para_posicoes_das_juntas
+
+    def analyze(*args, **kwargs):
+        assert not cached
+        assert phases[-1] == ManipulationFeedback.OBSERVING
+        return original_analyze(*args, **kwargs)
+
+    def arm_state(state, *args):
+        if state == 'home' and ('gripper', 'grip') not in events:
+            assert phases[-1] == ManipulationFeedback.APPROACHING
+        original_arm_state(state, *args)
+
+    def ready(*args, **kwargs):
+        if ('gripper', 'grip') not in events:
+            assert phases[-1] == ManipulationFeedback.APPROACHING
+        original_ready(*args, **kwargs)
+
+    server._analyze_for_operation = analyze
+    server._arm_state = arm_state
+    server._motion.mover_para_posicoes_das_juntas = ready
+    server._execute_pick(SimpleNamespace(request=goal))
+    assert phases == [ManipulationFeedback.PREPARING, ManipulationFeedback.OBSERVING,
+                      ManipulationFeedback.APPROACHING, ManipulationFeedback.GRASPING,
+                      ManipulationFeedback.RETREATING]
 
 
 @pytest.mark.parametrize('position', [(0.0, -0.22, 0.14), (0.01, -0.28, 0.14), (0.08, -0.35, 0.14)])
