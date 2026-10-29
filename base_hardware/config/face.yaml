@@ -2,6 +2,7 @@ mission_face_node:
   ros__parameters:
     mission_state_topic: /mission/state
     mission_active_topic: /mission/active
+    navigation_target_topic: /mission/navigation_target
     show_menu_when_idle: true
     i2c_bus: 0
     i2c_address: 0x3C
@@ -9,7 +10,7 @@ mission_face_node:
     retry_interval_sec: 5.0
 
     # Edite os rostos abaixo e reinicie o launch da base para aplicar.
-    # Rostos: nomes das operações abaixo, piscar, piscadinha e comemorar.
+    # Rostos: nomes das 12 operações originais, piscar, piscadinha e comemorar.
     # Todos animados. Nomes antigos (neutro, feliz, bravo etc.) são aceitos.
     expressions:
       idle: neutro               # Aguardando missão ou missão encerrada.
@@ -21,7 +22,6 @@ mission_face_node:
       operations:
         navigate: navigate                                   # Navegando entre estações.
         finish: comemorar                                    # Indo à posição final com fogos.
-        follow_wall: follow_wall                             # Deslocando junto à parede.
         analyze_scene: analyze_scene                         # Analisando a cena.
         pick: pick                                           # Coletando objeto.
         store: store                                         # Guardando na base.

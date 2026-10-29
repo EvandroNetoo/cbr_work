@@ -120,7 +120,9 @@ def test_same_direction_zero_or_unknown_slot_keeps_sequential_execution(operatio
     with ThreadPoolExecutor(max_workers=1) as executor:
         run = executor.submit(manager._execute_step, step, SlotMovement(200, travel))
         assert cargo.sent.wait(1.0)
-        assert cargo.callback is None
+        assert cargo.callback is not None  # Feedback visual também existe no modo sequencial.
+        cargo.phase(ManipulationFeedback.APPROACHING)
+        assert not wall.sent.is_set()
         finish_cargo(cargo, operation)
         run.result(timeout=2.0)
     assert not wall.sent.is_set()
@@ -190,7 +192,9 @@ def test_direction_is_checked_after_existing_clearance_retreat():
                               Step('transfer', 'store', tag_id=7, slot_id='left'),
                               SlotMovement(200, 100))
         assert cargo.sent.wait(1.0)
-        assert cargo.callback is None
+        assert cargo.callback is not None  # Feedback visual também existe no modo sequencial.
+        cargo.phase(ManipulationFeedback.APPROACHING)
+        assert not wall.sent.is_set()
         finish_cargo(cargo, 'store')
         run.result(timeout=2.0)
     assert not wall.sent.is_set()
@@ -582,7 +586,9 @@ def test_configured_transfer_overlap_policy(operation, mode, travel, wall_distan
             assert wall.sent.wait(1.)
             finish_wall(wall, travel, wall_distance)
         else:
-            assert cargo.callback is None
+            assert cargo.callback is not None
+            cargo.phase(ManipulationFeedback.APPROACHING)
+            assert not wall.sent.is_set()
         finish_cargo(cargo, operation)
         run.result(timeout=2.)
     assert bool(commands) is overlap

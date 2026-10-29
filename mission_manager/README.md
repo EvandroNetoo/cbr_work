@@ -812,6 +812,32 @@ de serviço e confirma a saída do objeto da garra somente quando a action relat
 o depósito físico.
 
 O snapshot atual é publicado em `/mission/state` com QoS `transient_local`.
+Seu `active_operation` mantém a última ação visual recebida até outra ação
+relevante chegar. Navegação e análise são selecionadas ao despachar a action.
+Manipulações aguardam o feedback: `OBSERVING` seleciona `analyze_scene`, e
+`APPROACHING`, `GRASPING`, `RETREATING` ou `RELEASING` selecionam a operação
+correspondente. Agendar `pick` não mostra coleta antes da observação.
+`VALIDATING`, `PREPARING`, `RECOVERING` e ajustes laterais mantêm o rosto atual.
+Por exemplo: navegação → análise → ajuste lateral (mantém análise) → nova
+análise (mantém análise) → coleta. Expressões repetidas não reiniciam a animação;
+uma expressão diferente substitui a anterior imediatamente.
+O estado de inventário continua sendo reconciliado somente pelos resultados
+físicos; o feedback visual não altera o plano nem confirma efeitos de ações.
+
+A última ação visual recebida prevalece também em execução paralela, sem
+prioridades nem restauração de operações anteriores ao concluir ou cancelar
+uma action. O estado visual é limpo no início e no encerramento da missão.
+Feedback tardio de uma action concluída é ignorado pela tela, preservando
+os callbacks usados pela execução.
+
+O destino da navegação também é publicado em `/mission/navigation_target`
+(`std_msgs/msg/String`, reliable/transient_local, profundidade 1), configurável
+por `navigation_target_topic`. O valor é o identificador real do passo, como
+`WS_5`, `SH_1` ou `PP`. Ele é publicado antes de navegar e limpo ao concluir,
+falhar ou cancelar. A tela da base usa esse tópico para alternar o rosto original com uma placa
+grande `WS_5` por 2 s a cada 6 s
+sem alterar o contrato de `ManipulationState`. Falhas nesse feedback visual
+não interrompem a navegação.
 Não existe uma API de estado usada pelo servidor de manipulação: `WorldState`
 permanece interno ao gerenciador e é o ponto de extensão para incorporar
 futuramente estados de objetos, estações e outros elementos da arena.

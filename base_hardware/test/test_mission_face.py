@@ -20,9 +20,13 @@ from base_hardware.mission_face_node import MissionFaceNode
 class FakeFace:
     def __init__(self):
         self.frames = []
+        self.targets = []
         self.cleaned = False
         self.fail = False
         self.tela = SimpleNamespace(display=SimpleNamespace(cleanup=self.cleanup))
+
+    def definir_destino_navegacao(self, target):
+        self.targets.append(target)
 
     def atualizar(self, expression):
         if self.fail:
@@ -42,7 +46,7 @@ def state(operation='', known=True):
 
 @pytest.mark.parametrize('operation, expected', [
     (operation, 'comemorar' if operation == 'finish' else operation) for operation in (
-        'navigate', 'finish', 'follow_wall', 'analyze_scene', 'pick', 'store',
+        'navigate', 'finish', 'analyze_scene', 'pick', 'store',
         'retrieve', 'place_on_table', 'place_in_container', 'place_on_shelf',
         'place_on_precision_table', 'stack', 'organize_precision',
     )
@@ -237,3 +241,57 @@ def test_menu_owns_idle_display_and_face_reserves_it_only_during_mission(ros_con
         node.destroy_node()
     with open('/tmp/cbr_mission_face.lock', 'r') as probe:
         fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_late_navigation_target_updates_and_hides_outside_navigation(ros_context):
+    from std_msgs.msg import Bool, String
+
+    publisher_node = Node('test_navigation_target_publisher', context=ros_context)
+    qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                     durability=DurabilityPolicy.TRANSIENT_LOCAL)
+    publisher = publisher_node.create_publisher(ManipulationState, '/mission/state', qos)
+    target_publisher = publisher_node.create_publisher(String, '/mission/navigation_target', qos)
+    active_publisher = publisher_node.create_publisher(Bool, '/mission/active', qos)
+    active_publisher.publish(Bool(data=True))
+    publisher.publish(state('navigate'))
+    target_publisher.publish(String(data='WS_5'))
+    face = FakeFace()
+    node = MissionFaceNode(face_factory=lambda **kwargs: face, context=ros_context)
+    executor = SingleThreadedExecutor(context=ros_context)
+    executor.add_node(node)
+    try:
+        spin_until(executor, lambda: face.targets[-1:] == ['WS_5'])
+        assert node._target_subscription.qos_profile.durability == DurabilityPolicy.TRANSIENT_LOCAL
+        for operation in ('analyze_scene',):
+            publisher.publish(state(operation))
+            spin_until(executor, lambda: face.frames[-1:] == [operation] and face.targets[-1:] == [None])
+            publisher.publish(state('navigate'))
+            spin_until(executor, lambda: face.targets[-1:] == ['WS_5'])
+        target_publisher.publish(String(data='PP_67'))
+        spin_until(executor, lambda: face.targets[-1:] == ['PP_67'])
+        publisher.publish(state('pick'))
+        spin_until(executor, lambda: face.frames[-1:] == ['pick'] and face.targets[-1:] == [None])
+        publisher.publish(state('navigate', known=False))
+        spin_until(executor, lambda: face.frames[-1:] == ['triste'])
+        assert face.targets[-1] is None
+        publisher.publish(state('navigate'))
+        spin_until(executor, lambda: face.targets[-1:] == ['PP_67'])
+        target_publisher.publish(String(data=''))
+        spin_until(executor, lambda: face.targets[-1:] == [None])
+        target_publisher.publish(String(data='ST'))
+        spin_until(executor, lambda: face.targets[-1:] == ['ST'])
+        active_publisher.publish(Bool(data=False))
+        spin_until(executor, lambda: face.targets[-1:] == [None])
+        active_publisher.publish(Bool(data=True))
+        publisher.publish(state('navigate'))
+        target_publisher.publish(String(data='ST'))
+        spin_until(executor, lambda: face.targets[-1:] == ['ST'])
+        publisher_node.destroy_publisher(target_publisher)
+        spin_until(executor, lambda: face.targets[-1:] == [None])
+        publisher_node.destroy_publisher(publisher)
+        spin_until(executor, lambda: face.frames[-1:] == ['neutro'])
+        assert face.targets[-1] is None
+    finally:
+        executor.shutdown()
+        node.destroy_node()
+        publisher_node.destroy_node()

@@ -1,3 +1,3 @@
-async 
-mesa de precisao
-na hora de depositar em container, ignorar se o containee tiver muito em cima para nao pegar ocntainer da outra ws
+mandar sempre empilhar em so 1 viagem
+escrever log na memoria ram
+tempo depois de se localizar antes de inicar missao

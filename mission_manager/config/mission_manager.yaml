@@ -5,6 +5,7 @@ mission_manager:
     execute_action: /mission/execute
     odometry_topic: /odom
     state_topic: /mission/state
+    navigation_target_topic: /mission/navigation_target
     state_frame_id: arm_base_link
     cargo_slot_ids: [left, right]
     navigate_action: /navigate_to_pose

@@ -6,6 +6,8 @@ import time
 
 from PIL import Image, ImageChops, ImageDraw
 
+from .face_navigation import DestinoNavegacao
+
 
 # Traços assimétricos reproduzem as sobrancelhas da referência.
 _ARCO_E = ((-11, 3), (-8, 0), (-4, -2), (3, -2))
@@ -34,7 +36,6 @@ class _Rosto:
     suor_x: float = 113.0
     brilhos: float = 0.0
     tracos: float = 0.0  # Negativo: lado esquerdo; positivo: lado direito.
-    parede: float = 0.0
     mesa: float = 0.0
     deslocamento: float = 0.0
     vertical: float = 0.0
@@ -96,8 +97,6 @@ class ExpressoesFaciais:
         'navigate': _Rosto(sobrancelhas=(_BRAVO_E, _BRAVO_D), boca='cheio', altura=6),
         'finish': _Rosto(arcos=(9, 9), boca='cheio', largura=15, altura=13,
                           vertical=-2, fogos=1),
-        'follow_wall': _Rosto(sobrancelhas=(_PREOCUPADO_E, _ARCO_D),
-                              boca='torto', parede=1, deslocamento=-4),
         'analyze_scene': _Rosto(olhos=(1, 0.65), palpebras=(0, 0.28), olhar=(0, 6),
                                 sobrancelhas=(_ARCO_E, _RETO), boca='triste',
                                 largura=7, altura=4),
@@ -140,11 +139,6 @@ class ExpressoesFaciais:
                     boca='vazado', largura=12, altura=10, tracos=1),
             _POSES['navigate'],
         ),
-        'follow_wall': (
-            replace(_POSES['follow_wall'], olhar=(7, 6)),
-            replace(_POSES['follow_wall'], olhar=(5, -6), desnivel=(3, -4),
-                    boca='zigue', largura=4, altura=4, suor=1, suor_x=10),
-        ),
         'place_on_table': (
             replace(_POSES['place_on_table'], arcos=(8, 8), brilhos=0.55),
         ),
@@ -165,7 +159,6 @@ class ExpressoesFaciais:
     # Segundos por quadro, duração da transição e ordem (-1 = padrão).
     _SEQUENCIAS = {
         'navigate': (0.70, 0.25, (2, 0, 2, 1)),
-        'follow_wall': (0.80, 0.25, (0, 1)),
     }
 
     def __init__(self, tela, fps=20):
@@ -173,13 +166,11 @@ class ExpressoesFaciais:
             raise ValueError('FPS deve ser um número positivo e finito.')
         self.tela = tela
         self.fps = fps
+        self._navegacao = DestinoNavegacao()
         self._inicio = time.monotonic()
         self._ultimo_quadro = None
         self._expressao = 'navigate'
-        self._origem = self._POSES['navigate']
-        self._inicio_transicao = self._inicio
         self._inicio_expressao = self._inicio
-        self._tempo_transicao = 0.4
 
     @staticmethod
     def _janela(tempo, centro):
@@ -308,20 +299,18 @@ class ExpressoesFaciais:
         return rosto
 
     def _pose(self, agora):
-        progresso = min(1.0, max(0.0, (agora - self._inicio_transicao) / self._tempo_transicao))
-        peso = progresso * progresso * (3 - 2 * progresso)
-        alvo = self._alvo_animado(max(0, agora - self._inicio_expressao))
-        return _interpolar(self._origem, alvo, peso)
+        return self._alvo_animado(max(0, agora - self._inicio_expressao))
 
     def _seleciona(self, expressao, agora):
         expressao = self._ALIASES.get(expressao, expressao)
         if expressao not in self._POSES:
             raise ValueError('Expressão inválida: ' + str(expressao))
-        if expressao != self._expressao:
-            self._origem = self._pose(agora)
-            self._expressao = expressao
-            self._inicio_transicao = agora
-            self._inicio_expressao = agora
+        if expressao == self._expressao:
+            return False
+        self._expressao = expressao
+        self._inicio_expressao = agora
+        self._ultimo_quadro = None
+        return True
 
     @staticmethod
     def _pulso(tempo, periodo, duracao):
@@ -334,12 +323,16 @@ class ExpressoesFaciais:
     def atualizar(self, expressao=None):
         """Atualiza sem aguardar; None mantém a expressão atual. Retorna se desenhou."""
         agora = time.monotonic()
-        self._seleciona(self._expressao if expressao is None else expressao, agora)
-        if self._ultimo_quadro is not None and agora - self._ultimo_quadro < 1 / self.fps:
+        mudou = self._seleciona(self._expressao if expressao is None else expressao, agora)
+        if not mudou and self._ultimo_quadro is not None and agora - self._ultimo_quadro < 1 / self.fps:
             return False
         self._renderiza(agora)
         self._ultimo_quadro = agora
         return True
+
+    def definir_destino_navegacao(self, destino):
+        """None remove a legenda; texto vazio indica destino ainda não recebido."""
+        self._navegacao.definir(destino, time.monotonic())
 
     def desenha(self, expressao='neutro'):
         """Seleciona e atualiza um quadro; chame atualizar() para movimento contínuo."""
@@ -349,7 +342,12 @@ class ExpressoesFaciais:
         from luma.core.render import canvas
 
         with canvas(self.tela.display) as draw:
-            self._desenha(draw, self._pose(agora), agora - self._inicio)
+            if self._navegacao.destino is None:
+                self._desenha(draw, self._pose(agora), agora - self._inicio)
+            else:
+                quadro = Image.new('1', (128, 64))
+                self._desenha(ImageDraw.Draw(quadro), self._pose(agora), agora - self._inicio)
+                draw.bitmap((0, 0), self._navegacao.compor(quadro, agora), fill='white')
 
     @staticmethod
     def _traco(draw, pontos, largura=3, cor='white'):
@@ -418,9 +416,6 @@ class ExpressoesFaciais:
             if rosto.boca == 'vazado':
                 self._traco(draw, [(x + u, y + 3 + (h - 6) * (1 - (u / (w - 4)) ** 2))
                                    for u in range(-round(w - 4), round(w - 4) + 1)], 3, 'black')
-        elif rosto.boca == 'zigue':
-            self._traco(draw, [(x - 2, y - 4), (x - 4, y), (x + 2, y),
-                               (x, y + 4), (x + 3, y + 4)], 3)
         else:
             pontos = []
             for u in range(-round(w), round(w) + 1):
@@ -429,8 +424,6 @@ class ExpressoesFaciais:
                     curva = -curva
                 elif rosto.boca == 'ondulada':
                     curva = h * math.sin(u * 0.48 + 0.4 * math.sin(tempo * 2))
-                elif rosto.boca == 'torto':
-                    curva -= 0.25 * u
                 pontos.append((x + u, y + curva))
             self._traco(draw, pontos, 3)
         if rosto.lingua > 0.5:
@@ -484,8 +477,6 @@ class ExpressoesFaciais:
             y = 39 if rosto.mesa else 31
             for dy in (-8, 0, 8):
                 self._traco(draw, [(x - 2, y + dy), (x + 3, y + dy * 1.3)], 2)
-        if rosto.parede > 0.5:
-            draw.rectangle((121, 3, 125, 61), fill='white')
         if rosto.mesa > 0.5:
             draw.rectangle((84, 61, 125, 63), fill='white')
             draw.rectangle((98, 49, 110, 59), fill='white')

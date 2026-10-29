@@ -22,7 +22,8 @@ def face_environment(monkeypatch):
         monkeypatch.setitem(sys.modules, name, ModuleType(name))
     sys.modules['luma.core.render'].canvas = canvas
     source = Path(__file__).parents[1] / 'base_hardware' / 'face_animation.py'
-    spec = importlib.util.spec_from_file_location('tested_face_animation', source)
+    monkeypatch.syspath_prepend(str(source.parents[1]))
+    spec = importlib.util.spec_from_file_location('base_hardware.tested_face_animation', source)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     now = [0.0]
@@ -32,7 +33,7 @@ def face_environment(monkeypatch):
     return face, display, now
 
 
-def test_every_expression_keeps_moving_after_its_transition(face_environment):
+def test_every_expression_keeps_moving_until_replaced(face_environment):
     face, display, now = face_environment
     for expression in face.EXPRESSOES:
         now[0] += 0.051
@@ -44,16 +45,14 @@ def test_every_expression_keeps_moving_after_its_transition(face_environment):
             now[0] += 0.051
             assert face.atualizar()
             assert display.image.getbbox() is not None
-            if frame > 10:  # A transição de 0,4 s já terminou.
-                images.add(display.image.tobytes())
-                eyes.add(display.image.crop((20, 12, 108, 43)).tobytes())
+            images.add(display.image.tobytes())
+            eyes.add(display.image.crop((20, 12, 108, 43)).tobytes())
         assert len(images) > 5, f'{expression} ficou estático.'
 
         assert len(eyes) > 5, f'{expression} ficou com os olhos estáticos.'
 
     # A piscada precisa fechar e reabrir, mesmo sem troca de expressão.
     face._seleciona('navigate', now[0])
-    face._inicio_transicao = -1
     face._inicio = 0
     counts = []
     for instant in (2.95, 3.25, 3.60):
@@ -65,10 +64,9 @@ def test_every_expression_keeps_moving_after_its_transition(face_environment):
     portraits = set()
     for expression in face._POSES:
         face._expressao = expression
-        face._inicio_transicao = -1
         face._renderiza(0.45)
         portraits.add(display.image.tobytes())
-    assert len(portraits) == 15
+    assert len(portraits) == 14
     assert face._POSES['finish'] == face._POSES['comemorar']
 
 
@@ -84,7 +82,6 @@ def test_other_faces_keep_occasional_side_glances(face_environment):
 
 @pytest.mark.parametrize('name, instants', [
     ('navigate', (0.1, 0.8, 2.2)),
-    ('follow_wall', (0.1, 0.9)),
     ('place_on_table', (0.1, 0.95, 1.8)),
 ])
 def test_fast_sequences_render_distinct_poses_without_navigation_arrows(face_environment, name, instants):
@@ -107,24 +104,6 @@ def test_navigation_looks_both_ways_and_returns_forward_within_three_seconds(fac
     assert face._alvo_animado(1.5).olhar[0] == 0
     assert face._alvo_animado(2.2).olhar[0] == 9
     assert face._alvo_animado(2.9).olhar[0] == 0
-
-
-def test_wall_alternates_only_first_two_poses_without_neutral_or_wink(face_environment):
-    face, _, _ = face_environment
-    face._seleciona('follow_wall', 0)
-    first, second = face._QUADROS['follow_wall']
-    assert first.olhar == (7, 6)  # Lateral para baixo.
-    assert second.olhar == (5, -6)  # Lateral para cima.
-    for instant, expected in ((0.1, first), (0.9, second), (1.7, first), (2.5, second)):
-        assert face._alvo_animado(instant) == expected
-    for frame in range(64):
-        pose = face._alvo_animado(frame / 20)
-        assert pose != face._POSES['follow_wall']
-        assert pose.olhos == (1, 1)
-        assert 5 <= pose.olhar[0] <= 7
-    # A transição mistura os dois quadros sem passar pelo padrão.
-    middle = face._alvo_animado(0.675)
-    assert 0 < middle.suor < 1
 
 
 def test_table_tracks_the_descent_then_celebrates_after_landing(face_environment):
@@ -164,15 +143,16 @@ def test_table_tracks_the_descent_then_celebrates_after_landing(face_environment
     assert face._pose(duration + 0.6) == before
 
 
-def test_repeated_mission_state_keeps_animation_progress_and_switches_start_forward(face_environment):
+def test_repeated_action_keeps_animation_progress_and_new_action_switches_immediately(face_environment):
     face, _, _ = face_environment
-    face._seleciona('follow_wall', 1)
+    face._seleciona('pick', 1)
     before = face._pose(6.2)
     assert before.olhar[0] > 0
-    face._seleciona('follow_wall', 6.2)
+    face._seleciona('pick', 6.2)
     assert face._pose(6.2) == before
     face._seleciona('place_on_shelf', 6.2)
-    assert face._pose(6.2) == before, 'A troca deve partir do quadro atual.'
+    assert face._pose(6.2) == face._alvo_animado(0)
+    assert face._pose(6.2) != before, 'A nova expressão não deve usar o quadro anterior.'
     after = face._pose(6.7)
     assert after.olhar[1] == -7
     assert after.olhar[0] > 0
@@ -487,3 +467,68 @@ def test_pupils_follow_the_scene_target_through_release(face_environment, name):
             assert returning[0].olhar[1] > returning[1].olhar[1]
         if name == 'place_on_table':
             assert all(pose.arcos == (0, 0) for pose in returning)
+
+
+def test_navigation_alternates_large_destination_and_original_face(face_environment):
+    face, display, now = face_environment
+    now[0] = 1.5
+    face.definir_destino_navegacao('WS_5')
+    face._renderiza(now[0])
+    poster = display.image.copy()
+    assert poster.crop((0, 17, 128, 59)).getbbox() is not None
+    now[0] += 2.5
+    face._renderiza(now[0])
+    original_phase = display.image.copy()
+    face.definir_destino_navegacao(None)
+    face._renderiza(now[0])
+    assert original_phase.tobytes() == display.image.tobytes()
+    face._navegacao.definir('WS_5', 1.5)
+    face._renderiza(7.6)
+    periodic_poster = display.image.copy()
+    face.definir_destino_navegacao(None)
+    face._renderiza(7.6)
+    assert periodic_poster.tobytes() != display.image.tobytes()
+
+
+def test_destination_changes_do_not_restart_the_expression_or_repeat_the_poster(face_environment):
+    face, display, now = face_environment
+    face.definir_destino_navegacao('WS_5')
+    expression_start = face._inicio_expressao
+    now[0] = 2
+    face._renderiza(now[0])
+    first = display.image.tobytes()
+    face.definir_destino_navegacao('WS_5')
+    assert face._navegacao.mudou_em == 0
+    face.definir_destino_navegacao('SH_1')
+    assert face._navegacao.mudou_em == 2
+    assert face._inicio_expressao == expression_start
+    face._renderiza(now[0])
+    assert display.image.tobytes() != first
+
+
+def test_long_destination_scrolls_and_missing_destination_is_explicit(face_environment):
+    face, _, _ = face_environment
+    blank = Image.new('1', (128, 64))
+    face._navegacao.definir('AREA_DE_SERVICO_MUITO_LONGA', 0)
+    early = face._navegacao.compor(blank, 0.5)
+    later = face._navegacao.compor(blank, 6.5)
+    assert early.crop((6, 17, 122, 59)).tobytes() != later.crop((6, 17, 122, 59)).tobytes()
+    assert early.size == later.size == (128, 64)
+    face.definir_destino_navegacao('')
+    assert face._navegacao.destino == '--'
+
+
+def test_new_action_draws_immediately_even_between_regular_frames(face_environment):
+    face, display, now = face_environment
+    assert face.atualizar('analyze_scene')
+    previous = display.image.tobytes()
+    now[0] += 0.001
+    assert face.atualizar('pick'), 'Uma nova ação não espera o próximo período de FPS.'
+    assert display.image.tobytes() != previous
+    assert face._pose(now[0]) == face._alvo_animado(0)
+    start = face._inicio_expressao
+    assert not face.atualizar('pick')
+    assert face._inicio_expressao == start
+    now[0] += 0.001
+    assert face.atualizar('retrieve')
+    assert face._pose(now[0]) == face._alvo_animado(0)

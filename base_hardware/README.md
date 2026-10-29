@@ -62,8 +62,36 @@ nessa virtualenv com `python -m pip install luma.oled`.
 O nó assina `/mission/state` (`interfaces/msg/ManipulationState`) com QoS
 reliable/transient_local e profundidade 1, igual ao publicador da missão.
 Assim, uma tela ligada depois do início da missão recebe o snapshot atual.
-A animação roda a até 20 FPS, com transições suaves, mesmo quando nenhuma
-nova mensagem é publicada.
+A animação roda a até 20 FPS, mesmo quando nenhuma nova mensagem é publicada.
+Uma expressão nova substitui a anterior imediatamente, sem aguardar o fim
+da animação. Mensagens repetidas mantêm o movimento sem reiniciar o ciclo.
+
+Durante `navigate`, o rosto mantém os 128×64 pixels originais, sem legenda
+sobreposta. Ao receber um destino novo, uma placa ocupa a tela inteira por
+2 segundos, com o código da área em letras de 21 a 42 pixels de altura.
+Depois o rosto volta por 4 segundos e a placa se repete, num ciclo de 6 s.
+Identificadores longos rolam sem reduzir as letras abaixo de 21 pixels.
+O indicador animado mostra atividade, sem estimar distância ou porcentagem
+de chegada. [Ver prévia da navegação](docs/faces_navigation.gif).
+
+O destino chega por `/mission/navigation_target` (`std_msgs/msg/String`,
+reliable/transient_local, profundidade 1). O parâmetro `navigation_target_topic`
+existe tanto em `face.yaml` quanto na configuração do gerenciador e deve apontar
+para o mesmo tópico. Uma tela iniciada durante a navegação recebe o destino
+retido. A placa aparece somente na operação `navigate` com estado conhecido;
+sem destino disponível, mantém apenas o rosto. Ao trocar de operação ou perder
+o publicador, o destino anterior deixa de ser exibido.
+
+O campo `active_operation` de `/mission/state` mantém a última ação visual
+recebida. Navegação e análise selecionam o rosto ao serem despachadas;
+manipulações aguardam a fase efetiva para evitar mostrar coleta antes da
+observação. Feedback `OBSERVING` seleciona `analyze_scene`; `APPROACHING`,
+`GRASPING`, `RETREATING` e `RELEASING` selecionam a manipulação correspondente.
+Preparação, recuperação e ajustes laterais mantêm o rosto atual.
+Concluir uma action não restaura expressões anteriores, mesmo em execução
+paralela. Por exemplo: navegação → análise → ajuste lateral (mantém análise)
+→ nova análise (mantém o movimento) → coleta. O estado visual é limpo nos
+limites da missão. O inventário incerto continua selecionando o rosto `triste`.
 
 O perfil `config/face.yaml` usa `show_menu_when_idle: true`: o nó também
 assina `/mission/active` (`std_msgs/msg/Bool`, reliable/transient_local).
@@ -82,7 +110,7 @@ permanece pausado enquanto a carinha reserva o OLED.
 
 Prévia dos desenhos na resolução do OLED: [animação](docs/faces_preview.gif)
 e [quadro de referência](docs/faces_preview.png). As sequências de
-`navigate`, `follow_wall` e `place_on_table` aparecem também neste
+`navigate` e `place_on_table` aparecem também neste
 [quadro de movimentos](docs/faces_movement.png). A navegação não desenha setas.
 As novas cenas de entrega, empilhamento, organização e fogos estão no
 [quadro de cenas](docs/faces_scenes.png). Os quadros de recuperação,
@@ -124,7 +152,7 @@ ao lado da operação; os comentários explicam cada situação:
         place_on_table: place_on_table
 ```
 
-Valores disponíveis: os 13 nomes de operação da tabela de configuração,
+Valores disponíveis: os 12 rostos de operação (`navigate`, `pick` etc.),
 `piscar`, `piscadinha` e `comemorar`. Os nomes antigos `neutro`, `feliz`,
 `triste`, `bravo`, `surpreso`, `dormindo`, `piscando` e `correndo` continuam
 aceitos como aliases dos novos desenhos. Todos os rostos mantêm animação,
@@ -171,14 +199,11 @@ em 3,44 s e as pupilas acompanhando o cubo. `organize_precision` também
 continua sem garra: um cubo se move para a vaga adjacente a cada 0,83 s
 (0,71 s em movimento), sem sobrepor os seis cubos.
 
-Navegação e acompanhamento de parede têm sequências rápidas, com transições
+A navegação tem sequências rápidas, com transições
 suaves de 0,25 segundo entre as poses:
 
 - `navigate`: padrão → esquerda (1) → padrão → direita (2), trocando a cada
   0,70 segundo; ciclo completo de 2,8 segundos e olhar lateral mais acentuado.
-- `follow_wall`: apenas quadro 1 → quadro 2 → quadro 1, trocando a cada
-  0,80 segundo: lateral para baixo no quadro 1 e lateral para cima no quadro 2,
-  sem o rosto padrão nem a piscadinha do antigo quadro 3.
 - `place_on_table`: descida de 2,69 s até a mesa, seguida de transição de 0,25 s
   para a expressão feliz original, com olhos em arco e brilhos. O cubo permanece
   na mesa enquanto a garra abre e se recolhe; a comemoração começa após sua saída.
@@ -202,7 +227,8 @@ Para testar apenas a tela, sem iniciar os motores:
 colcon build --packages-select base_hardware --symlink-install
 source install/setup.bash
 ros2 run base_hardware mission_face_node --ros-args \
-  --params-file "$(ros2 pkg prefix --share base_hardware)/config/face.yaml"
+  --params-file "$(ros2 pkg prefix --share base_hardware)/config/face.yaml" \
+  -p show_menu_when_idle:=false
 ```
 
 Em outro terminal com o mesmo ambiente ROS, simule uma operação:
@@ -211,6 +237,13 @@ Em outro terminal com o mesmo ambiente ROS, simule uma operação:
 ros2 topic pub --rate 1 --qos-durability transient_local \
   /mission/state interfaces/msg/ManipulationState \
   '{state_known: true, active_operation: navigate}'
+```
+
+Para incluir o destino no teste, publique também em outro terminal:
+
+```bash
+ros2 topic pub --rate 1 --qos-durability transient_local \
+  /mission/navigation_target std_msgs/msg/String '{data: WS_5}'
 ```
 
 Use esse publicador de teste com o gerenciador de missão desligado, para

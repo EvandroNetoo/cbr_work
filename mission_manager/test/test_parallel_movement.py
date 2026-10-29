@@ -37,7 +37,7 @@ class Client:
     def wait_for_server(self, timeout_sec):
         return True
 
-    def send_goal_async(self, goal):
+    def send_goal_async(self, goal, feedback_callback=None):
         self.goal = goal
         future = Future()
         future.set_result(self.child)
@@ -51,6 +51,7 @@ def manager_and_clients():
     manager._cancel_event = threading.Event()
     manager._active_children = {}
     manager._world_state = WorldState(['left', 'right'])
+    manager._publish_world_state = lambda: None
     manager._server_timeout = lambda: 0.5
     manager._manipulation_timeout = lambda: 1.0
     manager._manipulation_failure = lambda result: None

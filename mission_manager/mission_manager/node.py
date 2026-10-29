@@ -44,7 +44,7 @@ from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_srvs.srv import SetBool
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 from .errors import ActionUncertain, ConfigurationError, DestinationUnavailable, MissionCanceled, RetrieveFailed, StateConflict, StepFailed, TaskNotFound, PrecisionSlotOccupied
 from .loaders import load_arena, load_plan, PLAN_ID_PATTERN, validate_plan
@@ -63,6 +63,7 @@ from .models import (
 from .world_state import EMPTY, WorldState
 from .scheduler import Scheduler
 from .precision_runtime import PrecisionRuntime
+from .live_operations import LiveOperations
 
 
 class MissionManager(PrecisionRuntime, Node):
@@ -97,6 +98,7 @@ class MissionManager(PrecisionRuntime, Node):
             'plans_directory': str(share / 'config' / 'plans'),
             'execute_action': '/mission/execute',
             'mission_active_topic': '/mission/active',
+            'navigation_target_topic': '/mission/navigation_target',
             'initial_pose_topic': '/initialpose',
             'odometry_topic': '/odom',
             'state_topic': '/mission/state',
@@ -185,6 +187,7 @@ class MissionManager(PrecisionRuntime, Node):
         self._mission_goal_handle = None
         self._status = 'idle'
         self._active_world_operation = ''
+        self._live_operations = LiveOperations()
         self._current_step_index = 0
         self._current_location = 'start'
         self._stack_alignment = None
@@ -243,6 +246,9 @@ class MissionManager(PrecisionRuntime, Node):
         )
         self._mission_active_publisher = self.create_publisher(
             Bool, str(self.get_parameter('mission_active_topic').value), state_qos)
+        self._navigation_target_publisher = self.create_publisher(
+            String, str(self.get_parameter('navigation_target_topic').value), state_qos)
+        self._publish_navigation_target('')
         self._publish_mission_active(False)
 
         def client(action_type, parameter_name):
@@ -291,6 +297,14 @@ class MissionManager(PrecisionRuntime, Node):
             'Mission manager pronto; estado do mundo, arena e planos sob gestão.'
         )
 
+    def _publish_navigation_target(self, target: str) -> None:
+        publisher = getattr(self, '_navigation_target_publisher', None)
+        if publisher is not None:
+            try:
+                publisher.publish(String(data=target))
+            except Exception as error:
+                self.get_logger().warning(f'Falha ao publicar destino no OLED: {error}')
+
     def _publish_mission_active(self, active: bool) -> None:
         publisher = getattr(self, '_mission_active_publisher', None)
         if publisher is not None:
@@ -305,7 +319,7 @@ class MissionManager(PrecisionRuntime, Node):
         )
         message.state_known = known
         message.gripper_object_id = gripper
-        message.active_operation = self._active_world_operation
+        message.active_operation = self._live_operation_tracker().current()
         for slot_id in sorted(slots):
             slot = CargoSlotState()
             slot.slot_id = slot_id
@@ -388,7 +402,71 @@ class MissionManager(PrecisionRuntime, Node):
             raise ConfigurationError(f'{name} deve ser nao negativo.')
         return value
 
+    def _live_operation_tracker(self):
+        tracker = getattr(self, '_live_operations', None)
+        if tracker is None:
+            # Também funciona em executores de teste construídos sem __init__.
+            tracker = self.__dict__.setdefault('_live_operations', LiveOperations())
+        return tracker
+
+    def _operation_for_goal(self, goal):
+        for action, operation in (
+            (NavigateToPose, 'navigate'),
+            (AnalyzeScene, 'analyze_scene'),
+            (PickObject, 'pick'), (StoreObject, 'store'), (RetrieveObject, 'retrieve'),
+            (PlaceOnTable, 'place_on_table'), (PlaceInContainer, 'place_in_container'),
+            (PlaceOnShelf, 'place_on_shelf'), (PlaceOnPrecisionTable, 'place_on_precision_table'),
+            (StackObject, 'stack'),
+        ):
+            if isinstance(goal, action.Goal):
+                if operation == 'navigate' and getattr(self, '_active_world_operation', '') == 'finish':
+                    return 'finish'
+                return operation
+        return None
+
     def _call_action(
+        self, client, goal, description, timeout_s, validate_result=None, *,
+        allow_unsuccessful_status=False, accept_unsuccessful_result=None,
+        on_goal_accepted=None, on_goal_dispatched=None, feedback_callback=None,
+    ):
+        operation = self._operation_for_goal(goal)
+        tracker = self._live_operation_tracker()
+        token = tracker.pending(operation) if operation is not None else None
+        has_manipulation_feedback = operation not in (None, 'navigate', 'finish', 'analyze_scene')
+
+        def dispatched():
+            if on_goal_dispatched is not None:
+                on_goal_dispatched()
+            # Manipulações só trocam o rosto na fase efetiva, não antes de observar.
+            if token is not None and not has_manipulation_feedback and tracker.dispatched(token):
+                self._publish_world_state()
+
+        def feedback(message):
+            phase = getattr(getattr(getattr(message, 'feedback', None), 'status', None), 'phase', None)
+            visible = None
+            if phase == ManipulationFeedback.OBSERVING:
+                visible = 'analyze_scene'
+            elif phase in (ManipulationFeedback.APPROACHING, ManipulationFeedback.GRASPING,
+                           ManipulationFeedback.RETREATING, ManipulationFeedback.RELEASING):
+                visible = operation
+            if token is not None and tracker.feedback(token, visible):
+                self._publish_world_state()
+            if feedback_callback is not None:
+                feedback_callback(message)
+
+        try:
+            return self._call_action_impl(
+                client, goal, description, timeout_s, validate_result,
+                allow_unsuccessful_status=allow_unsuccessful_status,
+                accept_unsuccessful_result=accept_unsuccessful_result,
+                on_goal_accepted=on_goal_accepted, on_goal_dispatched=dispatched,
+                feedback_callback=feedback if has_manipulation_feedback else feedback_callback,
+            )
+        finally:
+            if token is not None:
+                tracker.finished(token)
+
+    def _call_action_impl(
         self,
         client: ActionClient,
         goal: Any,
@@ -2914,9 +2992,17 @@ class MissionManager(PrecisionRuntime, Node):
             self._pp_aligned_reference = None
         if step.action == 'navigate':
             assert step.target is not None
-            self._navigate(step.target)
+            self._publish_navigation_target(step.target)
+            try:
+                self._navigate(step.target)
+            finally:
+                self._publish_navigation_target('')
         elif step.action == 'finish':
-            self._navigate('finish')
+            self._publish_navigation_target('finish')
+            try:
+                self._navigate('finish')
+            finally:
+                self._publish_navigation_target('')
         else:
             if slot_movement is None:
                 self._execute_manipulation(step)
@@ -3388,6 +3474,9 @@ class MissionManager(PrecisionRuntime, Node):
             with self._lock:
                 self._mission_goal_handle = None
                 self._busy = False
+                if self._live_operation_tracker().reset():
+                    self._publish_world_state()
+                self._publish_navigation_target('')
                 self._publish_mission_active(False)
 
     def _execute_validated_mission(self, goal_handle: Any, arena: Arena, plan: Plan) -> ExecuteMission.Result:
@@ -3444,6 +3533,7 @@ class MissionManager(PrecisionRuntime, Node):
         self._task_attempts = {}
         self._flexible_pick = False
         self._active_world_operation = ''
+        self._live_operation_tracker().reset()
         self._required_color_tags = set()
         with self._lock:
             self._active_children = {}
@@ -3524,6 +3614,7 @@ class MissionManager(PrecisionRuntime, Node):
             self._cancel_event.clear()
             self._arena = None
             self._active_world_operation = ''
+            self._live_operation_tracker().reset()
             try:
                 self._publish_world_state()
             except Exception as error:

@@ -10,7 +10,7 @@ from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 from .mission_face import OPERATION_EXPRESSIONS, expression_for_mission, validate_expression
 
@@ -28,6 +28,7 @@ class MissionFaceNode(Node):
         super().__init__('mission_face_node', **kwargs)
         self.declare_parameter('mission_state_topic', '/mission/state')
         self.declare_parameter('mission_active_topic', '/mission/active')
+        self.declare_parameter('navigation_target_topic', '/mission/navigation_target')
         self.declare_parameter('show_menu_when_idle', False)
         self.declare_parameter('i2c_bus', 0)
         self.declare_parameter('i2c_address', 0x3C)
@@ -63,6 +64,8 @@ class MissionFaceNode(Node):
         self._next_attempt = 0.0
         self._expression = self._special_expressions['idle']
         self._state_seen = False
+        self._navigating = False
+        self._navigation_target = ''
         self._show_menu_when_idle = bool(self.get_parameter('show_menu_when_idle').value)
         self._mission_active = False
         # The menu probes this advisory lock; a crash releases it automatically.
@@ -77,6 +80,9 @@ class MissionFaceNode(Node):
         self._active_subscription = self.create_subscription(
             Bool, str(self.get_parameter('mission_active_topic').value),
             self._on_mission_active, qos)
+        self._target_subscription = self.create_subscription(
+            String, str(self.get_parameter('navigation_target_topic').value),
+            self._on_navigation_target, qos)
         # A tela segue animando mesmo sem novas mensagens ou com /clock parado.
         self._steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
         self._animation_timer = self.create_timer(
@@ -87,6 +93,9 @@ class MissionFaceNode(Node):
 
     def _on_mission_active(self, message):
         self._mission_active = message.data
+        if not self._mission_active:
+            self._navigating = False
+            self._navigation_target = ''
         if not self._show_menu_when_idle:
             return
         if self._mission_active:
@@ -100,8 +109,12 @@ class MissionFaceNode(Node):
             self._release_display()
             fcntl.flock(self._menu_lock, fcntl.LOCK_UN)
 
+    def _on_navigation_target(self, message):
+        self._navigation_target = message.data.strip()
+
     def _on_mission_state(self, message):
         self._state_seen = True
+        self._navigating = message.active_operation == 'navigate' and message.state_known
         self._set_expression(expression_for_mission(
             message.active_operation, message.state_known,
             operation_expressions=self._operation_expressions,
@@ -115,12 +128,16 @@ class MissionFaceNode(Node):
             self.get_logger().info(f'Expressão da base: {expression}')
 
     def _check_publisher(self):
+        if self._target_subscription.get_publisher_count() == 0:
+            self._navigation_target = ''
         if (self._show_menu_when_idle and self._mission_active
                 and self._active_subscription.get_publisher_count() == 0):
             self._on_mission_active(Bool(data=False))
         # O tópico publica mudanças, não um heartbeat: silêncio não significa falha.
         if self._state_seen and self._subscription.get_publisher_count() == 0:
             self._state_seen = False
+            self._navigating = False
+            self._navigation_target = ''
             self._set_expression(self._special_expressions['disconnected'])
 
     def _animate(self):
@@ -142,6 +159,8 @@ class MissionFaceNode(Node):
                 self._display_failed(error)
                 return
         try:
+            self._face.definir_destino_navegacao(
+                self._navigation_target if self._navigating and self._navigation_target else None)
             self._face.atualizar(self._expression)
         except Exception as error:
             self._display_failed(error)

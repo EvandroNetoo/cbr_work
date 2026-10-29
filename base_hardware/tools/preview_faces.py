@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from base_hardware.face_animation import ExpressoesFaciais  # noqa: E402
+from base_hardware.face_navigation import DestinoNavegacao  # noqa: E402
 
 
 OUTPUT = Path(__file__).resolve().parents[1] / 'docs'
@@ -20,9 +21,13 @@ except OSError:
     FONT = ImageFont.load_default()
 
 
-def tile(sheet, face, pose, time, column, row, label):
+def tile(sheet, face, pose, time, column, row, label, destination=None):
     image = Image.new('1', (128, 64))
     face._desenha(ImageDraw.Draw(image), pose, time)
+    if destination is not None:
+        navigation = DestinoNavegacao()
+        navigation.definir(destination, 0)
+        image = navigation.compor(image, time)
     x, y = column * CELL[0], row * CELL[1]
     sheet.paste(image.convert('RGB').resize((128 * SCALE, 64 * SCALE),
                                            Image.Resampling.NEAREST), (x + 8, y + 8))
@@ -58,13 +63,14 @@ def export():
         sheet = Image.new('RGB', (CELL[0] * 4, CELL[1] * 4))
         for i, name in enumerate(face._POSES):
             face._expressao = name
-            tile(sheet, face, face._alvo_animado(time), time, i % 4, i // 4, name)
+            tile(sheet, face, face._alvo_animado(time), time, i % 4, i // 4, name,
+                 destination='WS_5' if name == 'navigate' else None)
         frames.append(sheet.convert('P', palette=Image.Palette.ADAPTIVE, colors=8))
     frames[15].save(OUTPUT / 'faces_preview.png')
     frames[0].save(OUTPUT / 'faces_preview.gif', save_all=True, append_images=frames[1:],
                    duration=100, loop=0)
 
-    sheet = Image.new('RGB', (CELL[0] * 4, CELL[1] * 3))
+    sheet = Image.new('RGB', (CELL[0] * 4, CELL[1] * 2))
     for row, (name, (_, _, order)) in enumerate(face._SEQUENCIAS.items()):
         for col, index in enumerate(order):
             pose = face._POSES[name] if index == -1 else face._QUADROS[name][index]
@@ -72,7 +78,7 @@ def export():
             tile(sheet, face, pose, 1.5, col, row, f'{name} / {label}')
     face._expressao = 'place_on_table'
     for col, time in enumerate(scene_times(face, 'place_on_table')):
-        tile(sheet, face, face._alvo_animado(time), time, col, 2, f'place_on_table / {time:.1f} s')
+        tile(sheet, face, face._alvo_animado(time), time, col, 1, f'place_on_table / {time:.1f} s')
     sheet.save(OUTPUT / 'faces_movement.png')
     sheet = Image.new('RGB', (CELL[0] * 4, CELL[1] * 4))
     for row, name in enumerate(('place_in_container', 'stack', 'organize_precision', 'finish')):
@@ -106,6 +112,23 @@ def export():
         for col, time in enumerate(instants):
             tile(sheet, face, face._alvo_animado(time), time, col, row, f'{name} / {time:.2f} s')
     sheet.save(OUTPUT / 'faces_gripper.png')
+    face._expressao = 'navigate'
+    sheet = Image.new('RGB', (CELL[0] * 3, CELL[1] * 2))
+    for index, destination in enumerate(('WS_5', 'WS_67', 'SH_1', 'PP', 'PP_67', 'ST')):
+        tile(sheet, face, face._alvo_animado(1.5), 1.5, index % 3, index // 3,
+             f'indo {destination}', destination=destination)
+    sheet.save(OUTPUT / 'faces_navigation.png')
+    navigation = DestinoNavegacao()
+    frames = []
+    for frame in range(240):
+        time = frame / 10
+        destination = ('WS_5', 'SH_1')[min(1, int(time / 12))]
+        navigation.definir(destination, time)
+        image = Image.new('1', (128, 64))
+        face._desenha(ImageDraw.Draw(image), face._alvo_animado(time), time)
+        frames.append(navigation.compor(image, time).resize((512, 256), Image.Resampling.NEAREST))
+    frames[0].save(OUTPUT / 'faces_navigation.gif', save_all=True, append_images=frames[1:],
+                   duration=100, loop=0)
     print(f'Prévias salvas em {OUTPUT}')
 
 
